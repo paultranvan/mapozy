@@ -73,13 +73,18 @@ export async function getAllUnconsumedPoints(db: Db): Promise<RawPoint[]> {
   return rows.map(rowToPoint);
 }
 
+const SQLITE_MAX_VARIABLES = 900;
+
 export async function markPointsConsumed(db: Db, ids: number[]): Promise<void> {
   if (ids.length === 0) return;
-  const placeholders = ids.map(() => '?').join(',');
-  await db.runAsync(
-    `UPDATE raw_points SET consumed=1 WHERE id IN (${placeholders})`,
-    ...ids
-  );
+  for (let i = 0; i < ids.length; i += SQLITE_MAX_VARIABLES) {
+    const chunk = ids.slice(i, i + SQLITE_MAX_VARIABLES);
+    const placeholders = chunk.map(() => '?').join(',');
+    await db.runAsync(
+      `UPDATE raw_points SET consumed=1 WHERE id IN (${placeholders})`,
+      ...chunk
+    );
+  }
 }
 
 export async function countUnconsumedPoints(db: Db): Promise<number> {

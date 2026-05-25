@@ -86,19 +86,16 @@ export async function runPipeline(
     }
   }
 
-  // If pipeline ends with a trip and no closing stay, hold it back so it
-  // can be re-evaluated when the user actually arrives somewhere.
   if (pendingTrip) {
-    const idsToHold = new Set(pendingTrip.map((p) => p.id));
+    const heldPointIds = new Set(pendingTrip.map((p) => p.id));
+    const heldStartMs = pendingTrip[0]!.timestampMs;
     await markPointsConsumed(
       db,
-      points.filter((p) => !idsToHold.has(p.id)).map((p) => p.id)
+      points.filter((p) => !heldPointIds.has(p.id)).map((p) => p.id)
     );
     await markActivitiesConsumed(
       db,
-      activities
-        .filter((a) => pendingTrip!.length === 0 || a.timestampMs < pendingTrip![0]!.timestampMs)
-        .map((a) => a.id)
+      activities.filter((a) => a.timestampMs < heldStartMs).map((a) => a.id)
     );
   } else {
     await markPointsConsumed(db, points.map((p) => p.id));

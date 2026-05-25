@@ -36,7 +36,9 @@ export default function OnboardingScreen() {
     setRequesting(true);
     try {
       const fg = await requestForegroundPermissions();
-      const bg = await requestBackgroundLocation();
+      // Background location must be requested AFTER fine location is granted,
+      // or Android silently rejects it. If foreground was denied, skip bg.
+      const bg = fg.fineLocation ? await requestBackgroundLocation() : false;
       setPermResult({ ...fg, backgroundLocation: bg });
       if (fg.fineLocation && fg.activityRecognition) {
         setStep(2);
@@ -144,6 +146,15 @@ export default function OnboardingScreen() {
           <Text variant="bodyLarge" style={styles.body}>
             Tracking starts now. A persistent notification keeps it alive in the background.
           </Text>
+          {permResult && !permResult.backgroundLocation && (
+            <Text
+              variant="bodySmall"
+              style={{ color: theme.colors.error, textAlign: 'center' }}
+            >
+              Background location was not granted. Tracking will pause when the app is
+              backgrounded. Grant "Allow all the time" in Android settings for full coverage.
+            </Text>
+          )}
           <Button mode="contained" onPress={onStartTracking} style={styles.button}>
             Start tracking
           </Button>
