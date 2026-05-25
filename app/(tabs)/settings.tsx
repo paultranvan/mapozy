@@ -1,19 +1,10 @@
 import { useEffect, useState } from 'react';
-import { ScrollView, View, StyleSheet, Alert } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import {
-  Appbar,
-  List,
-  Switch,
-  Button,
-  useTheme,
-  Text,
-  Divider,
-} from 'react-native-paper';
+import { ScrollView, View, StyleSheet, Alert, Switch, Pressable } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useDb } from '@/db/DbContext';
-import { getSetting, setSetting, SETTING_KEYS } from '@/db/settings';
+import { setSetting, SETTING_KEYS } from '@/db/settings';
 import { countTrips, deleteAllTrips } from '@/db/trips';
 import { countUnconsumedPoints } from '@/db/rawPoints';
 import {
@@ -24,10 +15,12 @@ import {
 } from '@/tracking/tracker';
 import { detectHomeAndWork } from '@/stats/homeWorkDetection';
 import { injectDemoTrip } from '@/lib/demoTrip';
+import { TopBar } from '@/ui/TopBar';
+import { Text } from '@/ui/Text';
+import { Card } from '@/ui/Card';
+import { colors, space, radii } from '@/theme/tokens';
 
 export default function SettingsScreen() {
-  const insets = useSafeAreaInsets();
-  const theme = useTheme();
   const db = useDb();
   const qc = useQueryClient();
   const router = useRouter();
@@ -103,44 +96,56 @@ export default function SettingsScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-      <Appbar.Header style={{ paddingTop: insets.top }}>
-        <Appbar.Content title="Settings" />
-      </Appbar.Header>
-      <ScrollView contentContainerStyle={styles.container}>
-        <List.Section title="Tracking">
-          <List.Item
-            title="Tracking active"
-            description={trackingOn ? 'Recording your trips' : 'Paused'}
-            right={() => <Switch value={trackingOn} onValueChange={toggleTracking} />}
-          />
-        </List.Section>
-        <Divider />
-
-        <List.Section title="Data">
-          <List.Item
-            title={`${tripCount} trip${tripCount === 1 ? '' : 's'} stored`}
-            description={`${rawCount} unprocessed points`}
-            left={(p) => <List.Icon {...p} icon="database" />}
-          />
-          <View style={styles.actions}>
-            <Button mode="outlined" onPress={runPipeline}>
-              Force pipeline
-            </Button>
-            <Button mode="outlined" onPress={runHomeWork}>
-              Detect home/work
-            </Button>
-            <Button mode="outlined" textColor={theme.colors.error} onPress={confirmClearAll}>
-              Clear all
-            </Button>
+    <View style={styles.root}>
+      <TopBar title="Settings" />
+      <ScrollView contentContainerStyle={styles.scroll}>
+        <Text variant="display" onGround style={styles.section}>
+          Tracking
+        </Text>
+        <Card style={styles.card}>
+          <View style={styles.row}>
+            <View style={{ flex: 1 }}>
+              <Text variant="title">Tracking active</Text>
+              <Text variant="meta" soft>
+                {trackingOn ? 'Recording your trips' : 'Paused'}
+              </Text>
+            </View>
+            <Switch
+              value={trackingOn}
+              onValueChange={toggleTracking}
+              trackColor={{ true: colors.accentSoft, false: '#D7DBE0' }}
+              thumbColor={trackingOn ? colors.accent : '#F5F2EC'}
+            />
           </View>
-        </List.Section>
-        <Divider />
+        </Card>
 
-        <List.Section title="Debug">
-          <List.Item
-            title="Inject demo trip"
-            description="Adds a synthetic walk → drive → walk trip"
+        <Text variant="display" onGround style={styles.section}>
+          Data
+        </Text>
+        <Card style={styles.card}>
+          <View style={styles.row}>
+            <MaterialCommunityIcons name="database-outline" size={22} color={colors.inkSoft} />
+            <View style={{ flex: 1, marginLeft: space[3] }}>
+              <Text variant="title">
+                {tripCount} {tripCount === 1 ? 'trip' : 'trips'} stored
+              </Text>
+              <Text variant="meta" soft>
+                {rawCount} unprocessed points
+              </Text>
+            </View>
+          </View>
+          <View style={styles.buttonRow}>
+            <SecondaryButton onPress={runPipeline} label="Force pipeline" />
+            <SecondaryButton onPress={runHomeWork} label="Detect home/work" />
+          </View>
+        </Card>
+
+        <Text variant="display" onGround style={styles.section}>
+          Debug
+        </Text>
+        <Card style={styles.card}>
+          <Pressable
+            style={styles.actionRow}
             onPress={async () => {
               await injectDemoTrip(db);
               setTripCount(await countTrips(db));
@@ -148,33 +153,126 @@ export default function SettingsScreen() {
               await qc.invalidateQueries();
               Alert.alert('Demo trip inserted', 'Check the Trips tab.');
             }}
-          />
-          <List.Item title="Reset onboarding" onPress={resetOnboarding} />
-        </List.Section>
-        <Divider />
+          >
+            <View style={{ flex: 1 }}>
+              <Text variant="title">Inject demo trip</Text>
+              <Text variant="meta" soft>
+                Adds a synthetic walk → drive → walk trip
+              </Text>
+            </View>
+            <MaterialCommunityIcons name="chevron-right" size={22} color={colors.inkSoft} />
+          </Pressable>
+          <View style={styles.divider} />
+          <Pressable style={styles.actionRow} onPress={resetOnboarding}>
+            <Text variant="title">Reset onboarding</Text>
+            <MaterialCommunityIcons name="chevron-right" size={22} color={colors.inkSoft} />
+          </Pressable>
+        </Card>
 
-        <List.Section title="About">
-          <List.Item title="Mapozy" description="Version 0.1.0" />
-          <Text variant="bodySmall" style={[styles.footer, { color: theme.colors.onSurfaceVariant }]}>
-            All data stays on your device.
-          </Text>
-        </List.Section>
+        <Text variant="display" onGround style={styles.section}>
+          About
+        </Text>
+        <Card style={styles.card}>
+          <View style={styles.row}>
+            <View style={{ flex: 1 }}>
+              <Text variant="title">Mapozy</Text>
+              <Text variant="meta" soft>
+                Version 0.1.0 · All data stays on your device.
+              </Text>
+            </View>
+          </View>
+        </Card>
+
+        <Text variant="display" onGround style={[styles.section, styles.dangerTitle]}>
+          Danger zone
+        </Text>
+        <Card style={[styles.card, styles.dangerCard]}>
+          <DangerButton onPress={confirmClearAll} label="Clear all data" />
+        </Card>
       </ScrollView>
     </View>
   );
 }
 
+function SecondaryButton({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.secondaryBtn,
+        pressed && { backgroundColor: colors.surfaceMuted },
+      ]}
+    >
+      <Text variant="label">{label}</Text>
+    </Pressable>
+  );
+}
+
+function DangerButton({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.dangerBtn,
+        pressed && { opacity: 0.85 },
+      ]}
+    >
+      <Text variant="label" color={colors.surface}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: { paddingBottom: 32 },
-  actions: {
+  root: { flex: 1, backgroundColor: colors.ground },
+  scroll: { paddingBottom: space[6] },
+  section: {
+    marginTop: space[4],
+    marginHorizontal: space[4],
+    marginBottom: space[1],
+  },
+  dangerTitle: {
+    marginTop: space[6],
+    color: undefined,
+  },
+  card: {
+    marginHorizontal: space[4],
+    gap: space[3],
+  },
+  dangerCard: {
+    backgroundColor: '#3E1B1B',
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: space[2],
+  },
+  buttonRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    gap: space[2],
   },
-  footer: {
-    textAlign: 'center',
-    marginTop: 16,
+  secondaryBtn: {
+    paddingHorizontal: space[3],
+    paddingVertical: space[2],
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.divider,
+  },
+  dangerBtn: {
+    paddingHorizontal: space[4],
+    paddingVertical: space[3],
+    borderRadius: radii.pill,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.divider,
   },
 });
