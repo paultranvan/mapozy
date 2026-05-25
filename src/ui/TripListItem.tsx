@@ -1,10 +1,12 @@
 import { View, StyleSheet, Pressable } from 'react-native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Text, useTheme } from 'react-native-paper';
 import { useRouter } from 'expo-router';
-import { ModeIcon } from './ModeIcon';
-import { formatDistance, formatDuration, formatTime } from '../lib/format';
-import type { Trip, Place } from '../types';
+import { Text } from './Text';
+import { Card } from './Card';
+import { ModeChip } from './ModeChip';
+import { ModeBar } from './ModeBar';
+import { colors, space } from '@/theme/tokens';
+import { formatDistance, formatDuration, formatTime } from '@/lib/format';
+import type { Trip, Place, DominantMode } from '@/types';
 
 interface Props {
   trip: Trip;
@@ -20,65 +22,85 @@ function placeLabel(p: Place | null | undefined): string {
   return `${p.latitude.toFixed(4)}, ${p.longitude.toFixed(4)}`;
 }
 
-function placeIcon(p: Place | null | undefined): keyof typeof MaterialCommunityIcons.glyphMap {
-  if (p?.label === 'home') return 'home';
-  if (p?.label === 'work') return 'briefcase';
-  return 'map-marker';
+function summarizeModes(trip: Trip): string {
+  const modes = Array.from(new Set(trip.sections.map((s) => s.mode)));
+  return modes.join(' · ');
+}
+
+function modeBarSegments(trip: Trip) {
+  if (trip.sections.length < 2) return null;
+  return trip.sections.map((s) => ({
+    mode: s.mode as DominantMode,
+    distanceM: s.distanceM,
+  }));
 }
 
 export function TripListItem({ trip, startPlace, endPlace }: Props) {
-  const theme = useTheme();
   const router = useRouter();
+  const distance = formatDistance(trip.distanceM);
+  const [distValue, distUnit] = distance.split(' ');
+  const modeSummary = summarizeModes(trip);
+  const segments = modeBarSegments(trip);
 
   return (
-    <Pressable
-      onPress={() => router.push(`/trip/${trip.id}`)}
-      style={({ pressed }) => [
-        styles.row,
-        { backgroundColor: pressed ? theme.colors.surfaceVariant : theme.colors.surface },
-      ]}
-      android_ripple={{ color: theme.colors.surfaceVariant }}
-    >
-      <View style={styles.leading}>
-        <MaterialCommunityIcons
-          name={placeIcon(startPlace)}
-          size={28}
-          color={theme.colors.onSurfaceVariant}
-        />
-        <ModeIcon mode={trip.dominantMode} size={20} />
-      </View>
-      <View style={styles.body}>
-        <Text variant="bodyLarge" numberOfLines={1}>
-          {placeLabel(startPlace)} → {placeLabel(endPlace)}
-        </Text>
-        <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-          {formatTime(trip.startTimeMs)} · {formatDuration(trip.durationS)} · {formatDistance(trip.distanceM)}
-        </Text>
-      </View>
-      <MaterialCommunityIcons
-        name="chevron-right"
-        size={24}
-        color={theme.colors.onSurfaceVariant}
-      />
+    <Pressable onPress={() => router.push(`/trip/${trip.id}`)}>
+      {({ pressed }) => (
+        <Card padded="sm" style={[styles.card, pressed && styles.pressed]}>
+          <View style={styles.row}>
+            <ModeChip mode={trip.dominantMode} />
+            <View style={styles.body}>
+              <Text variant="title" numberOfLines={1}>
+                {placeLabel(startPlace)} → {placeLabel(endPlace)}
+              </Text>
+              <Text variant="meta" soft>
+                {formatTime(trip.startTimeMs)} · {formatDuration(trip.durationS)}
+                {modeSummary ? ` · ${modeSummary}` : ''}
+              </Text>
+              {segments ? (
+                <View style={styles.barWrap}>
+                  <ModeBar segments={segments} height={3} radius={2} gap={1} />
+                </View>
+              ) : null}
+            </View>
+            <View style={styles.tail}>
+              <Text variant="numberM">{distValue}</Text>
+              <Text variant="meta" soft style={styles.unit}>
+                {distUnit}
+              </Text>
+            </View>
+          </View>
+        </Card>
+      )}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
+  card: {
+    marginHorizontal: space[4],
+    marginVertical: space[1],
+  },
+  pressed: {
+    backgroundColor: colors.surfaceMuted,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
-  },
-  leading: {
-    width: 56,
-    alignItems: 'center',
-    gap: 4,
+    gap: space[3],
   },
   body: {
     flex: 1,
     gap: 2,
+  },
+  barWrap: {
+    marginTop: space[1],
+    width: '85%',
+  },
+  tail: {
+    alignItems: 'flex-end',
+    minWidth: 56,
+  },
+  unit: {
+    marginTop: 0,
   },
 });
