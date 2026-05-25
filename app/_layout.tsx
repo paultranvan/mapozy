@@ -20,7 +20,7 @@ import { adriaticTheme } from '@/theme/paperTheme';
 import { colors } from '@/theme/tokens';
 import { openDb, type Db } from '@/db/client';
 import { DbProvider } from '@/db/DbContext';
-import { runPipelineAndInvalidate } from '@/tracking/tracker';
+import { runPipelineForForeground } from '@/tracking/tracker';
 import { shouldRunPipelineOnAppStateChange } from '@/tracking/foregroundTrigger';
 
 const queryClient = new QueryClient({
@@ -60,17 +60,18 @@ export default function RootLayout() {
     };
   }, []);
 
-  // Drain unconsumed raw points on cold start and on every return to foreground.
-  // The 5-min-still trigger in useTrackerBridge only fires when JS is alive
-  // mid-trip; OS battery management often kills the bridge, leaving raw rows
-  // unprocessed until the user reopens the app.
+  // Drain unconsumed raw points on cold start and on every return to foreground,
+  // BUT only if the most recent unconsumed point is at least 30 min old (or the
+  // backlog is more than 12h stale). Recovers from "OS killed JS mid-trip, user
+  // reopens app and sees nothing" without the risk of fragmenting an in-progress
+  // trip when the user opens the app while still driving.
   useEffect(() => {
     if (!db) return;
-    void runPipelineAndInvalidate(db, queryClient);
+    void runPipelineForForeground(db, queryClient);
     let prev: AppStateStatus = AppState.currentState;
     const sub = AppState.addEventListener('change', (next) => {
       if (shouldRunPipelineOnAppStateChange(next, prev)) {
-        void runPipelineAndInvalidate(db, queryClient);
+        void runPipelineForForeground(db, queryClient);
       }
       prev = next;
     });
