@@ -23,6 +23,7 @@ import {
   runPipelineAndInvalidate,
 } from '@/tracking/tracker';
 import { detectHomeAndWork } from '@/stats/homeWorkDetection';
+import { injectDemoTrip } from '@/lib/demoTrip';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -137,6 +138,17 @@ export default function SettingsScreen() {
         <Divider />
 
         <List.Section title="Debug">
+          <List.Item
+            title="Inject demo trip"
+            description="Adds a synthetic walk → drive → walk trip"
+            onPress={async () => {
+              await injectDemoTrip(db);
+              setTripCount(await countTrips(db));
+              setRawCount(await countUnconsumedPoints(db));
+              await qc.invalidateQueries();
+              Alert.alert('Demo trip inserted', 'Check the Trips tab.');
+            }}
+          />
           <List.Item title="Reset onboarding" onPress={resetOnboarding} />
         </List.Section>
         <Divider />
