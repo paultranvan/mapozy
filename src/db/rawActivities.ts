@@ -54,13 +54,18 @@ export async function getAllUnconsumedActivities(db: Db): Promise<RawActivity[]>
   return rows.map(rowToActivity);
 }
 
+const SQLITE_MAX_VARIABLES = 900;
+
 export async function markActivitiesConsumed(db: Db, ids: number[]): Promise<void> {
   if (ids.length === 0) return;
-  const placeholders = ids.map(() => '?').join(',');
-  await db.runAsync(
-    `UPDATE raw_activities SET consumed=1 WHERE id IN (${placeholders})`,
-    ...ids
-  );
+  for (let i = 0; i < ids.length; i += SQLITE_MAX_VARIABLES) {
+    const chunk = ids.slice(i, i + SQLITE_MAX_VARIABLES);
+    const placeholders = chunk.map(() => '?').join(',');
+    await db.runAsync(
+      `UPDATE raw_activities SET consumed=1 WHERE id IN (${placeholders})`,
+      ...chunk
+    );
+  }
 }
 
 export async function purgeOldConsumedActivities(db: Db, beforeMs: number): Promise<number> {
