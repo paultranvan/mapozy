@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { DOMINANT_MODE_ICONS, MODE_COLORS } from '../theme/colors';
-import type { DominantMode } from '../types';
+import { colors, DOMINANT_MODE_ICONS } from '@/theme/tokens';
+import type { DominantMode } from '@/types';
 
 export function ModeIcon({
   mode,
@@ -16,7 +16,7 @@ export function ModeIcon({
     <MaterialCommunityIcons
       name={name as keyof typeof MaterialCommunityIcons.glyphMap}
       size={size}
-      color={color ?? MODE_COLORS[mode]}
+      color={color ?? colors.mode[mode]}
     />
   );
 }
