@@ -1,40 +1,32 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ScrollView, View, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import {
-  Appbar,
-  Text,
-  SegmentedButtons,
-  useTheme,
-  List,
-} from 'react-native-paper';
-import { BarChart } from 'react-native-gifted-charts';
 import {
   usePeriodKpi,
   useModeBreakdown,
   useDailyDistances,
   useRecords,
 } from '@/queries/useTrips';
-import { KpiCard } from '@/ui/KpiCard';
-import { MODE_COLORS } from '@/theme/colors';
-import {
-  formatDistance,
-  formatCo2,
-  formatDate,
-} from '@/lib/format';
+import { TopBar } from '@/ui/TopBar';
+import { Text } from '@/ui/Text';
+import { Card } from '@/ui/Card';
+import { ModeBar } from '@/ui/ModeBar';
+import { PeriodTabs } from '@/ui/PeriodTabs';
+import { AreaChart } from '@/ui/AreaChart';
+import { colors, space } from '@/theme/tokens';
+import { formatDistance, formatDate } from '@/lib/format';
 import type { PeriodKey } from '@/lib/time';
+import type { DominantMode, Mode } from '@/types';
+import type { ModeBucket } from '@/stats/modeBreakdown';
 
-const PERIOD_OPTIONS: Array<{ value: PeriodKey; label: string }> = [
-  { value: 'today', label: 'D' },
-  { value: 'week', label: 'W' },
-  { value: 'month', label: 'M' },
-  { value: 'year', label: 'Y' },
-  { value: 'all', label: 'All' },
-];
+const PERIOD_LABELS: Record<PeriodKey, string> = {
+  today: 'today',
+  week: 'this week',
+  month: 'this month',
+  year: 'this year',
+  all: 'all time',
+};
 
 export default function StatsScreen() {
-  const insets = useSafeAreaInsets();
-  const theme = useTheme();
   const [period, setPeriod] = useState<PeriodKey>('week');
 
   const kpiQ = usePeriodKpi(period);
@@ -42,147 +34,243 @@ export default function StatsScreen() {
   const dailyQ = useDailyDistances(period);
   const recordsQ = useRecords();
 
+  const totalDistance = kpiQ.data?.totalDistanceM ?? 0;
+  const tripCount = kpiQ.data?.tripsCount ?? 0;
+  const [distValue, distUnit] = formatDistance(totalDistance).split(' ');
+
+  const modeRows = useMemo(() => {
+    const rows: ModeBucket[] = modeQ.data ?? [];
+    const total = rows.reduce((a, r) => a + r.distanceM, 0);
+    return rows
+      .slice()
+      .sort((a, b) => b.distanceM - a.distanceM)
+      .map((r) => ({
+        ...r,
+        pct: total > 0 ? Math.round((r.distanceM / total) * 100) : 0,
+      }));
+  }, [modeQ.data]);
+
+  const modeBarSegments = useMemo(
+    () =>
+      (modeQ.data ?? []).map((r: ModeBucket) => ({
+        mode: r.mode as DominantMode,
+        distanceM: r.distanceM,
+      })),
+    [modeQ.data]
+  );
+
+  const dailyData = useMemo(() => {
+    const d = dailyQ.data ?? [];
+    return d.map((p: { dayKey: string; distanceM: number }) => ({
+      label: p.dayKey.slice(5),
+      value: p.distanceM / 1000,
+    }));
+  }, [dailyQ.data]);
+
   return (
-    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-      <Appbar.Header style={{ paddingTop: insets.top }}>
-        <Appbar.Content title="Stats" />
-      </Appbar.Header>
-      <ScrollView contentContainerStyle={styles.container}>
-        <SegmentedButtons
-          value={period}
-          onValueChange={(v) => setPeriod(v as PeriodKey)}
-          buttons={PERIOD_OPTIONS.map((p) => ({ value: p.value, label: p.label }))}
-        />
+    <View style={styles.root}>
+      <TopBar title="Stats" />
+      <ScrollView contentContainerStyle={styles.scroll}>
+        <PeriodTabs value={period} onChange={setPeriod} />
 
-        <View style={styles.kpiRow}>
-          <KpiCard
-            label="Distance"
-            value={formatDistance(kpiQ.data?.totalDistanceM ?? 0)}
-          />
-          <KpiCard
-            label="Trips"
-            value={String(kpiQ.data?.tripsCount ?? 0)}
-          />
-          <KpiCard
-            label="CO₂"
-            value={formatCo2(kpiQ.data?.totalCo2G ?? 0)}
-          />
-        </View>
+        {/* Hero KPI */}
+        <Card padded="lg" style={styles.section}>
+          <Text variant="ribbon" soft>
+            DISTANCE {PERIOD_LABELS[period].toUpperCase()}
+          </Text>
+          <View style={styles.heroRow}>
+            <Text variant="displayXL">{distValue}</Text>
+            <Text variant="display" soft style={styles.heroUnit}>
+              {distUnit}
+            </Text>
+          </View>
+          <Text variant="meta" soft>
+            across {tripCount} {tripCount === 1 ? 'trip' : 'trips'}
+          </Text>
+        </Card>
 
-        <Text variant="titleMedium" style={styles.sectionTitle}>
+        {/* By mode */}
+        <Text variant="display" onGround style={styles.sectionTitle}>
           By mode
         </Text>
-        <View style={styles.modeList}>
-          {(modeQ.data ?? []).map((b: { mode: string; distanceM: number }) => {
-            const color = MODE_COLORS[b.mode as keyof typeof MODE_COLORS] ?? '#888';
-            return (
-              <View key={b.mode} style={styles.modeRow}>
-                <View style={[styles.modeDot, { backgroundColor: color }]} />
-                <Text variant="bodyMedium" style={styles.modeLabel}>
-                  {b.mode}
-                </Text>
-                <Text variant="bodyMedium" style={styles.modeValue}>
-                  {formatDistance(b.distanceM)}
-                </Text>
-              </View>
-            );
-          })}
-          {(!modeQ.data || modeQ.data.length === 0) && (
-            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+        <Card style={styles.section}>
+          {modeRows.length === 0 ? (
+            <Text variant="body" soft>
               No data yet.
             </Text>
+          ) : (
+            <>
+              <ModeBar segments={modeBarSegments} height={10} radius={5} gap={2} />
+              <View style={styles.legend}>
+                {modeRows.map((r: ModeBucket & { pct: number }) => (
+                  <View key={r.mode} style={styles.legendRow}>
+                    <View
+                      style={[
+                        styles.legendDot,
+                        { backgroundColor: colors.mode[r.mode as Mode] ?? colors.mode.mixed },
+                      ]}
+                    />
+                    <Text variant="body" style={styles.legendLabel}>
+                      {capitalize(r.mode)}
+                    </Text>
+                    <Text variant="numberS" style={styles.legendValue}>
+                      {formatDistance(r.distanceM)}
+                    </Text>
+                    <Text variant="meta" soft style={styles.legendPct}>
+                      {r.pct}%
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </>
           )}
-        </View>
+        </Card>
 
-        <Text variant="titleMedium" style={styles.sectionTitle}>
+        {/* Daily */}
+        <Text variant="display" onGround style={styles.sectionTitle}>
           Daily
         </Text>
-        {dailyQ.data && dailyQ.data.length > 0 ? (
-          <BarChart
-            data={dailyQ.data.map((d: { dayKey: string; distanceM: number }) => ({
-              value: d.distanceM / 1000,
-              label: d.dayKey.slice(5),
-              frontColor: theme.colors.primary,
-            }))}
-            yAxisLabelSuffix=" km"
-            barWidth={Math.max(12, 280 / Math.max(dailyQ.data.length, 1))}
-            spacing={4}
-            initialSpacing={4}
-            yAxisColor={theme.colors.outline}
-            xAxisColor={theme.colors.outline}
-            yAxisTextStyle={{ color: theme.colors.onSurface, fontSize: 10 }}
-            xAxisLabelTextStyle={{ color: theme.colors.onSurface, fontSize: 9 }}
-            noOfSections={4}
-          />
-        ) : (
-          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-            No data yet.
-          </Text>
-        )}
+        <Card style={styles.section}>
+          {dailyData.length === 0 ? (
+            <Text variant="body" soft>
+              No data yet.
+            </Text>
+          ) : (
+            <AreaChart data={dailyData} height={160} yLabelSuffix=" km" />
+          )}
+        </Card>
 
-        <Text variant="titleMedium" style={styles.sectionTitle}>
+        {/* Records */}
+        <Text variant="display" onGround style={styles.sectionTitle}>
           Records
         </Text>
-        <List.Item
-          title="Longest trip"
-          description={
-            recordsQ.data?.longestTripDateMs
-              ? `${formatDistance(recordsQ.data.longestTripDistanceM)} on ${formatDate(recordsQ.data.longestTripDateMs)}`
-              : '—'
-          }
-          left={(props) => <List.Icon {...props} icon="ruler" />}
-        />
-        <List.Item
-          title="Best day"
-          description={
-            recordsQ.data?.bestDayMs
-              ? `${formatDistance(recordsQ.data.bestDayDistanceM)} on ${formatDate(recordsQ.data.bestDayMs)}`
-              : '—'
-          }
-          left={(props) => <List.Icon {...props} icon="calendar-star" />}
-        />
-        <List.Item
-          title="Current streak"
-          description={`${recordsQ.data?.currentStreakDays ?? 0} day${
-            (recordsQ.data?.currentStreakDays ?? 0) === 1 ? '' : 's'
-          }`}
-          left={(props) => <List.Icon {...props} icon="fire" />}
-        />
+        <Card style={styles.section}>
+          <RecordRow
+            title="Longest trip"
+            value={
+              recordsQ.data?.longestTripDateMs
+                ? formatDistance(recordsQ.data.longestTripDistanceM)
+                : '—'
+            }
+            sub={
+              recordsQ.data?.longestTripDateMs
+                ? formatDate(recordsQ.data.longestTripDateMs)
+                : null
+            }
+          />
+          <Divider />
+          <RecordRow
+            title="Best day"
+            value={
+              recordsQ.data?.bestDayMs
+                ? formatDistance(recordsQ.data.bestDayDistanceM)
+                : '—'
+            }
+            sub={recordsQ.data?.bestDayMs ? formatDate(recordsQ.data.bestDayMs) : null}
+          />
+          <Divider />
+          <RecordRow
+            title="Current streak"
+            value={`${recordsQ.data?.currentStreakDays ?? 0} ${
+              (recordsQ.data?.currentStreakDays ?? 0) === 1 ? 'day' : 'days'
+            }`}
+            sub={null}
+          />
+        </Card>
       </ScrollView>
     </View>
   );
 }
 
+function RecordRow({
+  title,
+  value,
+  sub,
+}: {
+  title: string;
+  value: string;
+  sub: string | null;
+}) {
+  return (
+    <View style={styles.recordRow}>
+      <View style={{ flex: 1 }}>
+        <Text variant="body">{title}</Text>
+        {sub ? (
+          <Text variant="meta" soft>
+            {sub}
+          </Text>
+        ) : null}
+      </View>
+      <Text variant="numberM">{value}</Text>
+    </View>
+  );
+}
+
+function Divider() {
+  return <View style={styles.divider} />;
+}
+
+function capitalize(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
 const styles = StyleSheet.create({
-  container: {
-    padding: 16,
-    gap: 16,
+  root: {
+    flex: 1,
+    backgroundColor: colors.ground,
   },
-  kpiRow: {
-    flexDirection: 'row',
-    gap: 12,
+  scroll: {
+    paddingBottom: space[6],
+  },
+  section: {
+    marginHorizontal: space[4],
+    marginTop: space[2],
   },
   sectionTitle: {
-    marginTop: 8,
+    marginTop: space[5],
+    marginHorizontal: space[4],
+    marginBottom: 0,
   },
-  modeList: {
-    gap: 8,
+  heroRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginTop: space[2],
   },
-  modeRow: {
+  heroUnit: {
+    marginLeft: space[2],
+  },
+  legend: {
+    marginTop: space[3],
+    gap: space[2],
+  },
+  legendRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: space[3],
   },
-  modeDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+  legendDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 3,
   },
-  modeLabel: {
+  legendLabel: {
     flex: 1,
-    textTransform: 'capitalize',
   },
-  modeValue: {
-    fontVariant: ['tabular-nums'],
+  legendValue: {
+    minWidth: 72,
+    textAlign: 'right',
+  },
+  legendPct: {
+    minWidth: 36,
+    textAlign: 'right',
+  },
+  recordRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: space[2],
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.divider,
   },
 });
