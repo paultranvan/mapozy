@@ -1,4 +1,4 @@
-import { buildExportFilename } from '../sendDbToPaul';
+import { buildExportFilename } from '../sendDbToPaulFilename';
 
 describe('buildExportFilename', () => {
   it('uses YYYY-MM-DD from the given date', () => {
