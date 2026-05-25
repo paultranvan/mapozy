@@ -7,7 +7,7 @@ import MapLibreGL, {
   Camera,
 } from '@maplibre/maplibre-react-native';
 import { useMemo } from 'react';
-import { MODE_COLORS } from '../theme/colors';
+import { colors as themeColors, MODE_COLORS } from '../theme/tokens';
 import type { Trip } from '../types';
 
 MapLibreGL.setAccessToken(null);
@@ -119,16 +119,16 @@ const styles = StyleSheet.create({
     width: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: '#2A9D8F',
+    backgroundColor: themeColors.mode.walk,
     borderWidth: 3,
-    borderColor: 'white',
+    borderColor: themeColors.inkOnGround,
   },
   endDot: {
     width: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: '#E76F51',
+    backgroundColor: themeColors.mode.run,
     borderWidth: 3,
-    borderColor: 'white',
+    borderColor: themeColors.inkOnGround,
   },
 });
