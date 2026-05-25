@@ -7,6 +7,7 @@ import { insertRawActivity } from '../db/rawActivities';
 import { runPipeline } from '../pipeline/runPipeline';
 import type { Db } from '../db/client';
 import { useQueryClient } from '@tanstack/react-query';
+import { shouldRunPipelineForForeground } from './foregroundTrigger';
 
 export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
   distanceFilterMeters: 20,
@@ -34,6 +35,13 @@ export async function isTracking(): Promise<boolean> {
 export async function getTrackingStatus() {
   return MapozyTracker.getStatus();
 }
+
+// Opportunistic early pipeline run while JS is alive. Deliberately longer
+// than segmentation's 5-min dwellMinutes default: segmentation should still
+// treat a 5-min stop as a place visit, but the *pipeline* shouldn't fire
+// so eagerly that a long-but-temporary stop (10 min in heavy traffic)
+// gets processed before the trip actually completes.
+const STILL_DRAIN_MS = 30 * 60_000;
 
 /**
  * Subscribes to native location + activity events and persists them to SQLite.
@@ -71,7 +79,7 @@ export function useTrackerBridge() {
           () => {
             void runPipelineAndInvalidate(db, qc);
           },
-          5 * 60_000
+          STILL_DRAIN_MS
         );
       } else if (act.type !== 'still' && stillTimerRef.current) {
         clearTimeout(stillTimerRef.current);
@@ -97,4 +105,26 @@ export async function runPipelineAndInvalidate(
     await qc.invalidateQueries({ queryKey: ['stats'] });
     await qc.invalidateQueries({ queryKey: ['places'] });
   }
+}
+
+/**
+ * Run the pipeline when it's safe to do so without fragmenting an
+ * in-progress trip. "Safe" = the user looks idle (last raw point is
+ * old enough that the trip likely ended) OR the pending backlog has
+ * been sitting unprocessed long enough that we'd rather drain it than
+ * keep accumulating (12h bypass — see foregroundTrigger.ts). Used by
+ * the app-foreground trigger.
+ */
+export async function runPipelineForForeground(
+  db: Db,
+  qc: ReturnType<typeof useQueryClient>
+): Promise<void> {
+  const row = await db.getFirstAsync<{ last: number | null; oldest: number | null }>(
+    `SELECT MAX(timestamp_ms) AS last, MIN(timestamp_ms) AS oldest
+     FROM raw_points WHERE consumed=0`
+  );
+  const lastPointMs = row?.last ?? null;
+  const oldestPointMs = row?.oldest ?? null;
+  if (!shouldRunPipelineForForeground(lastPointMs, oldestPointMs, Date.now())) return;
+  await runPipelineAndInvalidate(db, qc);
 }
