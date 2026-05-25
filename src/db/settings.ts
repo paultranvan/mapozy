@@ -1,0 +1,35 @@
+import type { Db } from './client';
+
+export async function getSetting(db: Db, key: string): Promise<string | null> {
+  const r = await db.getFirstAsync<{ value: string }>(
+    `SELECT value FROM settings WHERE key = ?`,
+    key
+  );
+  return r?.value ?? null;
+}
+
+export async function setSetting(db: Db, key: string, value: string): Promise<void> {
+  await db.runAsync(
+    `INSERT INTO settings(key, value) VALUES(?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    key,
+    value
+  );
+}
+
+export async function getAllSettings(db: Db): Promise<Record<string, string>> {
+  const rows = await db.getAllAsync<{ key: string; value: string }>(
+    `SELECT key, value FROM settings`
+  );
+  const out: Record<string, string> = {};
+  for (const r of rows) out[r.key] = r.value;
+  return out;
+}
+
+export const SETTING_KEYS = {
+  ONBOARDING_DONE: 'onboarding_done',
+  TRACKING_ENABLED: 'tracking_enabled',
+  TRACKING_SENSITIVITY: 'tracking_sensitivity',
+  THEME: 'theme',
+  LAST_HOMEWORK_DETECTION_MS: 'last_homework_detection_ms',
+} as const;
