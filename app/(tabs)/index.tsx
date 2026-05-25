@@ -6,16 +6,38 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Text, useTheme, Appbar } from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTripsList, usePlaces } from '@/queries/useTrips';
 import { TripListItem } from '@/ui/TripListItem';
+import { TopBar } from '@/ui/TopBar';
+import { Text } from '@/ui/Text';
+import { colors, space } from '@/theme/tokens';
 import { dayKey } from '@/lib/time';
 import type { Trip } from '@/types';
 
 interface Section {
   title: string;
   data: Trip[];
+}
+
+const WEEKDAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function dayHeader(k: string): string {
+  const todayKey = dayKey(Date.now());
+  const yesterdayKey = dayKey(Date.now() - 86_400_000);
+  if (k === todayKey) return 'Today';
+  if (k === yesterdayKey) return 'Yesterday';
+  const parts = k.split('-').map((n) => Number(n));
+  const y = parts[0]!;
+  const m = parts[1]!;
+  const d = parts[2]!;
+  const date = new Date(y, m - 1, d);
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  const weekday = WEEKDAY[date.getDay()];
+  return sameYear
+    ? `${weekday}, ${d} ${MONTHS[m - 1]}`
+    : `${weekday}, ${d} ${MONTHS[m - 1]} ${y}`;
 }
 
 function groupByDay(trips: Trip[]): Section[] {
@@ -25,19 +47,12 @@ function groupByDay(trips: Trip[]): Section[] {
     if (!map.has(k)) map.set(k, []);
     map.get(k)!.push(t);
   }
-  const todayKey = dayKey(Date.now());
-  const yesterdayKey = dayKey(Date.now() - 86_400_000);
   return Array.from(map.entries())
     .sort((a, b) => (a[0] < b[0] ? 1 : -1))
-    .map(([k, data]) => ({
-      title: k === todayKey ? 'Today' : k === yesterdayKey ? 'Yesterday' : k,
-      data,
-    }));
+    .map(([k, data]) => ({ title: dayHeader(k), data }));
 }
 
 export default function TripsScreen() {
-  const insets = useSafeAreaInsets();
-  const theme = useTheme();
   const tripsQ = useTripsList(500);
   const placesQ = usePlaces();
 
@@ -53,24 +68,29 @@ export default function TripsScreen() {
 
   if (tripsQ.isLoading) {
     return (
-      <View style={[styles.center, { backgroundColor: theme.colors.background }]}>
-        <ActivityIndicator color={theme.colors.primary} />
+      <View style={styles.root}>
+        <TopBar title="Mapozy" />
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.inkOnGround} />
+        </View>
       </View>
     );
   }
 
   return (
-    <View style={[{ flex: 1 }, { backgroundColor: theme.colors.background }]}>
-      <Appbar.Header style={{ paddingTop: insets.top }}>
-        <Appbar.Content title="Mapozy" />
-      </Appbar.Header>
+    <View style={styles.root}>
+      <TopBar title="Mapozy" />
       {sections.length === 0 ? (
         <View style={styles.center}>
-          <Text variant="bodyLarge">No trips yet</Text>
-          <Text
-            variant="bodyMedium"
-            style={{ color: theme.colors.onSurfaceVariant, marginTop: 8 }}
-          >
+          <MaterialCommunityIcons
+            name="compass-outline"
+            size={56}
+            color={colors.inkOnGroundSoft}
+          />
+          <Text variant="display" onGround align="center" style={styles.emptyTitle}>
+            No trips yet
+          </Text>
+          <Text variant="body" onGround soft align="center">
             Move around — trips will appear here.
           </Text>
         </View>
@@ -78,18 +98,12 @@ export default function TripsScreen() {
         <SectionList
           sections={sections}
           keyExtractor={(t) => String(t.id)}
-          stickySectionHeadersEnabled
+          stickySectionHeadersEnabled={false}
+          contentContainerStyle={styles.list}
           renderSectionHeader={({ section }) => (
-            <View
-              style={[
-                styles.sectionHeader,
-                { backgroundColor: theme.colors.background },
-              ]}
-            >
-              <Text variant="titleSmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                {section.title}
-              </Text>
-            </View>
+            <Text variant="dayHeader" onGround style={styles.sectionHeader}>
+              {section.title}
+            </Text>
           )}
           renderItem={({ item }) => (
             <TripListItem
@@ -105,12 +119,12 @@ export default function TripsScreen() {
                 tripsQ.refetch();
                 placesQ.refetch();
               }}
-              tintColor={theme.colors.primary}
+              tintColor={colors.inkOnGround}
+              colors={[colors.inkOnGround]}
             />
           }
-          ItemSeparatorComponent={() => (
-            <View style={{ height: 1, backgroundColor: theme.colors.surfaceVariant }} />
-          )}
+          SectionSeparatorComponent={() => <View style={{ height: space[1] }} />}
+          ItemSeparatorComponent={() => <View style={{ height: space[1] }} />}
         />
       )}
     </View>
@@ -118,10 +132,26 @@ export default function TripsScreen() {
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  root: {
+    flex: 1,
+    backgroundColor: colors.ground,
+  },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space[2],
+    paddingHorizontal: space[5],
+  },
+  emptyTitle: {
+    marginTop: space[2],
+  },
+  list: {
+    paddingBottom: space[5],
+  },
   sectionHeader: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 6,
+    paddingHorizontal: space[4],
+    paddingTop: space[4],
+    paddingBottom: space[2],
   },
 });
