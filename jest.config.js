@@ -7,5 +7,6 @@ module.exports = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
     '^@app/(.*)$': '<rootDir>/app/$1',
+    '^mapozy-tracker$': '<rootDir>/modules/mapozy-tracker/src/index.ts',
   },
 };

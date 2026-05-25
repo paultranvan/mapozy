@@ -8,7 +8,7 @@ import type {
   ActivityType,
 } from './MapozyTracker.types';
 
-interface MapozyTrackerEvents {
+interface MapozyTrackerEvents extends Record<string, (...args: any[]) => void> {
   onLocation: (event: LocationUpdate) => void;
   onActivity: (event: ActivityUpdate) => void;
 }
