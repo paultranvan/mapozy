@@ -15,6 +15,7 @@ import {
 } from '@/tracking/tracker';
 import { detectHomeAndWork } from '@/stats/homeWorkDetection';
 import { injectDemoTrip } from '@/lib/demoTrip';
+import { sendDbToPaul } from '@/lib/sendDbToPaul';
 import { TopBar } from '@/ui/TopBar';
 import { Text } from '@/ui/Text';
 import { Card } from '@/ui/Card';
@@ -65,6 +66,14 @@ export default function SettingsScreen() {
       'Home/work detection',
       `Home place: ${r.homeId ?? 'none'}\nWork place: ${r.workId ?? 'none'}`
     );
+  }
+
+  async function onSendDataToPaul() {
+    try {
+      await sendDbToPaul(db);
+    } catch (e) {
+      Alert.alert('Could not send data', String(e));
+    }
   }
 
   function confirmClearAll() {
@@ -138,6 +147,16 @@ export default function SettingsScreen() {
             <SecondaryButton onPress={runPipeline} label="Force pipeline" />
             <SecondaryButton onPress={runHomeWork} label="Detect home/work" />
           </View>
+          <View style={styles.divider} />
+          <Pressable style={styles.actionRow} onPress={onSendDataToPaul}>
+            <View style={{ flex: 1 }}>
+              <Text variant="title">Send data to Paul</Text>
+              <Text variant="meta" soft>
+                Attaches your full Mapozy database to an email for debugging help.
+              </Text>
+            </View>
+            <MaterialCommunityIcons name="chevron-right" size={22} color={colors.inkSoft} />
+          </Pressable>
         </Card>
 
         <Text variant="display" onGround style={styles.section}>
