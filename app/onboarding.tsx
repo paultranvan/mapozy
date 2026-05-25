@@ -1,13 +1,6 @@
 import { useState } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
-import {
-  Button,
-  Text,
-  useTheme,
-  Surface,
-  IconButton,
-} from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDb } from '@/db/DbContext';
@@ -17,10 +10,11 @@ import {
   requestBackgroundLocation,
 } from '@/tracking/permissions';
 import { startTracking } from '@/tracking/tracker';
+import { Text } from '@/ui/Text';
+import { colors, radii, space } from '@/theme/tokens';
 
 export default function OnboardingScreen() {
   const router = useRouter();
-  const theme = useTheme();
   const insets = useSafeAreaInsets();
   const db = useDb();
   const [step, setStep] = useState(0);
@@ -36,8 +30,6 @@ export default function OnboardingScreen() {
     setRequesting(true);
     try {
       const fg = await requestForegroundPermissions();
-      // Background location must be requested AFTER fine location is granted,
-      // or Android silently rejects it. If foreground was denied, skip bg.
       const bg = fg.fineLocation ? await requestBackgroundLocation() : false;
       setPermResult({ ...fg, backgroundLocation: bg });
       if (fg.fineLocation && fg.activityRecognition) {
@@ -66,8 +58,8 @@ export default function OnboardingScreen() {
 
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: theme.colors.background }}
-      contentContainerStyle={[styles.container, { paddingTop: insets.top + 24 }]}
+      style={{ flex: 1, backgroundColor: colors.ground }}
+      contentContainerStyle={[styles.container, { paddingTop: insets.top + space[5] }]}
     >
       <View style={styles.dots}>
         {[0, 1, 2].map((i) => (
@@ -77,7 +69,7 @@ export default function OnboardingScreen() {
               styles.dot,
               {
                 backgroundColor:
-                  i === step ? theme.colors.primary : theme.colors.surfaceVariant,
+                  i === step ? colors.accent : 'rgba(234, 227, 208, 0.25)',
               },
             ]}
           />
@@ -85,30 +77,34 @@ export default function OnboardingScreen() {
       </View>
 
       {step === 0 && (
-        <Surface style={styles.card} elevation={0}>
-          <MaterialCommunityIcons name="map-marker-radius" size={72} color={theme.colors.primary} />
-          <Text variant="headlineMedium" style={styles.title}>
+        <View style={styles.step}>
+          <MaterialCommunityIcons
+            name="compass-outline"
+            size={88}
+            color={colors.inkOnGround}
+          />
+          <Text variant="displayL" onGround align="center" style={styles.title}>
             Welcome to Mapozy
           </Text>
-          <Text variant="bodyLarge" style={styles.body}>
+          <Text variant="body" onGround soft align="center" style={styles.body}>
             Track your trips and explore your stats — all on your device, nothing leaves your phone.
           </Text>
-          <Button mode="contained" onPress={() => setStep(1)} style={styles.button}>
-            Get started
-          </Button>
-          <Button mode="text" onPress={onSkip}>
-            Skip
-          </Button>
-        </Surface>
+          <PrimaryButton label="Get started" onPress={() => setStep(1)} />
+          <TextLink label="Skip" onPress={onSkip} />
+        </View>
       )}
 
       {step === 1 && (
-        <Surface style={styles.card} elevation={0}>
-          <MaterialCommunityIcons name="shield-check" size={72} color={theme.colors.primary} />
-          <Text variant="headlineMedium" style={styles.title}>
+        <View style={styles.step}>
+          <MaterialCommunityIcons
+            name="shield-outline"
+            size={88}
+            color={colors.inkOnGround}
+          />
+          <Text variant="displayL" onGround align="center" style={styles.title}>
             Permissions
           </Text>
-          <View style={{ alignSelf: 'stretch', gap: 12 }}>
+          <View style={styles.permList}>
             <PermissionRow icon="crosshairs-gps" label="Location" body="To record your trips." />
             <PermissionRow
               icon="run"
@@ -116,72 +112,60 @@ export default function OnboardingScreen() {
               body="To detect walking / cycling / driving."
             />
             <PermissionRow
-              icon="bell"
+              icon="bell-outline"
               label="Notifications"
               body="Required by Android for background tracking."
             />
           </View>
-          <Button
-            mode="contained"
+          <PrimaryButton
+            label={requesting ? 'Requesting…' : 'Grant'}
             onPress={onGrantPermissions}
-            loading={requesting}
-            style={styles.button}
-          >
-            Grant
-          </Button>
+            disabled={requesting}
+          />
           {permResult && !permResult.fineLocation && (
-            <Text variant="bodySmall" style={{ color: theme.colors.error, marginTop: 8 }}>
+            <Text variant="meta" onGround style={styles.error}>
               Location was denied. Re-launch the dialog or grant it in Android settings.
             </Text>
           )}
-        </Surface>
+        </View>
       )}
 
       {step === 2 && (
-        <Surface style={styles.card} elevation={0}>
-          <MaterialCommunityIcons name="check-circle" size={72} color={theme.colors.primary} />
-          <Text variant="headlineMedium" style={styles.title}>
+        <View style={styles.step}>
+          <MaterialCommunityIcons
+            name="check-circle-outline"
+            size={88}
+            color={colors.inkOnGround}
+          />
+          <Text variant="displayL" onGround align="center" style={styles.title}>
             Ready
           </Text>
-          <Text variant="bodyLarge" style={styles.body}>
+          <Text variant="body" onGround soft align="center" style={styles.body}>
             Tracking starts now. A persistent notification keeps it alive in the background.
           </Text>
           {permResult && !permResult.backgroundLocation && (
-            <Text
-              variant="bodySmall"
-              style={{ color: theme.colors.error, textAlign: 'center' }}
-            >
-              Background location was not granted. Tracking will pause when the app is
-              backgrounded. Grant "Allow all the time" in Android settings for full coverage.
+            <Text variant="meta" onGround align="center" style={styles.error}>
+              Background location was not granted. Tracking will pause when the app is backgrounded. Grant "Allow all the time" in Android settings for full coverage.
             </Text>
           )}
-          <Button mode="contained" onPress={onStartTracking} style={styles.button}>
-            Start tracking
-          </Button>
-        </Surface>
+          <PrimaryButton label="Start tracking" onPress={onStartTracking} />
+        </View>
       )}
     </ScrollView>
   );
 }
 
-function PermissionRow({
-  icon,
-  label,
-  body,
-}: {
-  icon: string;
-  label: string;
-  body: string;
-}) {
-  const theme = useTheme();
+function PermissionRow({ icon, label, body }: { icon: keyof typeof MaterialCommunityIcons.glyphMap; label: string; body: string }) {
   return (
     <View style={styles.permRow}>
-      <IconButton icon={icon} size={24} iconColor={theme.colors.primary} />
+      <View style={styles.permIcon}>
+        <MaterialCommunityIcons name={icon} size={20} color={colors.ground} />
+      </View>
       <View style={{ flex: 1 }}>
-        <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
+        <Text variant="title" onGround>
           {label}
         </Text>
-        <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+        <Text variant="meta" onGround soft>
           {body}
         </Text>
       </View>
@@ -189,19 +173,103 @@ function PermissionRow({
   );
 }
 
+function PrimaryButton({
+  label,
+  onPress,
+  disabled,
+}: {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={({ pressed }) => [
+        styles.primaryBtn,
+        pressed && { opacity: 0.85 },
+        disabled && { opacity: 0.6 },
+      ]}
+    >
+      <Text variant="label" color={colors.ground}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+function TextLink({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} hitSlop={10}>
+      <Text variant="label" onGround soft style={styles.link}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: { padding: 24, gap: 24, alignItems: 'center' },
-  dots: { flexDirection: 'row', gap: 8 },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  card: {
-    width: '100%',
-    padding: 24,
-    borderRadius: 24,
+  container: {
+    padding: space[5],
+    gap: space[5],
     alignItems: 'center',
-    gap: 16,
+    minHeight: '100%',
   },
-  title: { textAlign: 'center', fontWeight: '600' },
-  body: { textAlign: 'center', lineHeight: 22 },
-  button: { marginTop: 8, alignSelf: 'stretch' },
-  permRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dots: {
+    flexDirection: 'row',
+    gap: space[2],
+    marginBottom: space[2],
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  step: {
+    width: '100%',
+    alignItems: 'center',
+    gap: space[3],
+  },
+  title: {
+    marginTop: space[3],
+  },
+  body: {
+    lineHeight: 22,
+    paddingHorizontal: space[3],
+  },
+  permList: {
+    alignSelf: 'stretch',
+    gap: space[3],
+    marginVertical: space[3],
+  },
+  permRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+  },
+  permIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: radii.chip,
+    backgroundColor: colors.inkOnGround,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryBtn: {
+    marginTop: space[2],
+    alignSelf: 'stretch',
+    paddingVertical: space[3],
+    borderRadius: radii.pill,
+    backgroundColor: colors.inkOnGround,
+    alignItems: 'center',
+  },
+  link: {
+    textDecorationLine: 'underline',
+    marginTop: space[1],
+  },
+  error: {
+    marginTop: space[2],
+    color: '#F2C9A2',
+  },
 });
