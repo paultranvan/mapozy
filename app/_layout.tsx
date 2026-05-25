@@ -2,7 +2,8 @@ import { Stack } from 'expo-router';
 import { PaperProvider } from 'react-native-paper';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { View, ActivityIndicator, StatusBar } from 'react-native';
+import { AppState, View, ActivityIndicator, StatusBar } from 'react-native';
+import type { AppStateStatus } from 'react-native';
 import { useEffect, useState } from 'react';
 import {
   useFonts,
@@ -19,6 +20,8 @@ import { adriaticTheme } from '@/theme/paperTheme';
 import { colors } from '@/theme/tokens';
 import { openDb, type Db } from '@/db/client';
 import { DbProvider } from '@/db/DbContext';
+import { runPipelineAndInvalidate } from '@/tracking/tracker';
+import { shouldRunPipelineOnAppStateChange } from '@/tracking/foregroundTrigger';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -56,6 +59,23 @@ export default function RootLayout() {
       mounted = false;
     };
   }, []);
+
+  // Drain unconsumed raw points on cold start and on every return to foreground.
+  // The 5-min-still trigger in useTrackerBridge only fires when JS is alive
+  // mid-trip; OS battery management often kills the bridge, leaving raw rows
+  // unprocessed until the user reopens the app.
+  useEffect(() => {
+    if (!db) return;
+    void runPipelineAndInvalidate(db, queryClient);
+    let prev: AppStateStatus = AppState.currentState;
+    const sub = AppState.addEventListener('change', (next) => {
+      if (shouldRunPipelineOnAppStateChange(next, prev)) {
+        void runPipelineAndInvalidate(db, queryClient);
+      }
+      prev = next;
+    });
+    return () => sub.remove();
+  }, [db]);
 
   if (!db || !fontsLoaded) {
     return (
