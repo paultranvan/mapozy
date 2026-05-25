@@ -2,9 +2,21 @@ import { Stack } from 'expo-router';
 import { PaperProvider } from 'react-native-paper';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { useColorScheme, View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, StatusBar } from 'react-native';
 import { useEffect, useState } from 'react';
-import { lightTheme, darkTheme } from '@/theme/paperTheme';
+import {
+  useFonts,
+  Fraunces_400Regular,
+  Fraunces_500Medium,
+} from '@expo-google-fonts/fraunces';
+import {
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+} from '@expo-google-fonts/inter';
+import { JetBrainsMono_500Medium } from '@expo-google-fonts/jetbrains-mono';
+import { adriaticTheme } from '@/theme/paperTheme';
+import { colors } from '@/theme/tokens';
 import { openDb, type Db } from '@/db/client';
 import { DbProvider } from '@/db/DbContext';
 
@@ -18,9 +30,17 @@ const queryClient = new QueryClient({
 });
 
 export default function RootLayout() {
-  const scheme = useColorScheme();
   const [db, setDb] = useState<Db | null>(null);
   const [dbError, setDbError] = useState<string | null>(null);
+
+  const [fontsLoaded] = useFonts({
+    Fraunces_400Regular,
+    Fraunces_500Medium,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    JetBrainsMono_500Medium,
+  });
 
   useEffect(() => {
     let mounted = true;
@@ -37,20 +57,19 @@ export default function RootLayout() {
     };
   }, []);
 
-  const theme = scheme === 'dark' ? darkTheme : lightTheme;
-
-  if (!db) {
+  if (!db || !fontsLoaded) {
     return (
-      <PaperProvider theme={theme}>
+      <PaperProvider theme={adriaticTheme}>
+        <StatusBar barStyle="light-content" backgroundColor={colors.ground} />
         <View
           style={{
             flex: 1,
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: theme.colors.background,
+            backgroundColor: colors.ground,
           }}
         >
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <ActivityIndicator size="large" color={colors.inkOnGround} />
         </View>
       </PaperProvider>
     );
@@ -60,19 +79,24 @@ export default function RootLayout() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <PaperProvider theme={theme}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.ground }}>
+      <StatusBar barStyle="light-content" backgroundColor={colors.ground} />
+      <PaperProvider theme={adriaticTheme}>
         <QueryClientProvider client={queryClient}>
           <DbProvider db={db}>
-            <Stack screenOptions={{ headerShown: false }}>
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: colors.ground },
+              }}
+            >
               <Stack.Screen name="(tabs)" />
               <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
               <Stack.Screen
                 name="trip/[id]"
                 options={{
-                  headerShown: true,
-                  title: 'Trip',
                   presentation: 'card',
+                  animation: 'slide_from_right',
                 }}
               />
             </Stack>
