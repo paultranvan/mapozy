@@ -22,10 +22,35 @@ export type Segment =
  * (consecutive points staying within `dwellRadiusM` for at least
  * `dwellMinutes`). Returns segments interleaving 'trip' (movement)
  * and 'stay' (dwell).
+ *
+ * Windows that overlap a high-confidence `in_vehicle` activity event are
+ * NOT treated as stays — that's a stalled vehicle (traffic jam, long
+ * light), not a place the user actually visited. Activity-less callers
+ * keep the legacy GPS-only behaviour.
  */
+const VEHICULAR_DISQUALIFY_MIN_CONFIDENCE = 60;
+
+function isStalledVehicle(
+  activities: RawActivity[],
+  startMs: number,
+  endMs: number
+): boolean {
+  for (const a of activities) {
+    if (
+      a.timestampMs >= startMs &&
+      a.timestampMs <= endMs &&
+      a.type === 'in_vehicle' &&
+      a.confidence >= VEHICULAR_DISQUALIFY_MIN_CONFIDENCE
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function segmentation(
   points: RawPoint[],
-  _activities: RawActivity[],
+  activities: RawActivity[],
   opts: SegOpts = {}
 ): Segment[] {
   const dwellMs = (opts.dwellMinutes ?? 5) * 60_000;
@@ -64,7 +89,11 @@ export function segmentation(
     }
     const startMs = anchor.timestampMs;
     const endMs = j > i ? points[j - 1]!.timestampMs : startMs;
-    if (endMs - startMs >= dwellMs && count >= 2) {
+    if (
+      endMs - startMs >= dwellMs &&
+      count >= 2 &&
+      !isStalledVehicle(activities, startMs, endMs)
+    ) {
       dwells.push({
         start: startMs,
         end: endMs,
