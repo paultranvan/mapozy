@@ -1,0 +1,17 @@
+node_modules/
+.expo/
+dist/
+web-build/
+android/
+ios/
+.env*
+*.log
+*.tsbuildinfo
+ios/Pods/
+*.orig.*
+.DS_Store
+.idea/
+.vscode/
+coverage/
+modules/*/build/
+modules/*/.cxx/
