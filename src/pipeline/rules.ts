@@ -53,6 +53,12 @@ export const RULES = {
     { dwellMinutes: 5, dwellRadiusM: 100 }
   ),
 
+  STATIONARY_BOUNDARY: rule(
+    'RULE_STATIONARY_BOUNDARY',
+    'Inside a detected dwell, refine the trip/stay boundary to the moment the phone is actually stationary (windowed displacement under the threshold), instead of the outer edge of the dwell circle. This makes trip polylines reach the destination instead of being truncated by up to one dwell radius.',
+    { windowMs: 60_000, maxDisplacementM: 15 }
+  ),
+
   STALLED_VEHICLE_GUARD: rule(
     'RULE_STALLED_VEHICLE_GUARD',
     'A dwell window overlapping a confident in_vehicle activity is a stalled vehicle (traffic), not a stay.',
