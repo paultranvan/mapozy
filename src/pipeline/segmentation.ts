@@ -4,6 +4,7 @@ import { haversineMeters } from '../lib/distance';
 export interface SegOpts {
   dwellMinutes?: number;
   dwellRadiusM?: number;
+  gapMinutes?: number;
 }
 
 export type Segment =
@@ -55,6 +56,7 @@ export function segmentation(
 ): Segment[] {
   const dwellMs = (opts.dwellMinutes ?? 5) * 60_000;
   const radius = opts.dwellRadiusM ?? 100;
+  const gapMs = (opts.gapMinutes ?? 10) * 60_000;
   if (points.length === 0) return [];
 
   type Window = {
@@ -108,12 +110,47 @@ export function segmentation(
     }
   }
 
+  for (let i = 0; i < points.length - 1; i++) {
+    const t1 = points[i]!.timestampMs;
+    const t2 = points[i + 1]!.timestampMs;
+    if (t2 - t1 < gapMs) continue;
+    const dist = haversineMeters(
+      points[i]!.latitude,
+      points[i]!.longitude,
+      points[i + 1]!.latitude,
+      points[i + 1]!.longitude
+    );
+    if (dist <= radius) continue;
+    if (isStalledVehicle(activities, t1, t2)) continue;
+    dwells.push({
+      start: t1,
+      end: t2,
+      centerLat: points[i]!.latitude,
+      centerLon: points[i]!.longitude,
+      startIdx: i,
+      endIdx: i,
+    });
+  }
+
+  dwells.sort((a, b) => a.start - b.start);
+
   const segs: Segment[] = [];
   let cursor = 0;
   for (const d of dwells) {
     if (cursor < d.startIdx) {
-      // Trip from cursor up to and including the first stay point as endpoint
-      const tripPoints = points.slice(cursor, d.startIdx + 1);
+      let startIdx = cursor;
+      if (cursor > 0) {
+        const lastPrev = points[cursor - 1]!;
+        const firstTrip = points[cursor]!;
+        const dist = haversineMeters(
+          lastPrev.latitude,
+          lastPrev.longitude,
+          firstTrip.latitude,
+          firstTrip.longitude
+        );
+        if (dist <= radius * 3) startIdx = cursor - 1;
+      }
+      const tripPoints = points.slice(startIdx, d.startIdx + 1);
       if (tripPoints.length >= 2) segs.push({ kind: 'trip', points: tripPoints });
     }
     segs.push({
@@ -130,5 +167,69 @@ export function segmentation(
     const tail = points.slice(cursor);
     if (tail.length >= 2) segs.push({ kind: 'trip', points: tail });
   }
-  return segs;
+
+  return injectInferredTrips(segs, radius);
+}
+
+const SYNTHETIC_TRIP_DURATION_MS = 5 * 60_000;
+
+function synthPoint(t: number, lat: number, lon: number): RawPoint {
+  return {
+    id: 0,
+    timestampMs: t,
+    latitude: lat,
+    longitude: lon,
+    altitude: null,
+    accuracyMeters: 1,
+    speedMps: null,
+    bearingDeg: null,
+    batteryLevel: null,
+    isCharging: false,
+    consumed: false,
+  };
+}
+
+/**
+ * Two consecutive stays at different locations imply a trip we couldn't
+ * capture (GPS lost lock during the move). Borrow a slice off the tail of
+ * the first stay and emit a 2-point synthetic trip ending at the next stay.
+ */
+function injectInferredTrips(segs: Segment[], radius: number): Segment[] {
+  const out: Segment[] = [];
+  for (let i = 0; i < segs.length; i++) {
+    const cur = segs[i]!;
+    const next = i < segs.length - 1 ? segs[i + 1] : null;
+    if (cur.kind === 'stay' && next && next.kind === 'stay') {
+      const dist = haversineMeters(
+        cur.centerLat,
+        cur.centerLon,
+        next.centerLat,
+        next.centerLon
+      );
+      if (dist > radius) {
+        const tripStart = Math.max(
+          cur.startMs + 60_000,
+          cur.endMs - SYNTHETIC_TRIP_DURATION_MS
+        );
+        out.push({
+          kind: 'stay',
+          centerLat: cur.centerLat,
+          centerLon: cur.centerLon,
+          startMs: cur.startMs,
+          endMs: tripStart,
+          representativePoint: cur.representativePoint,
+        });
+        out.push({
+          kind: 'trip',
+          points: [
+            synthPoint(tripStart, cur.centerLat, cur.centerLon),
+            synthPoint(next.startMs, next.centerLat, next.centerLon),
+          ],
+        });
+        continue;
+      }
+    }
+    out.push(cur);
+  }
+  return out;
 }

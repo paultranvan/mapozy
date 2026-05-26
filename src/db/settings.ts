@@ -32,4 +32,5 @@ export const SETTING_KEYS = {
   TRACKING_SENSITIVITY: 'tracking_sensitivity',
   THEME: 'theme',
   LAST_HOMEWORK_DETECTION_MS: 'last_homework_detection_ms',
+  LAST_KNOWN_PLACE_ID: 'last_known_place_id',
 } as const;

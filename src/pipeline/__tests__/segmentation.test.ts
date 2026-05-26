@@ -67,4 +67,37 @@ describe('segmentation', () => {
     const segs = segmentation(pts, [], { dwellMinutes: 5, dwellRadiusM: 100 });
     expect(segs.filter((s) => s.kind === 'stay')).toHaveLength(1);
   });
+
+  it('treats a long gap at a different location as an implicit stay', () => {
+    // Home cluster, then a walk, then a 2h gap, then home again
+    const t0 = 1_700_000_000_000;
+    const lat0 = 48.7737;
+    const lon0 = 2.3226;
+    const pts: ReturnType<typeof mkPoint>[] = [];
+    // Stay at home for 10 minutes
+    for (let i = 0; i <= 10; i++) {
+      pts.push(mkPoint(t0 + i * 60_000, lat0, lon0));
+    }
+    // Walk 1km north over 5 min
+    const walkStart = t0 + 11 * 60_000;
+    for (let i = 1; i <= 5; i++) {
+      pts.push(mkPoint(walkStart + i * 60_000, lat0 + 0.002 * i, lon0));
+    }
+    // 2h gap, then home again for 10 min
+    const homeAgain = walkStart + 5 * 60_000 + 2 * 60 * 60_000;
+    for (let i = 0; i <= 10; i++) {
+      pts.push(mkPoint(homeAgain + i * 60_000, lat0, lon0));
+    }
+
+    const segs = segmentation(pts, [], {
+      dwellMinutes: 5,
+      dwellRadiusM: 100,
+      gapMinutes: 10,
+    });
+    const stays = segs.filter((s) => s.kind === 'stay');
+    const trips = segs.filter((s) => s.kind === 'trip');
+    // Expect: home stay + outbound trip + gap stay + inferred return trip + home2 stay
+    expect(stays).toHaveLength(3);
+    expect(trips).toHaveLength(2);
+  });
 });
