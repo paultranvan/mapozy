@@ -38,4 +38,6 @@ export interface TrackingStatus {
   isTracking: boolean;
   lastLocationAt: number | null;
   lastActivityType: ActivityType | null;
+  lastActivityAt: number | null;
+  lastArSilenceDetectedAt: number | null;
 }
