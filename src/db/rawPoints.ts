@@ -94,6 +94,14 @@ export async function countUnconsumedPoints(db: Db): Promise<number> {
   return r?.c ?? 0;
 }
 
+export async function countPointsSince(db: Db, sinceMs: number): Promise<number> {
+  const r = await db.getFirstAsync<{ c: number }>(
+    `SELECT COUNT(*) as c FROM raw_points WHERE timestamp_ms >= ?`,
+    sinceMs
+  );
+  return r?.c ?? 0;
+}
+
 export async function purgeOldConsumedPoints(db: Db, beforeMs: number): Promise<number> {
   const r = await db.runAsync(
     `DELETE FROM raw_points WHERE consumed=1 AND timestamp_ms < ?`,
