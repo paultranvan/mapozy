@@ -1,30 +1,34 @@
 /**
- * Mapozy design tokens — single source of truth for the Adriatic identity.
+ * Mapozy design tokens — palette inspired by CoachCO2 / cozy-ui.
  *
- * Locked in 2026-05-25-mapozy-redesign-design.md. Do not introduce parallel
- * colour palettes or a light theme — the Adriatic blue *is* the identity.
+ * Cool grey-100 canvas (#F3F6F9), white floating cards, bright iOS-blue
+ * primary (#0A84FF), deep navy secondary (#243B55) used as a sparing accent
+ * on chips and trip pins, vivid red for danger.
  */
 
 import type { DominantMode, Mode } from '../types';
 
 export const colors = {
-  ground: '#163A57',
+  ground: '#F3F6F9',
   surface: '#FFFFFF',
-  surfaceMuted: '#F5F2EC',
+  surfaceMuted: '#EDF2F7',
   ink: '#1A2230',
   inkSoft: '#5C6470',
-  inkOnGround: '#EAE3D0',
-  inkOnGroundSoft: 'rgba(234, 227, 208, 0.65)',
-  divider: '#ECEEF1',
-  accent: '#C97A4A',
-  accentSoft: '#EAD7C5',
-  danger: '#A14037',
+  inkOnGround: '#1A2230',
+  inkOnGroundSoft: 'rgba(26, 34, 48, 0.55)',
+  divider: '#E3E4E5',
+  accent: '#0A84FF',
+  accentSoft: '#E3F1FF',
+  danger: '#EA3F3F',
+  dangerSurface: '#FFECEC',
+  dangerBorder: '#FF939D',
+  deep: '#243B55',
   mode: {
-    walk: '#688A6D',
-    bike: '#D9A24A',
-    car: '#C97A4A',
-    run: '#B85451',
-    mixed: '#7C8FA4',
+    walk: '#21B930',
+    bike: '#15CACD',
+    car: '#FF7B5E',
+    run: '#00AD48',
+    mixed: '#A4A7AC',
   } satisfies Record<DominantMode, string>,
 } as const;
 

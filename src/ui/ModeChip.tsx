@@ -16,7 +16,7 @@ export function ModeChip({
       <MaterialCommunityIcons
         name={iconName as keyof typeof MaterialCommunityIcons.glyphMap}
         size={size * 0.55}
-        color={colors.ground}
+        color={colors.surface}
       />
     </View>
   );
@@ -24,7 +24,7 @@ export function ModeChip({
 
 const styles = StyleSheet.create({
   chip: {
-    backgroundColor: colors.inkOnGround,
+    backgroundColor: colors.deep,
     borderRadius: radii.chip,
     alignItems: 'center',
     justifyContent: 'center',

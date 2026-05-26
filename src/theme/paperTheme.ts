@@ -1,4 +1,4 @@
-import { MD3DarkTheme, configureFonts, type MD3Theme } from 'react-native-paper';
+import { MD3LightTheme, configureFonts, type MD3Theme } from 'react-native-paper';
 import { colors, type as typeTokens } from './tokens';
 
 const fontConfig = {
@@ -20,18 +20,18 @@ const fontConfig = {
 };
 
 export const adriaticTheme: MD3Theme = {
-  ...MD3DarkTheme,
-  dark: true,
+  ...MD3LightTheme,
+  dark: false,
   colors: {
-    ...MD3DarkTheme.colors,
+    ...MD3LightTheme.colors,
     primary: colors.accent,
-    onPrimary: colors.inkOnGround,
+    onPrimary: colors.surface,
     primaryContainer: colors.accentSoft,
     onPrimaryContainer: colors.ink,
-    secondary: colors.mode.walk,
-    onSecondary: colors.inkOnGround,
+    secondary: colors.deep,
+    onSecondary: colors.surface,
     background: colors.ground,
-    onBackground: colors.inkOnGround,
+    onBackground: colors.ink,
     surface: colors.surface,
     onSurface: colors.ink,
     surfaceVariant: colors.surfaceMuted,
@@ -39,7 +39,7 @@ export const adriaticTheme: MD3Theme = {
     outline: colors.divider,
     outlineVariant: colors.divider,
     error: colors.danger,
-    onError: colors.inkOnGround,
+    onError: colors.surface,
     elevation: {
       level0: 'transparent',
       level1: colors.surface,
