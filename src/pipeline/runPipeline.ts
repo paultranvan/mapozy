@@ -60,9 +60,7 @@ export async function runPipeline(
   const segments = segmentation(filtered, activities);
 
   let tripsInserted = 0;
-  const seedStr = await getSetting(db, SETTING_KEYS.LAST_KNOWN_PLACE_ID);
-  const seed = seedStr ? Number(seedStr) : NaN;
-  let previousStayPlaceId: number | null = Number.isFinite(seed) ? seed : null;
+  let previousStayPlaceId: number | null = await readValidSeedPlaceId(db);
   let pendingTrip: RawPoint[] | null = null;
 
   for (const seg of segments) {
@@ -120,6 +118,22 @@ export async function runPipeline(
     pointsConsumed: points.length,
     activitiesConsumed: activities.length,
   };
+}
+
+async function readValidSeedPlaceId(db: Db): Promise<number | null> {
+  const seedStr = await getSetting(db, SETTING_KEYS.LAST_KNOWN_PLACE_ID);
+  if (!seedStr) return null;
+  const seed = Number(seedStr);
+  if (!Number.isFinite(seed)) return null;
+  const row = await db.getFirstAsync<{ id: number }>(
+    `SELECT id FROM places WHERE id = ?`,
+    seed
+  );
+  if (row) return seed;
+  // Stale reference (e.g. previous "Clear all data"). Drop it so we don't
+  // throw FOREIGN KEY on every trip insert until the user reinstalls.
+  await setSetting(db, SETTING_KEYS.LAST_KNOWN_PLACE_ID, '');
+  return null;
 }
 
 async function assembleAndPersist(

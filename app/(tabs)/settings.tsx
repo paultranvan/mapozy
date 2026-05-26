@@ -63,10 +63,14 @@ export default function SettingsScreen() {
   }
 
   async function runPipeline() {
-    await runPipelineAndInvalidate(db, qc);
-    setTripCount(await countTrips(db));
-    setRawCount(await countUnconsumedPoints(db));
-    Alert.alert('Pipeline complete', 'Trips have been refreshed.');
+    try {
+      await runPipelineAndInvalidate(db, qc);
+      setTripCount(await countTrips(db));
+      setRawCount(await countUnconsumedPoints(db));
+      Alert.alert('Pipeline complete', 'Trips have been refreshed.');
+    } catch (e) {
+      Alert.alert('Pipeline failed', String(e));
+    }
   }
 
   async function runHomeWork() {
@@ -100,6 +104,18 @@ export default function SettingsScreen() {
             await db.runAsync(`DELETE FROM raw_points`);
             await db.runAsync(`DELETE FROM raw_activities`);
             await db.runAsync(`DELETE FROM places`);
+            // Settings that reference deleted rows would otherwise dangle
+            // (e.g. last_known_place_id -> non-existent place id, causing
+            // FK violations on the next pipeline run). Reset AUTOINCREMENT
+            // counters too so next inserts start at id=1, matching the
+            // intent of "wipe everything".
+            await db.runAsync(
+              `DELETE FROM settings WHERE key = ?`,
+              SETTING_KEYS.LAST_KNOWN_PLACE_ID
+            );
+            await db.runAsync(
+              `DELETE FROM sqlite_sequence WHERE name IN ('trips','sections','places','raw_points','raw_activities')`
+            );
             setTripCount(0);
             setRawCount(0);
             await qc.invalidateQueries();
