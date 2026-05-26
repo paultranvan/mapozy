@@ -20,6 +20,10 @@ object TrackingState {
   private const val KEY_LAST_LOC_MS = "last_loc_ms"
   private const val KEY_LAST_LOC_SPEED = "last_loc_speed_mps"
   private const val KEY_LAST_ACT_TYPE = "last_act_type"
+  // RULE_AR_SILENCE_DETECTION observation state — timestamps used to
+  // diagnose whether the activity-recognition subscription is alive.
+  private const val KEY_LAST_ACT_MS = "last_act_ms"
+  private const val KEY_LAST_SILENCE_DETECTED_MS = "last_silence_detected_ms"
   // RULE_ADAPTIVE_LOCATION_REQUEST observation state
   private const val KEY_ACTIVE_PROFILE = "active_lr_profile"
 
@@ -76,12 +80,33 @@ object TrackingState {
     return p.getFloat(KEY_LAST_LOC_SPEED, Float.NaN).takeIf { !it.isNaN() }
   }
 
-  fun setLastActivity(context: Context, type: String) {
-    prefs(context).edit().putString(KEY_LAST_ACT_TYPE, type).apply()
+  fun setLastActivity(context: Context, type: String, timestampMs: Long) {
+    prefs(context).edit()
+      .putString(KEY_LAST_ACT_TYPE, type)
+      .putLong(KEY_LAST_ACT_MS, timestampMs)
+      .apply()
   }
 
   fun getLastActivity(context: Context): String? =
     prefs(context).getString(KEY_LAST_ACT_TYPE, null)
+
+  fun getLastActivityMs(context: Context): Long? {
+    val v = prefs(context).getLong(KEY_LAST_ACT_MS, -1L)
+    return if (v == -1L) null else v
+  }
+
+  fun getLastSilenceDetectedMs(context: Context): Long? {
+    val v = prefs(context).getLong(KEY_LAST_SILENCE_DETECTED_MS, -1L)
+    return if (v == -1L) null else v
+  }
+
+  fun setLastSilenceDetectedMs(context: Context, ms: Long) {
+    prefs(context).edit().putLong(KEY_LAST_SILENCE_DETECTED_MS, ms).apply()
+  }
+
+  fun clearLastSilenceDetectedMs(context: Context) {
+    prefs(context).edit().remove(KEY_LAST_SILENCE_DETECTED_MS).apply()
+  }
 
   fun getActiveProfileName(context: Context): String =
     prefs(context).getString(KEY_ACTIVE_PROFILE, TrackingRules.TIGHT_PROFILE.name)

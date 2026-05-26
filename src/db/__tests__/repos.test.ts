@@ -5,6 +5,12 @@ import { insertRawActivity, getAllUnconsumedActivities, markActivitiesConsumed }
 import { findOrCreatePlace, getPlaceById, setPlaceLabel } from '../places';
 import { insertTripWithSections, getTripById, listTrips, countTrips, deleteTrip } from '../trips';
 import { getSetting, setSetting } from '../settings';
+import {
+  insertDiagnosticEvent,
+  listDiagnosticEvents,
+  countDiagnosticEvents,
+  DIAGNOSTIC_EVENTS,
+} from '../diagnostics';
 import type { Db } from '../client';
 
 describe('db repositories (in-memory via better-sqlite3)', () => {
@@ -214,6 +220,65 @@ describe('db repositories (in-memory via better-sqlite3)', () => {
       await setSetting(db, 'foo', 'baz');
       expect(await getSetting(db, 'foo')).toBe('baz');
       expect(await getSetting(db, 'missing')).toBeNull();
+    });
+  });
+
+  describe('tracker_diagnostics', () => {
+    it('inserts, lists newest first, and round-trips JSON payloads', async () => {
+      await insertDiagnosticEvent(db, 1_000, DIAGNOSTIC_EVENTS.AR_SUBSCRIBED, {
+        api: 'transition',
+        transitions: ['walking', 'in_vehicle'],
+      });
+      await insertDiagnosticEvent(
+        db,
+        2_000,
+        DIAGNOSTIC_EVENTS.AR_SILENCE_DETECTED,
+        { gapMs: 600_000, lastSpeed: 1.4 }
+      );
+      await insertDiagnosticEvent(db, 3_000, DIAGNOSTIC_EVENTS.AR_UNSUBSCRIBED, null);
+
+      const all = await listDiagnosticEvents(db);
+      expect(all.map((e) => e.timestampMs)).toEqual([3_000, 2_000, 1_000]);
+      expect(all.map((e) => e.eventType)).toEqual([
+        DIAGNOSTIC_EVENTS.AR_UNSUBSCRIBED,
+        DIAGNOSTIC_EVENTS.AR_SILENCE_DETECTED,
+        DIAGNOSTIC_EVENTS.AR_SUBSCRIBED,
+      ]);
+      expect(all[2]!.payload).toEqual({
+        api: 'transition',
+        transitions: ['walking', 'in_vehicle'],
+      });
+      expect(all[1]!.payload).toEqual({ gapMs: 600_000, lastSpeed: 1.4 });
+      expect(all[0]!.payload).toBeNull();
+    });
+
+    it('filters by type and sinceMs', async () => {
+      await insertDiagnosticEvent(db, 1_000, DIAGNOSTIC_EVENTS.AR_SILENCE_DETECTED, null);
+      await insertDiagnosticEvent(db, 2_000, DIAGNOSTIC_EVENTS.AR_SUBSCRIBED, null);
+      await insertDiagnosticEvent(db, 3_000, DIAGNOSTIC_EVENTS.AR_SILENCE_DETECTED, null);
+
+      const silenceSince2k = await listDiagnosticEvents(db, {
+        type: DIAGNOSTIC_EVENTS.AR_SILENCE_DETECTED,
+        sinceMs: 2_000,
+      });
+      expect(silenceSince2k.map((e) => e.timestampMs)).toEqual([3_000]);
+
+      expect(
+        await countDiagnosticEvents(db, { type: DIAGNOSTIC_EVENTS.AR_SILENCE_DETECTED })
+      ).toBe(2);
+    });
+
+    it('survives non-JSON payload strings gracefully', async () => {
+      // Direct DB write — emulates a payload string a future caller might
+      // store before the JSON-shape contract is widely adopted.
+      await db.runAsync(
+        `INSERT INTO tracker_diagnostics(timestamp_ms, event_type, payload) VALUES(?, ?, ?)`,
+        4_000,
+        'manual',
+        'not-json'
+      );
+      const all = await listDiagnosticEvents(db, { type: 'manual' });
+      expect(all[0]!.payload).toBe('not-json');
     });
   });
 });
