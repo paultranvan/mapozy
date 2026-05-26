@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import {
   SectionList,
   StyleSheet,
@@ -7,13 +7,16 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useQueryClient } from '@tanstack/react-query';
 import { useTripsList, usePlaces } from '@/queries/useTrips';
+import { useDb } from '@/db/DbContext';
+import { geocodePlaceLazy } from '@/pipeline/geocoding';
 import { TripListItem } from '@/ui/TripListItem';
 import { TopBar } from '@/ui/TopBar';
 import { Text } from '@/ui/Text';
 import { colors, space } from '@/theme/tokens';
 import { dayKey } from '@/lib/time';
-import type { Trip } from '@/types';
+import type { Trip, Place } from '@/types';
 
 interface Section {
   title: string;
@@ -53,6 +56,8 @@ function groupByDay(trips: Trip[]): Section[] {
 }
 
 export default function TripsScreen() {
+  const db = useDb();
+  const qc = useQueryClient();
   const tripsQ = useTripsList(500);
   const placesQ = usePlaces();
 
@@ -65,6 +70,29 @@ export default function TripsScreen() {
     if (placesQ.data) for (const p of placesQ.data) m.set(p.id, p);
     return m;
   }, [placesQ.data]);
+
+  useEffect(() => {
+    if (!placesQ.data) return;
+    const pending = placesQ.data
+      .filter((p: Place) => !p.displayName)
+      .map((p: Place) => p.id);
+    if (pending.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      for (const id of pending) {
+        if (cancelled) return;
+        const name = await geocodePlaceLazy(db, id);
+        if (cancelled) return;
+        if (name) {
+          await qc.invalidateQueries({ queryKey: ['places'] });
+          await qc.invalidateQueries({ queryKey: ['place', id] });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [db, qc, placesQ.data]);
 
   if (tripsQ.isLoading) {
     return (
