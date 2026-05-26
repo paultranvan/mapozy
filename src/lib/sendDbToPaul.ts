@@ -7,9 +7,13 @@ import { buildExportFilename } from './sendDbToPaulFilename';
 
 export { buildExportFilename };
 
-const RECIPIENT = 'paul.tranvan@gmail.com';
-
 export async function sendDbToPaul(db: Db): Promise<void> {
+  const recipient = process.env.EXPO_PUBLIC_DEBUG_EMAIL;
+  if (!recipient) {
+    throw new Error(
+      'EXPO_PUBLIC_DEBUG_EMAIL is not set. Copy .env.example to .env and configure it.'
+    );
+  }
   if (!(await MailComposer.isAvailableAsync())) {
     throw new Error('No mail app is configured on this device.');
   }
@@ -29,7 +33,7 @@ export async function sendDbToPaul(db: Db): Promise<void> {
   const dateLabel = filename.replace('mapozy-export-', '').replace('.db', '');
 
   const result = await MailComposer.composeAsync({
-    recipients: [RECIPIENT],
+    recipients: [recipient],
     subject: `Mapozy data export — ${dateLabel}`,
     body:
       `Hi Paul,\n\n` +
