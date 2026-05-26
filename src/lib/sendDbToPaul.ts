@@ -1,9 +1,9 @@
 import { Alert } from 'react-native';
-import * as FileSystem from 'expo-file-system';
 import * as MailComposer from 'expo-mail-composer';
 import Constants from 'expo-constants';
 import type { Db } from '@/db/client';
 import { buildExportFilename } from './sendDbToPaulFilename';
+import { prepareDbExport } from './exportDb';
 
 export { buildExportFilename };
 
@@ -18,15 +18,8 @@ export async function sendDbToPaul(db: Db): Promise<void> {
     throw new Error('No mail app is configured on this device.');
   }
 
-  // Flush WAL into the main database file so the copy reflects all writes.
-  await db.execAsync('PRAGMA wal_checkpoint(TRUNCATE);');
-
-  const sourcePath = `${FileSystem.documentDirectory}SQLite/mapozy.db`;
   const now = new Date();
-  const filename = buildExportFilename(now);
-  const destPath = `${FileSystem.cacheDirectory}${filename}`;
-
-  await FileSystem.copyAsync({ from: sourcePath, to: destPath });
+  const { destPath, filename } = await prepareDbExport(db, now);
 
   const version = Constants.expoConfig?.version ?? 'unknown';
   const isoNow = now.toISOString();

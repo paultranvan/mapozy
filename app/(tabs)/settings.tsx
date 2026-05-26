@@ -18,6 +18,7 @@ import { MapozyTracker } from 'mapozy-tracker';
 import { detectHomeAndWork } from '@/stats/homeWorkDetection';
 import { injectDemoTrip } from '@/lib/demoTrip';
 import { sendDbToPaul } from '@/lib/sendDbToPaul';
+import { shareDb } from '@/lib/shareDb';
 import { TopBar } from '@/ui/TopBar';
 import { Text } from '@/ui/Text';
 import { Card } from '@/ui/Card';
@@ -88,6 +89,14 @@ export default function SettingsScreen() {
       await sendDbToPaul(db);
     } catch (e) {
       Alert.alert('Could not send data', String(e));
+    }
+  }
+
+  async function onShareDb() {
+    try {
+      await shareDb(db);
+    } catch (e) {
+      Alert.alert('Could not share database', String(e));
     }
   }
 
@@ -200,6 +209,16 @@ export default function SettingsScreen() {
             <SecondaryButton onPress={runPipeline} label="Force pipeline" />
             <SecondaryButton onPress={runHomeWork} label="Detect home/work" />
           </View>
+          <View style={styles.divider} />
+          <Pressable style={styles.actionRow} onPress={onShareDb}>
+            <View style={{ flex: 1 }}>
+              <Text variant="title">Share database file…</Text>
+              <Text variant="meta" soft>
+                Opens the system share sheet so you can send the DB anywhere (Claude, Drive, email).
+              </Text>
+            </View>
+            <MaterialCommunityIcons name="chevron-right" size={22} color={colors.inkSoft} />
+          </Pressable>
           <View style={styles.divider} />
           <Pressable style={styles.actionRow} onPress={onSendDataToPaul}>
             <View style={{ flex: 1 }}>
