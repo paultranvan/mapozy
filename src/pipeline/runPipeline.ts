@@ -10,6 +10,7 @@ import {
 } from '../db/rawActivities';
 import { findOrCreatePlace } from '../db/places';
 import { insertTripWithSections } from '../db/trips';
+import { getSetting, setSetting, SETTING_KEYS } from '../db/settings';
 import { accuracyFilter } from './accuracyFilter';
 import { segmentation } from './segmentation';
 import { smoothing } from './smoothing';
@@ -21,6 +22,8 @@ export interface RunPipelineOpts {
   upToMs?: number;
   nowMs?: number;
 }
+
+const MIN_TRIP_DISTANCE_M = 100;
 
 export interface RunPipelineResult {
   tripsInserted: number;
@@ -57,7 +60,9 @@ export async function runPipeline(
   const segments = segmentation(filtered, activities);
 
   let tripsInserted = 0;
-  let previousStayPlaceId: number | null = null;
+  const seedStr = await getSetting(db, SETTING_KEYS.LAST_KNOWN_PLACE_ID);
+  const seed = seedStr ? Number(seedStr) : NaN;
+  let previousStayPlaceId: number | null = Number.isFinite(seed) ? seed : null;
   let pendingTrip: RawPoint[] | null = null;
 
   for (const seg of segments) {
@@ -69,7 +74,7 @@ export async function runPipeline(
         seg.endMs
       );
       if (pendingTrip) {
-        await assembleAndPersist(
+        const inserted = await assembleAndPersist(
           db,
           pendingTrip,
           activities,
@@ -77,7 +82,7 @@ export async function runPipeline(
           placeId,
           now
         );
-        tripsInserted++;
+        if (inserted) tripsInserted++;
         pendingTrip = null;
       }
       previousStayPlaceId = placeId;
@@ -102,6 +107,14 @@ export async function runPipeline(
     await markActivitiesConsumed(db, activities.map((a) => a.id));
   }
 
+  if (previousStayPlaceId !== null) {
+    await setSetting(
+      db,
+      SETTING_KEYS.LAST_KNOWN_PLACE_ID,
+      String(previousStayPlaceId)
+    );
+  }
+
   return {
     tripsInserted,
     pointsConsumed: points.length,
@@ -116,11 +129,13 @@ async function assembleAndPersist(
   startPlaceId: number | null,
   endPlaceId: number | null,
   nowMs: number
-): Promise<void> {
+): Promise<boolean> {
   const smoothed = smoothing(rawPts);
   const resampled = resample(smoothed);
   const rawSections = sectionSegmentation(resampled, activities);
-  if (rawSections.length === 0) return;
+  if (rawSections.length === 0) return false;
   const trip = assemble({ rawSections, startPlaceId, endPlaceId, nowMs });
+  if (trip.distanceM < MIN_TRIP_DISTANCE_M) return false;
   await insertTripWithSections(db, trip);
+  return true;
 }

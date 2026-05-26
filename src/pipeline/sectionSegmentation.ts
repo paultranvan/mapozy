@@ -69,6 +69,17 @@ export function sectionSegmentation(
     });
   }
 
+  if (
+    sections.length > 1 &&
+    (sections[0]!.activity === 'unknown' ||
+      sections[0]!.endMs - sections[0]!.startMs < minSection)
+  ) {
+    const first = sections.shift()!;
+    const next = sections[0]!;
+    next.points = [...first.points, ...next.points];
+    next.startMs = first.startMs;
+  }
+
   const merged: RawSection[] = [];
   for (const s of sections) {
     const dur = s.endMs - s.startMs;
@@ -80,5 +91,16 @@ export function sectionSegmentation(
       merged.push(s);
     }
   }
-  return merged;
+
+  const combined: RawSection[] = [];
+  for (const s of merged) {
+    const prev = combined[combined.length - 1];
+    if (prev && prev.activity === s.activity) {
+      prev.points.push(...s.points);
+      prev.endMs = s.endMs;
+    } else {
+      combined.push(s);
+    }
+  }
+  return combined;
 }
