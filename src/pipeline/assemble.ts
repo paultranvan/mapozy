@@ -1,8 +1,10 @@
+// Rule implemented here: RULE_DOMINANT_MODE_THRESHOLD (see ./rules.ts).
 import type { Trip, Section, DominantMode } from '../types';
 import type { RawSection } from './sectionSegmentation';
 import { modeForSection, maxSpeedMps } from './modeInference';
 import { pathLengthMeters } from '../lib/distance';
 import { co2GramsForSection } from '../co2/compute';
+import { RULES } from './rules';
 
 export interface AssembleInput {
   rawSections: RawSection[];
@@ -54,7 +56,9 @@ export function assemble(input: AssembleInput): Trip {
       dominantMode = m as DominantMode;
     }
   }
-  if (distanceM > 0 && maxModeDistance / distanceM < 0.7) {
+  // RULE_DOMINANT_MODE_THRESHOLD
+  const minShare = RULES.DOMINANT_MODE_THRESHOLD.defaults.dominantModeMinShare;
+  if (distanceM > 0 && maxModeDistance / distanceM < minShare) {
     dominantMode = 'mixed';
   }
 

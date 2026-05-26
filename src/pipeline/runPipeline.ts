@@ -1,3 +1,5 @@
+// Rule implemented here: RULE_MIN_TRIP_DISTANCE (see ./rules.ts).
+// All other pipeline rules fire inside the stage functions called below.
 import type { Db } from '../db/client';
 import type { RawPoint, RawActivity } from '../types';
 import {
@@ -17,13 +19,12 @@ import { smoothing } from './smoothing';
 import { resample } from './resample';
 import { sectionSegmentation } from './sectionSegmentation';
 import { assemble } from './assemble';
+import { RULES } from './rules';
 
 export interface RunPipelineOpts {
   upToMs?: number;
   nowMs?: number;
 }
-
-const MIN_TRIP_DISTANCE_M = 100;
 
 export interface RunPipelineResult {
   tripsInserted: number;
@@ -149,7 +150,8 @@ async function assembleAndPersist(
   const rawSections = sectionSegmentation(resampled, activities);
   if (rawSections.length === 0) return false;
   const trip = assemble({ rawSections, startPlaceId, endPlaceId, nowMs });
-  if (trip.distanceM < MIN_TRIP_DISTANCE_M) return false;
+  // RULE_MIN_TRIP_DISTANCE
+  if (trip.distanceM < RULES.MIN_TRIP_DISTANCE.defaults.minTripDistanceM) return false;
   await insertTripWithSections(db, trip);
   return true;
 }
