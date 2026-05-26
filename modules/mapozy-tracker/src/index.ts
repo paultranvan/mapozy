@@ -16,8 +16,12 @@ interface MapozyTrackerEvents extends Record<string, (...args: any[]) => void> {
 declare class MapozyTrackerNativeModule extends NativeModule<MapozyTrackerEvents> {
   start(config: TrackingConfig): Promise<void>;
   stop(): Promise<void>;
+  pauseLocation(): Promise<void>;
+  resumeLocation(): Promise<void>;
   isTracking(): Promise<boolean>;
   getStatus(): Promise<TrackingStatus>;
+  isIgnoringBatteryOptimizations(): Promise<boolean>;
+  requestIgnoreBatteryOptimizations(): Promise<void>;
 }
 
 const Native = requireNativeModule<MapozyTrackerNativeModule>('MapozyTracker');
@@ -25,8 +29,12 @@ const Native = requireNativeModule<MapozyTrackerNativeModule>('MapozyTracker');
 export const MapozyTracker = {
   start: (cfg: TrackingConfig) => Native.start(cfg),
   stop: () => Native.stop(),
+  pauseLocation: () => Native.pauseLocation(),
+  resumeLocation: () => Native.resumeLocation(),
   isTracking: () => Native.isTracking(),
   getStatus: () => Native.getStatus(),
+  isIgnoringBatteryOptimizations: () => Native.isIgnoringBatteryOptimizations(),
+  requestIgnoreBatteryOptimizations: () => Native.requestIgnoreBatteryOptimizations(),
   addLocationListener: (cb: (l: LocationUpdate) => void): EventSubscription =>
     Native.addListener('onLocation', cb),
   addActivityListener: (cb: (a: ActivityUpdate) => void): EventSubscription =>

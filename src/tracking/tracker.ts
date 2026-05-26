@@ -2,8 +2,6 @@ import { useEffect, useRef } from 'react';
 import { MapozyTracker } from 'mapozy-tracker';
 import type { TrackingConfig } from 'mapozy-tracker';
 import { useDb } from '../db/DbContext';
-import { insertRawPoint } from '../db/rawPoints';
-import { insertRawActivity } from '../db/rawActivities';
 import { runPipeline } from '../pipeline/runPipeline';
 import type { Db } from '../db/client';
 import { useQueryClient } from '@tanstack/react-query';
@@ -36,52 +34,50 @@ export async function getTrackingStatus() {
   return MapozyTracker.getStatus();
 }
 
-// Opportunistic early pipeline run while JS is alive. Deliberately longer
-// than segmentation's 5-min dwellMinutes default: segmentation should still
-// treat a 5-min stop as a place visit, but the *pipeline* shouldn't fire
-// so eagerly that a long-but-temporary stop (10 min in heavy traffic)
-// gets processed before the trip actually completes.
-const STILL_DRAIN_MS = 30 * 60_000;
-
 /**
  * Subscribes to native location + activity events and persists them to SQLite.
  * Triggers a pipeline run when activity stays 'still' for the dwell threshold.
  */
+const STILL_DRAIN_MS = 30 * 60_000;
+
 export function useTrackerBridge() {
   const db = useDb();
   const qc = useQueryClient();
   const stillTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const locSub = MapozyTracker.addLocationListener((loc) => {
-      void insertRawPoint(db, {
-        timestampMs: loc.timestampMs,
-        latitude: loc.latitude,
-        longitude: loc.longitude,
-        altitude: loc.altitude,
-        accuracyMeters: loc.accuracyMeters,
-        speedMps: loc.speedMps,
-        bearingDeg: loc.bearingDeg,
-        batteryLevel: loc.batteryLevel,
-        isCharging: loc.isCharging,
-      });
+    const locSub = MapozyTracker.addLocationListener(() => {
+      // persistence happens natively in NativeStore — JS listener is no-op
     });
 
+    // Opportunistic early pipeline run: when JS happens to be alive and the
+    // user has been still for STILL_DRAIN_MS, drain unconsumed rows now
+    // instead of waiting for the next app foreground. Pure JS, no
+    // side-effect on the native tracker — see also the foreground-trigger
+    // in app/_layout.tsx.
+    //
+    // The 30-min threshold is deliberately longer than segmentation's 5-min
+    // dwell threshold: segmentation should still treat a 5-min stop as a
+    // place visit, but the *pipeline* shouldn't fire so eagerly that a
+    // long-but-temporary stop (e.g. 10 min in heavy traffic) gets processed
+    // before the trip actually completes.
+    //
+    // NOTE: We used to also call MapozyTracker.pauseLocation() / resumeLocation()
+    // here to save battery during stillness. That was removed because the
+    // resume side depended on a stable JS bridge, and an OS-killed JS instance
+    // could leave the native module perpetually paused (observed in a real user
+    // trip: 90 min of activity events with only 23 min of GPS coverage). If we
+    // want this optimization back, it must live on the native side so its
+    // resume can't be lost when JS is torn down.
     const actSub = MapozyTracker.addActivityListener((act) => {
-      void insertRawActivity(db, {
-        timestampMs: act.timestampMs,
-        type: act.type,
-        confidence: act.confidence,
-      });
-      if (act.type === 'still' && act.confidence >= 60) {
-        if (stillTimerRef.current) clearTimeout(stillTimerRef.current);
-        stillTimerRef.current = setTimeout(
-          () => {
-            void runPipelineAndInvalidate(db, qc);
-          },
-          STILL_DRAIN_MS
-        );
-      } else if (act.type !== 'still' && stillTimerRef.current) {
+      const isStill = act.type === 'still' && act.confidence >= 60;
+      if (isStill) {
+        if (stillTimerRef.current) return;
+        stillTimerRef.current = setTimeout(() => {
+          stillTimerRef.current = null;
+          void runPipelineAndInvalidate(db, qc);
+        }, STILL_DRAIN_MS);
+      } else if (stillTimerRef.current) {
         clearTimeout(stillTimerRef.current);
         stillTimerRef.current = null;
       }
