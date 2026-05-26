@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ScrollView, View, StyleSheet, Alert, Switch, Pressable } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
+import Constants from 'expo-constants';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useDb } from '@/db/DbContext';
 import { setSetting, SETTING_KEYS } from '@/db/settings';
@@ -248,7 +249,7 @@ export default function SettingsScreen() {
             <View style={{ flex: 1 }}>
               <Text variant="title">Mapozy</Text>
               <Text variant="meta" soft>
-                Version 0.1.0 · All data stays on your device.
+                Version {Constants.expoConfig?.version ?? 'unknown'} · All data stays on your device.
               </Text>
             </View>
           </View>
