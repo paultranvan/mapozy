@@ -20,8 +20,23 @@ import { adriaticTheme } from '@/theme/paperTheme';
 import { colors } from '@/theme/tokens';
 import { openDb, type Db } from '@/db/client';
 import { DbProvider } from '@/db/DbContext';
-import { runPipelineForForeground } from '@/tracking/tracker';
+import { runPipelineForForeground, startTracking } from '@/tracking/tracker';
 import { shouldRunPipelineOnAppStateChange } from '@/tracking/foregroundTrigger';
+import { MapozyTracker } from 'mapozy-tracker';
+import { getSetting, setSetting, SETTING_KEYS } from '@/db/settings';
+
+async function maybeAutoRestartTracking(db: Db) {
+  try {
+    const enabled = (await getSetting(db, SETTING_KEYS.TRACKING_ENABLED)) === '1';
+    if (!enabled) return;
+    const running = await MapozyTracker.isTracking();
+    if (running) return;
+    await startTracking();
+    await setSetting(db, SETTING_KEYS.LAST_AUTO_RESTART_AT, String(Date.now()));
+  } catch {
+    // Leave the banner to surface 'stopped' state; user can hit Restart manually.
+  }
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -69,10 +84,12 @@ export default function RootLayout() {
   useEffect(() => {
     if (!db) return;
     void runPipelineForForeground(db, queryClient);
+    void maybeAutoRestartTracking(db);
     let prev: AppStateStatus = AppState.currentState;
     const sub = AppState.addEventListener('change', (next) => {
       if (shouldRunPipelineOnAppStateChange(next, prev)) {
         void runPipelineForForeground(db, queryClient);
+        void maybeAutoRestartTracking(db);
       }
       prev = next;
     });
