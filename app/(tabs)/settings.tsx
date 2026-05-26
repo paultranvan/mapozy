@@ -13,6 +13,7 @@ import {
   isTracking,
   runPipelineAndInvalidate,
 } from '@/tracking/tracker';
+import { MapozyTracker } from 'mapozy-tracker';
 import { detectHomeAndWork } from '@/stats/homeWorkDetection';
 import { injectDemoTrip } from '@/lib/demoTrip';
 import { sendDbToPaul } from '@/lib/sendDbToPaul';
@@ -29,14 +30,23 @@ export default function SettingsScreen() {
   const [trackingOn, setTrackingOn] = useState(false);
   const [tripCount, setTripCount] = useState(0);
   const [rawCount, setRawCount] = useState(0);
+  const [batteryUnrestricted, setBatteryUnrestricted] = useState(false);
 
   useEffect(() => {
     (async () => {
       setTrackingOn(await isTracking());
       setTripCount(await countTrips(db));
       setRawCount(await countUnconsumedPoints(db));
+      setBatteryUnrestricted(await MapozyTracker.isIgnoringBatteryOptimizations());
     })();
   }, [db]);
+
+  async function requestBatteryExemption() {
+    await MapozyTracker.requestIgnoreBatteryOptimizations();
+    setTimeout(async () => {
+      setBatteryUnrestricted(await MapozyTracker.isIgnoringBatteryOptimizations());
+    }, 1500);
+  }
 
   async function toggleTracking(value: boolean) {
     try {
@@ -126,6 +136,32 @@ export default function SettingsScreen() {
               thumbColor={trackingOn ? colors.accent : colors.surface}
             />
           </View>
+          <View style={styles.divider} />
+          <Pressable
+            style={styles.actionRow}
+            onPress={requestBatteryExemption}
+            disabled={batteryUnrestricted}
+          >
+            <View style={{ flex: 1 }}>
+              <Text variant="title">
+                {batteryUnrestricted
+                  ? 'Battery optimization disabled'
+                  : 'Disable battery optimization'}
+              </Text>
+              <Text variant="meta" soft>
+                {batteryUnrestricted
+                  ? 'The OS is allowed to keep tracking alive in the background'
+                  : 'Required on OnePlus/aggressive OEMs to avoid data gaps'}
+              </Text>
+            </View>
+            {!batteryUnrestricted && (
+              <MaterialCommunityIcons
+                name="chevron-right"
+                size={22}
+                color={colors.inkSoft}
+              />
+            )}
+          </Pressable>
         </Card>
 
         <Text variant="display" onGround style={styles.section}>
