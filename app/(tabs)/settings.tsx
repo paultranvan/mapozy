@@ -23,6 +23,7 @@ import { TopBar } from '@/ui/TopBar';
 import { Text } from '@/ui/Text';
 import { Card } from '@/ui/Card';
 import { colors, space, radii } from '@/theme/tokens';
+import { useTrackingHealth, type TrackingHealth } from '@/tracking/useTrackingHealth';
 
 export default function SettingsScreen() {
   const db = useDb();
@@ -33,6 +34,7 @@ export default function SettingsScreen() {
   const [tripCount, setTripCount] = useState(0);
   const [rawCount, setRawCount] = useState(0);
   const [batteryUnrestricted, setBatteryUnrestricted] = useState(false);
+  const health = useTrackingHealth();
 
   useEffect(() => {
     (async () => {
@@ -152,7 +154,7 @@ export default function SettingsScreen() {
             <View style={{ flex: 1 }}>
               <Text variant="title">Tracking active</Text>
               <Text variant="meta" soft>
-                {trackingOn ? 'Recording your trips' : 'Paused'}
+                {trackingHealthSubtitle(trackingOn, health)}
               </Text>
             </View>
             <Switch
@@ -313,6 +315,25 @@ function DangerButton({ label, onPress }: { label: string; onPress: () => void }
       </Text>
     </Pressable>
   );
+}
+
+function trackingHealthSubtitle(
+  trackingOn: boolean,
+  health: TrackingHealth
+): string {
+  if (!trackingOn) return 'Paused';
+  const snap = health.snapshot;
+  if (!snap) return 'Recording your trips';
+  const ageMs = snap.gpsAge;
+  const ageStr =
+    ageMs == null
+      ? '—'
+      : ageMs < 60_000
+      ? `${Math.max(1, Math.round(ageMs / 1000))}s`
+      : ageMs < 3_600_000
+      ? `${Math.round(ageMs / 60_000)}m`
+      : `${Math.floor(ageMs / 3_600_000)}h ${Math.round((ageMs % 3_600_000) / 60_000)}m`;
+  return `GPS ${ageStr} · ${health.pointsToday} pts today`;
 }
 
 const styles = StyleSheet.create({
