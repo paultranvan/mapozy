@@ -96,6 +96,10 @@ class MapozyTrackerModule : Module() {
         if (lastLoc != null) putDouble("lastLocationAt", lastLoc.toDouble())
         val lastAct = TrackingState.getLastActivity(ctx)
         if (lastAct != null) putString("lastActivityType", lastAct)
+        val lastActMs = TrackingState.getLastActivityMs(ctx)
+        if (lastActMs != null) putDouble("lastActivityAt", lastActMs.toDouble())
+        val lastSilenceMs = TrackingState.getLastSilenceDetectedMs(ctx)
+        if (lastSilenceMs != null) putDouble("lastArSilenceDetectedAt", lastSilenceMs.toDouble())
       }
       status
     }
