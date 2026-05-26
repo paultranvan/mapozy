@@ -24,6 +24,7 @@ expo-env.d.ts
 # @end expo-cli
 
 .superpowers/
+.claude/
 
 # Release artifacts (built by ./gradlew assembleRelease, copied here for sharing)
 *.apk
