@@ -107,6 +107,108 @@ describe('segmentation', () => {
     expect(stays.length).toBeGreaterThanOrEqual(3);
   });
 
+  describe('RULE_STATIONARY_BOUNDARY: trip/stay boundary refinement', () => {
+    it('trip extends to the actual stop point, not to the dwell circle edge', () => {
+      // Stay at A for 10 min, walk 500m east at ~1 m/s, arrive and stay 10 min
+      const t0 = 1_700_000_000_000;
+      const latA = 48.0;
+      const lonA = 2.0;
+      // 500m east at lat 48 ≈ 0.00673 deg lon
+      const latB = 48.0;
+      const lonB = 2.0 + 500 / (111_320 * Math.cos((48 * Math.PI) / 180));
+
+      const pts: RawPoint[] = [];
+      // stay at A
+      for (let i = 0; i <= 10; i++) pts.push(mkPoint(t0 + i * 60_000, latA, lonA));
+      // walking 500m east over ~500s — points every 10s
+      const walkStart = t0 + 11 * 60_000;
+      for (let i = 1; i <= 50; i++) {
+        const f = i / 50;
+        pts.push(mkPoint(walkStart + i * 10_000, latA, lonA + (lonB - lonA) * f));
+      }
+      // stationary at B for 10 min
+      const arrived = walkStart + 50 * 10_000;
+      for (let i = 0; i <= 20; i++) pts.push(mkPoint(arrived + i * 30_000, latB, lonB));
+
+      const segs = segmentation(pts, [], { dwellMinutes: 5, dwellRadiusM: 100 });
+      const trips = segs.filter((s) => s.kind === 'trip') as {
+        kind: 'trip';
+        points: RawPoint[];
+      }[];
+      expect(trips).toHaveLength(1);
+      const lastTripPt = trips[0]!.points[trips[0]!.points.length - 1]!;
+      // Before fix: last point sits ~100m short (the dwell anchor).
+      // After fix: last point should be within ~15m of the stop (the stationary threshold).
+      const gap = Math.abs(lastTripPt.longitude - lonB) * 111_320 * Math.cos((48 * Math.PI) / 180);
+      expect(gap).toBeLessThan(20);
+    });
+
+    it('stay duration reflects the stationary phase, not the dwell circle dwell time', () => {
+      const t0 = 1_700_000_000_000;
+      const latA = 48.0;
+      const lonA = 2.0;
+      const latB = 48.0;
+      const lonB = 2.0 + 500 / (111_320 * Math.cos((48 * Math.PI) / 180));
+
+      const pts: RawPoint[] = [];
+      for (let i = 0; i <= 10; i++) pts.push(mkPoint(t0 + i * 60_000, latA, lonA));
+      const walkStart = t0 + 11 * 60_000;
+      // 90 seconds of approach inside the eventual 100m dwell bubble (walking the last ~90m at 1 m/s)
+      for (let i = 1; i <= 50; i++) {
+        const f = i / 50;
+        pts.push(mkPoint(walkStart + i * 10_000, latA, lonA + (lonB - lonA) * f));
+      }
+      const arrived = walkStart + 50 * 10_000;
+      for (let i = 0; i <= 20; i++) pts.push(mkPoint(arrived + i * 30_000, latB, lonB));
+
+      const segs = segmentation(pts, [], { dwellMinutes: 5, dwellRadiusM: 100 });
+      const stays = segs.filter((s) => s.kind === 'stay') as {
+        kind: 'stay';
+        startMs: number;
+        endMs: number;
+      }[];
+      expect(stays).toHaveLength(2);
+      // The stay at B should start at (or very near) the moment the walker stopped,
+      // not at the moment they entered the dwell circle.
+      const stayB = stays[1]!;
+      expect(Math.abs(stayB.startMs - arrived)).toBeLessThan(60_000);
+    });
+
+    it('a brief mid-trip pause that is NOT a dwell does not get treated as a stay', () => {
+      // 60s pause is well under DWELL_STAY 5-min minimum — should remain inside the trip.
+      const t0 = 1_700_000_000_000;
+      const lat0 = 48.0;
+      const lon0 = 2.0;
+      const pts: RawPoint[] = [];
+      // 10 min stay at A
+      for (let i = 0; i <= 10; i++) pts.push(mkPoint(t0 + i * 60_000, lat0, lon0));
+      // walk 1km east, pause for 60s in the middle, continue
+      const walkStart = t0 + 11 * 60_000;
+      const metersPerDegLon = 111_320 * Math.cos((48 * Math.PI) / 180);
+      for (let i = 1; i <= 20; i++) {
+        pts.push(mkPoint(walkStart + i * 15_000, lat0, lon0 + (500 * i) / 20 / metersPerDegLon));
+      }
+      // 60s pause at midpoint
+      const pauseAt = walkStart + 20 * 15_000;
+      const pauseLon = lon0 + 500 / metersPerDegLon;
+      for (let i = 1; i <= 4; i++) pts.push(mkPoint(pauseAt + i * 15_000, lat0, pauseLon));
+      const resumeAt = pauseAt + 4 * 15_000;
+      for (let i = 1; i <= 20; i++) {
+        pts.push(mkPoint(resumeAt + i * 15_000, lat0, pauseLon + (500 * i) / 20 / metersPerDegLon));
+      }
+      // stay at B for 10 min
+      const arrived = resumeAt + 20 * 15_000;
+      const endLon = pauseLon + 500 / metersPerDegLon;
+      for (let i = 0; i <= 10; i++) pts.push(mkPoint(arrived + i * 60_000, lat0, endLon));
+
+      const segs = segmentation(pts, [], { dwellMinutes: 5, dwellRadiusM: 100 });
+      const trips = segs.filter((s) => s.kind === 'trip');
+      const stays = segs.filter((s) => s.kind === 'stay');
+      expect(trips).toHaveLength(1);
+      expect(stays).toHaveLength(2);
+    });
+  });
+
   it('treats a long gap at a different location as an implicit stay', () => {
     // Home cluster, then a walk, then a 2h gap, then home again
     const t0 = 1_700_000_000_000;

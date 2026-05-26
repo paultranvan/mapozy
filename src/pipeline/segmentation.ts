@@ -1,5 +1,6 @@
 // Rules implemented here (see ./rules.ts):
 //   RULE_DWELL_STAY              — sliding-window dwell detection
+//   RULE_STATIONARY_BOUNDARY     — refine trip/stay split inside a detected dwell
 //   RULE_STALLED_VEHICLE_GUARD   — disqualify dwells overlapping confident in_vehicle
 //   RULE_GAP_DWELL               — long tracking gap with non-trivial distance → stay
 //   RULE_GAP_PLAUSIBILITY        — overrides RULE_GAP_DWELL when avg gap speed looks like real motion
@@ -12,6 +13,8 @@ export interface SegOpts {
   dwellMinutes?: number;
   dwellRadiusM?: number;
   gapMinutes?: number;
+  stationaryWindowMs?: number;
+  stationaryMaxDisplacementM?: number;
 }
 
 export type Segment =
@@ -54,6 +57,11 @@ export function segmentation(
     (opts.dwellMinutes ?? RULES.DWELL_STAY.defaults.dwellMinutes) * 60_000;
   const radius = opts.dwellRadiusM ?? RULES.DWELL_STAY.defaults.dwellRadiusM;
   const gapMs = (opts.gapMinutes ?? RULES.GAP_DWELL.defaults.gapMinutes) * 60_000;
+  const stationaryWindowMs =
+    opts.stationaryWindowMs ?? RULES.STATIONARY_BOUNDARY.defaults.windowMs;
+  const stationaryMaxDispM =
+    opts.stationaryMaxDisplacementM ??
+    RULES.STATIONARY_BOUNDARY.defaults.maxDisplacementM;
   if (points.length === 0) return [];
 
   type Window = {
@@ -149,10 +157,28 @@ export function segmentation(
 
   dwells.sort((a, b) => a.start - b.start);
 
+  // RULE_STATIONARY_BOUNDARY — peel off the approach/departure points at each
+  // dwell's edges so they get attributed to the adjacent trips rather than the
+  // stay. Gap-based dwells (startIdx === endIdx) are skipped — they're a
+  // single representative point with no inner window to refine.
+  const refined = dwells.map((d) =>
+    d.startIdx === d.endIdx
+      ? { stayStartIdx: d.startIdx, stayEndIdx: d.endIdx }
+      : refineDwellBoundary(
+          points,
+          d.startIdx,
+          d.endIdx,
+          stationaryWindowMs,
+          stationaryMaxDispM
+        )
+  );
+
   const segs: Segment[] = [];
   let cursor = 0;
-  for (const d of dwells) {
-    if (cursor < d.startIdx) {
+  for (let di = 0; di < dwells.length; di++) {
+    const d = dwells[di]!;
+    const { stayStartIdx, stayEndIdx } = refined[di]!;
+    if (cursor < stayStartIdx) {
       let startIdx = cursor;
       if (cursor > 0) {
         const lastPrev = points[cursor - 1]!;
@@ -165,18 +191,19 @@ export function segmentation(
         );
         if (dist <= radius * 3) startIdx = cursor - 1;
       }
-      const tripPoints = points.slice(startIdx, d.startIdx + 1);
+      const tripPoints = points.slice(startIdx, stayStartIdx + 1);
       if (tripPoints.length >= 2) segs.push({ kind: 'trip', points: tripPoints });
     }
+    const stayCenter = computeStayCenter(points, stayStartIdx, stayEndIdx, d);
     segs.push({
       kind: 'stay',
-      centerLat: d.centerLat,
-      centerLon: d.centerLon,
-      startMs: d.start,
-      endMs: d.end,
-      representativePoint: points[d.startIdx]!,
+      centerLat: stayCenter.lat,
+      centerLon: stayCenter.lon,
+      startMs: points[stayStartIdx]!.timestampMs,
+      endMs: points[stayEndIdx]!.timestampMs,
+      representativePoint: points[stayStartIdx]!,
     });
-    cursor = d.endIdx + 1;
+    cursor = stayEndIdx + 1;
   }
   if (cursor < points.length) {
     const tail = points.slice(cursor);
@@ -184,6 +211,125 @@ export function segmentation(
   }
 
   return injectInferredTrips(segs, radius);
+}
+
+// RULE_STATIONARY_BOUNDARY — for the forward search, return true if every
+// later point within `windowMs` of `points[idx]` stays within
+// `maxDisplacementM` of it. If the dwell window ends before `windowMs` of
+// data is available, we conservatively count the point as stationary only
+// when the remaining-points span is at least `windowMs` long — otherwise
+// we can't tell and fall back to non-stationary so the dwell anchor wins.
+function isStationaryForward(
+  points: RawPoint[],
+  idx: number,
+  lastIdx: number,
+  windowMs: number,
+  maxDisplacementM: number
+): boolean {
+  const ref = points[idx]!;
+  const t0 = ref.timestampMs;
+  for (let k = idx + 1; k <= lastIdx; k++) {
+    const p = points[k]!;
+    if (p.timestampMs - t0 > windowMs) return true;
+    if (
+      haversineMeters(ref.latitude, ref.longitude, p.latitude, p.longitude) >
+      maxDisplacementM
+    ) {
+      return false;
+    }
+  }
+  return points[lastIdx]!.timestampMs - t0 >= windowMs;
+}
+
+// RULE_STATIONARY_BOUNDARY — mirror of isStationaryForward for the trailing
+// edge: every earlier point within `windowMs` of `points[idx]` must stay
+// within `maxDisplacementM`.
+function isStationaryBackward(
+  points: RawPoint[],
+  idx: number,
+  firstIdx: number,
+  windowMs: number,
+  maxDisplacementM: number
+): boolean {
+  const ref = points[idx]!;
+  const t0 = ref.timestampMs;
+  for (let k = idx - 1; k >= firstIdx; k--) {
+    const p = points[k]!;
+    if (t0 - p.timestampMs > windowMs) return true;
+    if (
+      haversineMeters(ref.latitude, ref.longitude, p.latitude, p.longitude) >
+      maxDisplacementM
+    ) {
+      return false;
+    }
+  }
+  return t0 - points[firstIdx]!.timestampMs >= windowMs;
+}
+
+// RULE_STATIONARY_BOUNDARY — given a dwell window [startIdx..endIdx], find
+// the tightest inner sub-window where the phone is actually stationary.
+// Approach points (entering the dwell circle while still walking) and
+// departure points (leaving while still walking) get peeled off so they end
+// up in the adjacent trip rather than swallowed by the stay. If no inner
+// stationary period can be confirmed, fall back to the original boundaries.
+function refineDwellBoundary(
+  points: RawPoint[],
+  startIdx: number,
+  endIdx: number,
+  windowMs: number,
+  maxDisplacementM: number
+): { stayStartIdx: number; stayEndIdx: number } {
+  let stayStartIdx: number | null = null;
+  for (let i = startIdx; i <= endIdx; i++) {
+    if (
+      isStationaryForward(points, i, endIdx, windowMs, maxDisplacementM)
+    ) {
+      stayStartIdx = i;
+      break;
+    }
+  }
+  if (stayStartIdx === null) {
+    return { stayStartIdx: startIdx, stayEndIdx: endIdx };
+  }
+
+  let stayEndIdx: number | null = null;
+  for (let i = endIdx; i >= stayStartIdx; i--) {
+    if (
+      isStationaryBackward(points, i, stayStartIdx, windowMs, maxDisplacementM)
+    ) {
+      stayEndIdx = i;
+      break;
+    }
+  }
+  if (stayEndIdx === null) {
+    return { stayStartIdx, stayEndIdx: endIdx };
+  }
+
+  return { stayStartIdx, stayEndIdx };
+}
+
+// Recompute the stay's centroid from the refined (stationary-only) subset of
+// the dwell points. Falls back to the dwell-wide mean when the refined span
+// is degenerate, so place creation still has something sensible to anchor to.
+function computeStayCenter(
+  points: RawPoint[],
+  stayStartIdx: number,
+  stayEndIdx: number,
+  fallback: { centerLat: number; centerLon: number }
+): { lat: number; lon: number } {
+  if (stayEndIdx < stayStartIdx) {
+    return { lat: fallback.centerLat, lon: fallback.centerLon };
+  }
+  let sumLat = 0;
+  let sumLon = 0;
+  let count = 0;
+  for (let i = stayStartIdx; i <= stayEndIdx; i++) {
+    sumLat += points[i]!.latitude;
+    sumLon += points[i]!.longitude;
+    count++;
+  }
+  if (count === 0) return { lat: fallback.centerLat, lon: fallback.centerLon };
+  return { lat: sumLat / count, lon: sumLon / count };
 }
 
 function synthPoint(t: number, lat: number, lon: number): RawPoint {
