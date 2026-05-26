@@ -68,6 +68,45 @@ describe('segmentation', () => {
     expect(segs.filter((s) => s.kind === 'stay')).toHaveLength(1);
   });
 
+  it('keeps a long-distance gap with plausible speed as one trip (RULE_GAP_PLAUSIBILITY)', () => {
+    // ~2h GPS gap covering ~78km — could plausibly be a continuous drive on a
+    // route with no signal. Should NOT be split with an implicit stay.
+    const t0 = 1_700_000_000_000;
+    const pts: ReturnType<typeof mkPoint>[] = [];
+    // Stay at A for 10 minutes
+    for (let i = 0; i <= 10; i++) pts.push(mkPoint(t0 + i * 60_000, 48.0, 2.0));
+    // Last sample right before signal loss
+    pts.push(mkPoint(t0 + 11 * 60_000, 48.0, 2.0));
+    // Next sample 2h later, 78km north (avg ~10.8 m/s — plausible)
+    pts.push(mkPoint(t0 + 11 * 60_000 + 2 * 60 * 60_000, 48.7, 2.0));
+    // Stay at B for 10 minutes
+    const stayB0 = t0 + 11 * 60_000 + 2 * 60 * 60_000 + 60_000;
+    for (let i = 0; i <= 10; i++) pts.push(mkPoint(stayB0 + i * 60_000, 48.7, 2.0));
+
+    const segs = segmentation(pts, [], { dwellMinutes: 5, dwellRadiusM: 100 });
+    const stays = segs.filter((s) => s.kind === 'stay');
+    const trips = segs.filter((s) => s.kind === 'trip');
+    expect(stays).toHaveLength(2);
+    expect(trips).toHaveLength(1);
+  });
+
+  it('still treats a long-distance gap past the hard ceiling as a stay (RULE_GAP_PLAUSIBILITY hard break)', () => {
+    // 25h gap covering ~555km would have a plausible-looking avg speed,
+    // but at this scale (past the 24h ceiling) the average means nothing —
+    // the user could have stayed still for 24h then driven for 1h. Force a stay.
+    const t0 = 1_700_000_000_000;
+    const pts: ReturnType<typeof mkPoint>[] = [];
+    for (let i = 0; i <= 10; i++) pts.push(mkPoint(t0 + i * 60_000, 48.0, 2.0));
+    pts.push(mkPoint(t0 + 11 * 60_000, 48.0, 2.0));
+    pts.push(mkPoint(t0 + 11 * 60_000 + 25 * 60 * 60_000, 53.0, 2.0));
+    const stayB0 = t0 + 11 * 60_000 + 25 * 60 * 60_000 + 60_000;
+    for (let i = 0; i <= 10; i++) pts.push(mkPoint(stayB0 + i * 60_000, 53.0, 2.0));
+
+    const segs = segmentation(pts, [], { dwellMinutes: 5, dwellRadiusM: 100 });
+    const stays = segs.filter((s) => s.kind === 'stay');
+    expect(stays.length).toBeGreaterThanOrEqual(3);
+  });
+
   it('treats a long gap at a different location as an implicit stay', () => {
     // Home cluster, then a walk, then a 2h gap, then home again
     const t0 = 1_700_000_000_000;

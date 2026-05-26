@@ -1,5 +1,12 @@
+// Rules implemented here (see ./rules.ts):
+//   RULE_DWELL_STAY              — sliding-window dwell detection
+//   RULE_STALLED_VEHICLE_GUARD   — disqualify dwells overlapping confident in_vehicle
+//   RULE_GAP_DWELL               — long tracking gap with non-trivial distance → stay
+//   RULE_GAP_PLAUSIBILITY        — overrides RULE_GAP_DWELL when avg gap speed looks like real motion
+//   RULE_INFERRED_TRIP_INJECTION — synthetic trip between consecutive stays at different places
 import type { RawPoint, RawActivity } from '../types';
 import { haversineMeters } from '../lib/distance';
+import { RULES } from './rules';
 
 export interface SegOpts {
   dwellMinutes?: number;
@@ -18,30 +25,19 @@ export type Segment =
       representativePoint: RawPoint;
     };
 
-/**
- * Walks through points chronologically and identifies dwell windows
- * (consecutive points staying within `dwellRadiusM` for at least
- * `dwellMinutes`). Returns segments interleaving 'trip' (movement)
- * and 'stay' (dwell).
- *
- * Windows that overlap a high-confidence `in_vehicle` activity event are
- * NOT treated as stays — that's a stalled vehicle (traffic jam, long
- * light), not a place the user actually visited. Activity-less callers
- * keep the legacy GPS-only behaviour.
- */
-const VEHICULAR_DISQUALIFY_MIN_CONFIDENCE = 60;
-
+// RULE_STALLED_VEHICLE_GUARD
 function isStalledVehicle(
   activities: RawActivity[],
   startMs: number,
   endMs: number
 ): boolean {
+  const minConfidence = RULES.STALLED_VEHICLE_GUARD.defaults.minConfidence;
   for (const a of activities) {
     if (
       a.timestampMs >= startMs &&
       a.timestampMs <= endMs &&
       a.type === 'in_vehicle' &&
-      a.confidence >= VEHICULAR_DISQUALIFY_MIN_CONFIDENCE
+      a.confidence >= minConfidence
     ) {
       return true;
     }
@@ -54,9 +50,10 @@ export function segmentation(
   activities: RawActivity[],
   opts: SegOpts = {}
 ): Segment[] {
-  const dwellMs = (opts.dwellMinutes ?? 5) * 60_000;
-  const radius = opts.dwellRadiusM ?? 100;
-  const gapMs = (opts.gapMinutes ?? 10) * 60_000;
+  const dwellMs =
+    (opts.dwellMinutes ?? RULES.DWELL_STAY.defaults.dwellMinutes) * 60_000;
+  const radius = opts.dwellRadiusM ?? RULES.DWELL_STAY.defaults.dwellRadiusM;
+  const gapMs = (opts.gapMinutes ?? RULES.GAP_DWELL.defaults.gapMinutes) * 60_000;
   if (points.length === 0) return [];
 
   type Window = {
@@ -69,6 +66,8 @@ export function segmentation(
   };
   const dwells: Window[] = [];
 
+  // RULE_DWELL_STAY — slide a same-place window forward until points break out
+  // of the radius; if the window spans `dwellMs`+, record a dwell.
   let i = 0;
   while (i < points.length) {
     const anchor = points[i]!;
@@ -110,10 +109,14 @@ export function segmentation(
     }
   }
 
+  // RULE_GAP_DWELL + RULE_GAP_PLAUSIBILITY — turn long tracking gaps into stays,
+  // unless the implied avg speed across the gap looks like real travel.
+  const gapPlaus = RULES.GAP_PLAUSIBILITY.defaults;
   for (let i = 0; i < points.length - 1; i++) {
     const t1 = points[i]!.timestampMs;
     const t2 = points[i + 1]!.timestampMs;
-    if (t2 - t1 < gapMs) continue;
+    const gap = t2 - t1;
+    if (gap < gapMs) continue;
     const dist = haversineMeters(
       points[i]!.latitude,
       points[i]!.longitude,
@@ -122,6 +125,18 @@ export function segmentation(
     );
     if (dist <= radius) continue;
     if (isStalledVehicle(activities, t1, t2)) continue;
+
+    // RULE_GAP_PLAUSIBILITY: in the soft-to-hard window, if endpoints could
+    // plausibly be connected by continuous motion, treat as one trip rather
+    // than a stay. Past the hard ceiling, fall through — averages over many
+    // hours stop being meaningful.
+    const inPlausWindow =
+      gap >= gapPlaus.softBreakMs && gap < gapPlaus.hardBreakMs;
+    if (inPlausWindow) {
+      const avgSpeedMps = dist / (gap / 1000);
+      if (avgSpeedMps >= gapPlaus.plausibleSpeedMps) continue;
+    }
+
     dwells.push({
       start: t1,
       end: t2,
@@ -171,8 +186,6 @@ export function segmentation(
   return injectInferredTrips(segs, radius);
 }
 
-const SYNTHETIC_TRIP_DURATION_MS = 5 * 60_000;
-
 function synthPoint(t: number, lat: number, lon: number): RawPoint {
   return {
     id: 0,
@@ -189,12 +202,12 @@ function synthPoint(t: number, lat: number, lon: number): RawPoint {
   };
 }
 
-/**
- * Two consecutive stays at different locations imply a trip we couldn't
- * capture (GPS lost lock during the move). Borrow a slice off the tail of
- * the first stay and emit a 2-point synthetic trip ending at the next stay.
- */
+// RULE_INFERRED_TRIP_INJECTION — two stays at different places imply a trip we
+// couldn't capture. Borrow a tail slice off the first stay and emit a 2-point
+// synthetic trip ending at the next stay.
 function injectInferredTrips(segs: Segment[], radius: number): Segment[] {
+  const syntheticDurationMs =
+    RULES.INFERRED_TRIP_INJECTION.defaults.syntheticTripDurationMs;
   const out: Segment[] = [];
   for (let i = 0; i < segs.length; i++) {
     const cur = segs[i]!;
@@ -209,7 +222,7 @@ function injectInferredTrips(segs: Segment[], radius: number): Segment[] {
       if (dist > radius) {
         const tripStart = Math.max(
           cur.startMs + 60_000,
-          cur.endMs - SYNTHETIC_TRIP_DURATION_MS
+          cur.endMs - syntheticDurationMs
         );
         out.push({
           kind: 'stay',

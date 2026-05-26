@@ -8,8 +8,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { shouldRunPipelineForForeground } from './foregroundTrigger';
 
 export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
-  distanceFilterMeters: 20,
-  minTimeIntervalMs: 5000,
   desiredAccuracy: 'high',
   activityIntervalMs: 10_000,
   foregroundNotificationTitle: 'Mapozy tracking',

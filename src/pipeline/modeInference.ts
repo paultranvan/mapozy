@@ -1,6 +1,10 @@
+// Rule implemented here: RULE_MODE_SPEED_FALLBACK (see ./rules.ts).
+// (Mode comes from the activity classifier when known; this rule decides what
+// to do when the section's activity is `unknown`.)
 import type { Mode } from '../types';
 import type { RawSection } from './sectionSegmentation';
 import { haversineMeters } from '../lib/distance';
+import { RULES } from './rules';
 
 export function modeForSection(s: RawSection): Mode {
   switch (s.activity) {
@@ -16,9 +20,12 @@ export function modeForSection(s: RawSection): Mode {
       return 'walk';
     case 'unknown':
     default: {
+      // RULE_MODE_SPEED_FALLBACK
+      const { carThresholdMps, bikeThresholdMps } =
+        RULES.MODE_SPEED_FALLBACK.defaults;
       const median = medianSpeedMps(s);
-      if (median > 6.94) return 'car';
-      if (median > 3.33) return 'bike';
+      if (median > carThresholdMps) return 'car';
+      if (median > bikeThresholdMps) return 'bike';
       return 'walk';
     }
   }

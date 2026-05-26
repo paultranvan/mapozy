@@ -1,4 +1,8 @@
+// Rules implemented here (see ./rules.ts):
+//   RULE_SECTION_ACTIVITY_CONFIDENCE — only count activity events at or above this confidence
+//   RULE_MIN_SECTION_DURATION        — merge sub-threshold sections into the previous one
 import type { RawPoint, RawActivity, ActivityType } from '../types';
+import { RULES } from './rules';
 
 export interface SectionSegOpts {
   minSectionMs?: number;
@@ -22,8 +26,10 @@ export function sectionSegmentation(
   activities: RawActivity[],
   opts: SectionSegOpts = {}
 ): RawSection[] {
-  const minSection = opts.minSectionMs ?? 30_000;
-  const minConfidence = opts.minConfidence ?? 50;
+  const minSection =
+    opts.minSectionMs ?? RULES.MIN_SECTION_DURATION.defaults.minSectionMs;
+  const minConfidence =
+    opts.minConfidence ?? RULES.SECTION_ACTIVITY_CONFIDENCE.defaults.minConfidence;
   if (tripPoints.length === 0) return [];
 
   const tripStart = tripPoints[0]!.timestampMs;
@@ -34,6 +40,7 @@ export function sectionSegmentation(
     )
     .sort((a, b) => a.timestampMs - b.timestampMs);
 
+  // RULE_SECTION_ACTIVITY_CONFIDENCE
   function activityAt(t: number): ActivityType {
     let cur: ActivityType = 'unknown';
     for (const a of acts) {
@@ -80,6 +87,7 @@ export function sectionSegmentation(
     next.startMs = first.startMs;
   }
 
+  // RULE_MIN_SECTION_DURATION
   const merged: RawSection[] = [];
   for (const s of sections) {
     const dur = s.endMs - s.startMs;

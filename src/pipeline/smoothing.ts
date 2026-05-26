@@ -1,5 +1,7 @@
+// Rule implemented here: RULE_SPIKE_SMOOTHING (see ./rules.ts).
 import type { RawPoint } from '../types';
 import { haversineMeters } from '../lib/distance';
+import { RULES } from './rules';
 
 export interface SmoothingOpts {
   spikeFactor?: number;
@@ -15,8 +17,9 @@ export function smoothing(
   points: RawPoint[],
   opts: SmoothingOpts = {}
 ): RawPoint[] {
-  const factor = opts.spikeFactor ?? 3;
-  const minSide = opts.minTriangleSideM ?? 5;
+  const factor = opts.spikeFactor ?? RULES.SPIKE_SMOOTHING.defaults.spikeFactor;
+  const minSide =
+    opts.minTriangleSideM ?? RULES.SPIKE_SMOOTHING.defaults.minTriangleSideM;
   if (points.length < 3) return points;
   const out: RawPoint[] = [points[0]!];
   for (let i = 1; i < points.length - 1; i++) {

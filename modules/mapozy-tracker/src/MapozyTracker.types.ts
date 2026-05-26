@@ -6,9 +6,10 @@ export type ActivityType =
   | 'in_vehicle'
   | 'unknown';
 
+// Per-install knobs only. The interval/distance-filter knobs that used to
+// live here moved into native-side TrackingRules.LocationProfile — they are
+// rule parameters now, not user config.
 export interface TrackingConfig {
-  distanceFilterMeters: number;
-  minTimeIntervalMs: number;
   desiredAccuracy: 'high' | 'balanced';
   activityIntervalMs: number;
   foregroundNotificationTitle: string;

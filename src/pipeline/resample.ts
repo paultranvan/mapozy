@@ -1,4 +1,6 @@
+// Rule implemented here: RULE_RESAMPLE (see ./rules.ts).
 import type { RawPoint } from '../types';
+import { RULES } from './rules';
 
 export interface ResampleOpts {
   intervalMs?: number;
@@ -13,7 +15,7 @@ export function resample(
   points: RawPoint[],
   opts: ResampleOpts = {}
 ): RawPoint[] {
-  const interval = opts.intervalMs ?? 10_000;
+  const interval = opts.intervalMs ?? RULES.RESAMPLE.defaults.intervalMs;
   if (points.length < 2) return points;
   const first = points[0]!;
   const last = points[points.length - 1]!;
