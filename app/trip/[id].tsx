@@ -51,6 +51,7 @@ export default function TripDetailScreen() {
         await geocodePlaceLazy(db, tripQ.data!.endPlaceId);
       }
       await qc.invalidateQueries({ queryKey: ['place'] });
+      await qc.invalidateQueries({ queryKey: ['places'] });
     })();
   }, [db, qc, tripQ.data]);
 
