@@ -16,8 +16,8 @@ export async function injectDemoTrip(
   db: Db,
   baseTimeMs = Date.now() - DEMO_OFFSET_DAYS * 24 * 60 * 60_000
 ): Promise<void> {
-  const lat0 = 45.764;
-  const lon0 = 4.8357;
+  const lat0 = 45.0;
+  const lon0 = 5.0;
 
   let id = 0;
   const pushPoint = async (
