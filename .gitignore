@@ -23,3 +23,11 @@ expo-env.d.ts
 # @end expo-cli
 
 .superpowers/
+
+# Release artifacts (built by ./gradlew assembleRelease, copied here for sharing)
+*.apk
+
+# Local device DB backups
+backups/
+
+apks/
