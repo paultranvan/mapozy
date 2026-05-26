@@ -77,8 +77,27 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `;
 
+// Generic structured event log used by the native tracker to surface
+// subscription health (AR subscribe/unsubscribe, silence detection, etc.)
+// without coupling those signals to the hot tables. `event_type` is a free
+// string; `payload` is opaque JSON-or-null so we can add new event shapes
+// without further migrations.
+const MIGRATION_002 = `
+CREATE TABLE IF NOT EXISTS tracker_diagnostics (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp_ms INTEGER NOT NULL,
+  event_type TEXT NOT NULL,
+  payload TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_tracker_diagnostics_ts
+  ON tracker_diagnostics(timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_tracker_diagnostics_type_ts
+  ON tracker_diagnostics(event_type, timestamp_ms);
+`;
+
 export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 1, sql: MIGRATION_001 },
+  { version: 2, sql: MIGRATION_002 },
 ];
 
 export async function getSchemaVersion(db: Db): Promise<number> {

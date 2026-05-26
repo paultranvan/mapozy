@@ -2,54 +2,84 @@
 //   RULE_AUTO_RESUME_ON_MOVE       — wake LocationListener if it was paused
 //   RULE_MOVING_STILL_GUARD        — reclassify STILL as unknown when GPS shows motion
 //   RULE_ADAPTIVE_LOCATION_REQUEST — switch LR profile on activity change (consumer side)
+//   RULE_ACTIVITY_TRANSITIONS      — handle ActivityTransitionResult (ENTER/EXIT edges) from
+//                                    the transition API; only ENTER events are persisted as
+//                                    raw_activities so downstream "most recent activity wins"
+//                                    semantics map cleanly to "the user is now doing X".
 package expo.modules.mapozytracker
 
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import com.google.android.gms.location.ActivityRecognitionResult
+import com.google.android.gms.location.ActivityTransition
+import com.google.android.gms.location.ActivityTransitionResult
 import com.google.android.gms.location.DetectedActivity
 
 class ActivityReceiver : BroadcastReceiver() {
 
   override fun onReceive(context: Context, intent: Intent) {
-    if (!ActivityRecognitionResult.hasResult(intent)) return
-    val result = ActivityRecognitionResult.extractResult(intent) ?: return
-    val mostProbable = result.mostProbableActivity
-    val rawType = mapType(mostProbable.type)
-    val confidence = mostProbable.confidence
+    if (!ActivityTransitionResult.hasResult(intent)) return
+    val result = ActivityTransitionResult.extractResult(intent) ?: return
 
-    // RULE_MOVING_STILL_GUARD — Android reports confident STILL on trains and
-    // buses. If our most recent GPS sample is recent AND shows real motion,
-    // demote STILL to "unknown" so segmentation doesn't carve the trip up
-    // into stays. We don't override other activities; STILL is the noisy one.
-    val effectiveType = applyMovingStillGuard(context, rawType)
+    for (event in result.transitionEvents) {
+      val rawType = mapType(event.activityType)
+      val transition = event.transitionType
 
-    val ts = System.currentTimeMillis()
-    TrackingState.setLastActivity(context, effectiveType)
-    NativeStore.insertActivity(context, ts, effectiveType, confidence)
+      // Persist a raw_activities row only on ENTER. The pipeline's
+      // sectionSegmentation.activityAt() uses "last activity ≤ t wins"
+      // semantics, so an ENTER X event correctly classifies all points
+      // after it as X until the next ENTER. EXIT events would be noise
+      // there — we still emit them on the event bus for UI/debugging
+      // but don't persist them.
+      val isEnter = transition == ActivityTransition.ACTIVITY_TRANSITION_ENTER
+      val ts = System.currentTimeMillis()
 
-    // RULE_AUTO_RESUME_ON_MOVE
-    if (effectiveType != "still" && effectiveType != "unknown") {
-      TrackingService.resumeLocation(context)
+      val effectiveType = if (isEnter) {
+        // RULE_MOVING_STILL_GUARD — STILL is the noisy edge that fires on
+        // trains/buses; guard it the same way we did for snapshot events.
+        applyMovingStillGuard(context, rawType)
+      } else {
+        rawType
+      }
+
+      if (isEnter) {
+        // RULE_ACTIVITY_TRANSITIONS — transitions don't carry a confidence
+        // value (the snapshot API's concept doesn't apply to edges). Store
+        // confidence=100 so downstream RULE_SECTION_ACTIVITY_CONFIDENCE
+        // never filters these out.
+        TrackingState.setLastActivity(context, effectiveType, ts)
+        NativeStore.insertActivity(context, ts, effectiveType, 100)
+
+        // RULE_AUTO_RESUME_ON_MOVE
+        if (effectiveType != "still" && effectiveType != "unknown") {
+          TrackingService.resumeLocation(context)
+        }
+
+        // RULE_ADAPTIVE_LOCATION_REQUEST
+        val newProfile = TrackingRules.profileForActivity(effectiveType)
+        val activeProfileName = TrackingState.getActiveProfileName(context)
+        if (newProfile.name != activeProfileName) {
+          TrackingService.reconfigureLocationRequest(context, newProfile)
+        }
+      } else {
+        // EXIT — bump the "last activity arrived" wall clock so silence
+        // detection treats this as a live AR pipeline, even though we don't
+        // persist a row.
+        TrackingState.setLastActivity(
+          context,
+          TrackingState.getLastActivity(context) ?: "unknown",
+          ts
+        )
+      }
+
+      val payload = Bundle().apply {
+        putString("type", effectiveType)
+        putString("transition", if (isEnter) "enter" else "exit")
+        putDouble("timestampMs", ts.toDouble())
+      }
+      MapozyTrackerEventBus.emitActivity(payload)
     }
-
-    // RULE_ADAPTIVE_LOCATION_REQUEST — when the activity flips into / out of a
-    // profile-changing category, ask TrackingService to rebuild its
-    // LocationRequest. Computed from the *effective* (post-guard) type.
-    val newProfile = TrackingRules.profileForActivity(effectiveType)
-    val activeProfileName = TrackingState.getActiveProfileName(context)
-    if (newProfile.name != activeProfileName) {
-      TrackingService.reconfigureLocationRequest(context, newProfile)
-    }
-
-    val payload = Bundle().apply {
-      putString("type", effectiveType)
-      putInt("confidence", confidence)
-      putDouble("timestampMs", ts.toDouble())
-    }
-    MapozyTrackerEventBus.emitActivity(payload)
   }
 
   private fun applyMovingStillGuard(context: Context, type: String): String {

@@ -1,7 +1,7 @@
 // Rules consumed here (see TrackingRules.kt):
-//   RULE_LOCATION_REQUEST_DEFAULT     — startup priority/accuracy mode
-//   RULE_ACTIVITY_RECOGNITION_INTERVAL — activity poll cadence
-//   RULE_ADAPTIVE_LOCATION_REQUEST    — apply the active LocationProfile when (re)subscribing
+//   RULE_LOCATION_REQUEST_DEFAULT  — startup priority/accuracy mode
+//   RULE_ACTIVITY_TRANSITIONS      — set of activity types we subscribe transitions for
+//   RULE_ADAPTIVE_LOCATION_REQUEST — apply the active LocationProfile when (re)subscribing
 package expo.modules.mapozytracker
 
 import android.Manifest
@@ -20,9 +20,13 @@ import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.ActivityRecognition
+import com.google.android.gms.location.ActivityTransition
+import com.google.android.gms.location.ActivityTransitionRequest
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import org.json.JSONArray
+import org.json.JSONObject
 
 class TrackingService : Service() {
 
@@ -202,6 +206,15 @@ class TrackingService : Service() {
     }
   }
 
+  /**
+   * RULE_ACTIVITY_TRANSITIONS — subscribe to ENTER + EXIT transitions for the
+   * configured activity types. Replaces the polling snapshot API; event-
+   * driven so Doze can't simply throttle scheduled deliveries to zero, and
+   * Google's docs recommend it for background activity monitoring. We log
+   * an `ar_subscribed` diagnostic on each call so silence periods can be
+   * traced back to when the subscription was last (re)registered.
+   */
+  @Suppress("UNUSED_PARAMETER")
   private fun subscribeActivity(cfg: TrackingState.Config) {
     val ar = ActivityRecognition.getClient(this)
     val intent = Intent(this, ActivityReceiver::class.java)
@@ -210,11 +223,54 @@ class TrackingService : Service() {
       PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
     )
     activityPendingIntent = pi
-    try {
-      ar.requestActivityUpdates(cfg.activityIntervalMs, pi)
-    } catch (e: SecurityException) {
-      Log.e("mapozy", "Cannot subscribe to activity: $e")
+
+    val transitions = mutableListOf<ActivityTransition>()
+    for (type in TrackingRules.SUBSCRIBED_ACTIVITY_TYPES) {
+      transitions.add(
+        ActivityTransition.Builder()
+          .setActivityType(type)
+          .setActivityTransition(ActivityTransition.ACTIVITY_TRANSITION_ENTER)
+          .build()
+      )
+      transitions.add(
+        ActivityTransition.Builder()
+          .setActivityType(type)
+          .setActivityTransition(ActivityTransition.ACTIVITY_TRANSITION_EXIT)
+          .build()
+      )
     }
+    val request = ActivityTransitionRequest(transitions)
+    try {
+      ar.requestActivityTransitionUpdates(request, pi)
+      logArSubscribed(transitions.size)
+      TrackingState.clearLastSilenceDetectedMs(this)
+    } catch (e: SecurityException) {
+      Log.e("mapozy", "Cannot subscribe to activity transitions: $e")
+    }
+  }
+
+  private fun logArSubscribed(transitionCount: Int) {
+    val typeNames = TrackingRules.SUBSCRIBED_ACTIVITY_TYPES.map { activityTypeName(it) }
+    val payload = JSONObject().apply {
+      put("api", "transition")
+      put("transitionCount", transitionCount)
+      put("types", JSONArray(typeNames))
+    }
+    NativeStore.insertDiagnostic(
+      this,
+      System.currentTimeMillis(),
+      "ar_subscribed",
+      payload.toString()
+    )
+  }
+
+  private fun activityTypeName(t: Int): String = when (t) {
+    com.google.android.gms.location.DetectedActivity.IN_VEHICLE -> "in_vehicle"
+    com.google.android.gms.location.DetectedActivity.ON_BICYCLE -> "on_bicycle"
+    com.google.android.gms.location.DetectedActivity.WALKING -> "walking"
+    com.google.android.gms.location.DetectedActivity.RUNNING -> "running"
+    com.google.android.gms.location.DetectedActivity.STILL -> "still"
+    else -> "unknown_$t"
   }
 
   private fun unsubscribeLocation() {
@@ -231,12 +287,18 @@ class TrackingService : Service() {
   private fun unsubscribeActivity() {
     activityPendingIntent?.let {
       try {
-        ActivityRecognition.getClient(this).removeActivityUpdates(it)
+        ActivityRecognition.getClient(this).removeActivityTransitionUpdates(it)
       } catch (e: Exception) {
-        Log.w("mapozy", "removeActivityUpdates failed: $e")
+        Log.w("mapozy", "removeActivityTransitionUpdates failed: $e")
       }
     }
     activityPendingIntent = null
+    NativeStore.insertDiagnostic(
+      this,
+      System.currentTimeMillis(),
+      "ar_unsubscribed",
+      null
+    )
   }
 
   override fun onDestroy() {

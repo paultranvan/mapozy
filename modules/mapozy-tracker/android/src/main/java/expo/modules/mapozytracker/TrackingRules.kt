@@ -31,10 +31,39 @@ object TrackingRules {
   const val DEFAULT_DESIRED_ACCURACY = "high"
 
   /**
-   * RULE_ACTIVITY_RECOGNITION_INTERVAL — how often we poll the OS
-   * ActivityRecognition client.
+   * RULE_ACTIVITY_RECOGNITION_INTERVAL — legacy poll cadence for the snapshot
+   * activity API. Kept only for the JS-bridge `activityIntervalMs` config
+   * parameter (still accepted for backwards-compat); ignored by the
+   * transition-based subscription path below, which is event-driven.
    */
   const val DEFAULT_ACTIVITY_INTERVAL_MS = 10_000L
+
+  /**
+   * RULE_ACTIVITY_TRANSITIONS — the set of activity types we subscribe to via
+   * `ActivityRecognitionClient.requestActivityTransitionUpdates`. The
+   * transition API only fires on edges (ENTER / EXIT), so the downstream
+   * pipeline treats each ENTER as "the user is now doing X" and relies on
+   * the next ENTER (or a long silence) to override.
+   */
+  val SUBSCRIBED_ACTIVITY_TYPES = listOf(
+    com.google.android.gms.location.DetectedActivity.IN_VEHICLE,
+    com.google.android.gms.location.DetectedActivity.ON_BICYCLE,
+    com.google.android.gms.location.DetectedActivity.WALKING,
+    com.google.android.gms.location.DetectedActivity.RUNNING,
+    com.google.android.gms.location.DetectedActivity.STILL,
+  )
+
+  /**
+   * RULE_AR_SILENCE_DETECTION — without a watchdog re-subscription, AR can
+   * go silent on aggressive battery managers (e.g. OnePlus) for many hours.
+   * When a fresh GPS sample shows the user actively moving but no AR event
+   * has been seen for a while, log an `ar_silence_detected` diagnostic so
+   * we can quantify the failure mode from the DB. Dedup window prevents
+   * one stuck subscription from filling the table.
+   */
+  const val AR_SILENCE_GAP_MS = 5L * 60_000L
+  const val AR_SILENCE_MIN_MOVING_SPEED_MPS = 0.5f
+  const val AR_SILENCE_DEDUP_INTERVAL_MS = 5L * 60_000L
 
   /**
    * RULE_AUTO_RESUME_ON_MOVE — when activity transitions out of

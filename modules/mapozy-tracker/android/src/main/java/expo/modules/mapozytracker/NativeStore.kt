@@ -53,6 +53,31 @@ object NativeStore {
     }
   }
 
+  /**
+   * Append a structured diagnostic event. Schema lives in
+   * src/db/migrations.ts (MIGRATION_002) — JS owns the migration; native
+   * just trusts the table exists by the time it writes. Failures are
+   * swallowed; diagnostics must never break tracking.
+   */
+  fun insertDiagnostic(
+    context: Context,
+    timestampMs: Long,
+    eventType: String,
+    payloadJson: String?
+  ) {
+    val d = open(context) ?: return
+    val cv = ContentValues().apply {
+      put("timestamp_ms", timestampMs)
+      put("event_type", eventType)
+      if (payloadJson != null) put("payload", payloadJson) else putNull("payload")
+    }
+    try {
+      d.insertOrThrow("tracker_diagnostics", null, cv)
+    } catch (e: Exception) {
+      Log.w("mapozy", "NativeStore.insertDiagnostic failed: $e")
+    }
+  }
+
   fun insertLocation(
     context: Context,
     timestampMs: Long,
