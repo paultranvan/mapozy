@@ -25,14 +25,27 @@ import { shouldRunPipelineOnAppStateChange } from '@/tracking/foregroundTrigger'
 import { MapozyTracker } from 'mapozy-tracker';
 import { getSetting, setSetting, SETTING_KEYS } from '@/db/settings';
 
+// MapozyTracker.isTracking() reads the persisted setting, NOT the actual
+// foreground-service state — so it can't directly detect "OS killed the
+// service". Until the native side grows a heartbeat we use GPS staleness as
+// a heuristic: if the user had a fix at some point but nothing in the last
+// 30 minutes, either the service died or they've been sitting still that
+// long; either way calling start() is safe (subscribeLocation is idempotent
+// when locationSubscribed is true). We skip the call on a null lastLoc to
+// let cold-start warm up naturally without re-subscribing AR for nothing.
+const AUTO_RESTART_STALE_MS = 30 * 60_000;
+
 async function maybeAutoRestartTracking(db: Db) {
   try {
     const enabled = (await getSetting(db, SETTING_KEYS.TRACKING_ENABLED)) === '1';
     if (!enabled) return;
-    const running = await MapozyTracker.isTracking();
-    if (running) return;
+    const status = await MapozyTracker.getStatus();
+    const lastLoc = status.lastLocationAt ?? null;
+    if (lastLoc == null) return;
+    const now = Date.now();
+    if (now - lastLoc < AUTO_RESTART_STALE_MS) return;
     await startTracking();
-    await setSetting(db, SETTING_KEYS.LAST_AUTO_RESTART_AT, String(Date.now()));
+    await setSetting(db, SETTING_KEYS.LAST_AUTO_RESTART_AT, String(now));
   } catch {
     // Leave the banner to surface 'stopped' state; user can hit Restart manually.
   }
