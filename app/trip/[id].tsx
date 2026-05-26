@@ -180,7 +180,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radii.sheet,
   },
   handle: {
-    backgroundColor: '#D7DBE0',
+    backgroundColor: colors.divider,
     width: 36,
     height: 4,
   },

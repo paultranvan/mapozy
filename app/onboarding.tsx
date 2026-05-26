@@ -69,7 +69,7 @@ export default function OnboardingScreen() {
               styles.dot,
               {
                 backgroundColor:
-                  i === step ? colors.accent : 'rgba(234, 227, 208, 0.25)',
+                  i === step ? colors.accent : 'rgba(26, 34, 48, 0.15)',
               },
             ]}
           />
@@ -159,7 +159,7 @@ function PermissionRow({ icon, label, body }: { icon: keyof typeof MaterialCommu
   return (
     <View style={styles.permRow}>
       <View style={styles.permIcon}>
-        <MaterialCommunityIcons name={icon} size={20} color={colors.ground} />
+        <MaterialCommunityIcons name={icon} size={20} color={colors.surface} />
       </View>
       <View style={{ flex: 1 }}>
         <Text variant="title" onGround>
@@ -192,7 +192,7 @@ function PrimaryButton({
         disabled && { opacity: 0.6 },
       ]}
     >
-      <Text variant="label" color={colors.ground}>
+      <Text variant="label" color={colors.surface}>
         {label}
       </Text>
     </Pressable>
@@ -252,7 +252,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: radii.chip,
-    backgroundColor: colors.inkOnGround,
+    backgroundColor: colors.deep,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -261,7 +261,7 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     paddingVertical: space[3],
     borderRadius: radii.pill,
-    backgroundColor: colors.inkOnGround,
+    backgroundColor: colors.accent,
     alignItems: 'center',
   },
   link: {
@@ -270,6 +270,6 @@ const styles = StyleSheet.create({
   },
   error: {
     marginTop: space[2],
-    color: '#F2C9A2',
+    color: colors.danger,
   },
 });

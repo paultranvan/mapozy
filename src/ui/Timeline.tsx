@@ -58,7 +58,7 @@ function Stop({
   return (
     <View style={styles.stopRow}>
       <View style={styles.pinCol}>
-        <View style={[styles.pin, { backgroundColor: colors.inkOnGround }]}>
+        <View style={[styles.pin, { backgroundColor: colors.deep }]}>
           <View style={[styles.pinInner, { backgroundColor: inner }]} />
         </View>
       </View>

@@ -122,8 +122,8 @@ export default function SettingsScreen() {
             <Switch
               value={trackingOn}
               onValueChange={toggleTracking}
-              trackColor={{ true: colors.accentSoft, false: '#D7DBE0' }}
-              thumbColor={trackingOn ? colors.accent : '#F5F2EC'}
+              trackColor={{ true: colors.accentSoft, false: colors.divider }}
+              thumbColor={trackingOn ? colors.accent : colors.surface}
             />
           </View>
         </Card>
@@ -260,7 +260,11 @@ const styles = StyleSheet.create({
     gap: space[3],
   },
   dangerCard: {
-    backgroundColor: '#3E1B1B',
+    backgroundColor: colors.dangerSurface,
+    borderWidth: 1,
+    borderColor: colors.dangerBorder,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   row: {
     flexDirection: 'row',

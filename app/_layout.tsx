@@ -61,10 +61,11 @@ export default function RootLayout() {
   }, []);
 
   // Drain unconsumed raw points on cold start and on every return to foreground,
-  // BUT only if the most recent unconsumed point is at least 30 min old (or the
-  // backlog is more than 12h stale). Recovers from "OS killed JS mid-trip, user
-  // reopens app and sees nothing" without the risk of fragmenting an in-progress
-  // trip when the user opens the app while still driving.
+  // BUT only if the most recent unconsumed point is at least 30 min old. This
+  // recovers from "OS killed JS mid-trip, user reopens app and sees nothing"
+  // without the risk of fragmenting an in-progress trip when the user opens
+  // the app while still driving (they'd hit Force pipeline themselves in the
+  // rare case they want partial processing).
   useEffect(() => {
     if (!db) return;
     void runPipelineForForeground(db, queryClient);
@@ -81,7 +82,7 @@ export default function RootLayout() {
   if (!db || !fontsLoaded) {
     return (
       <PaperProvider theme={adriaticTheme}>
-        <StatusBar barStyle="light-content" backgroundColor={colors.ground} />
+        <StatusBar barStyle="dark-content" backgroundColor={colors.ground} />
         <View
           style={{
             flex: 1,
@@ -101,7 +102,7 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.ground }}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.ground} />
+      <StatusBar barStyle="dark-content" backgroundColor={colors.ground} />
       <PaperProvider theme={adriaticTheme}>
         <QueryClientProvider client={queryClient}>
           <DbProvider db={db}>

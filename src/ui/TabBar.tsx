@@ -6,10 +6,10 @@ import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { colors, space } from '@/theme/tokens';
 import { Text } from './Text';
 
-const TAB_ICONS: Record<string, keyof typeof MaterialCommunityIcons.glyphMap> = {
-  index: 'map-outline',
-  stats: 'chart-arc',
-  settings: 'cog-outline',
+const TAB_ICONS: Record<string, { active: keyof typeof MaterialCommunityIcons.glyphMap; inactive: keyof typeof MaterialCommunityIcons.glyphMap }> = {
+  index: { active: 'map', inactive: 'map-outline' },
+  stats: { active: 'chart-arc', inactive: 'chart-arc' },
+  settings: { active: 'cog', inactive: 'cog-outline' },
 };
 
 const TAB_LABELS: Record<string, string> = {
@@ -18,7 +18,7 @@ const TAB_LABELS: Record<string, string> = {
   settings: 'Settings',
 };
 
-export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
+export function TabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   return (
     <View
@@ -61,35 +61,46 @@ function TabItem({
   isFocused: boolean;
   onPress: () => void;
 }) {
-  const icon = TAB_ICONS[name] ?? 'circle-outline';
+  const icons = TAB_ICONS[name] ?? { active: 'circle', inactive: 'circle-outline' };
   const label = TAB_LABELS[name] ?? name;
-  const scale = useRef(new Animated.Value(1)).current;
+  const iconLift = useRef(new Animated.Value(isFocused ? 1 : 0)).current;
 
   useEffect(() => {
-    Animated.spring(scale, {
-      toValue: isFocused ? 1.08 : 1,
+    Animated.spring(iconLift, {
+      toValue: isFocused ? 1 : 0,
       useNativeDriver: true,
-      speed: 30,
-      bounciness: 8,
+      speed: 28,
+      bounciness: 6,
     }).start();
-  }, [isFocused, scale]);
+  }, [isFocused, iconLift]);
+
+  const translateY = iconLift.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -1],
+  });
 
   return (
     <Pressable onPress={onPress} style={styles.item} hitSlop={6}>
-      <Animated.View style={{ transform: [{ scale }] }}>
+      <Animated.View
+        style={[
+          styles.iconWrap,
+          isFocused && styles.iconWrapActive,
+          { transform: [{ translateY }] },
+        ]}
+      >
         <MaterialCommunityIcons
-          name={icon}
-          size={24}
-          color={isFocused ? colors.accent : colors.inkOnGroundSoft}
+          name={isFocused ? icons.active : icons.inactive}
+          size={22}
+          color={isFocused ? colors.accent : colors.inkSoft}
         />
       </Animated.View>
-      {isFocused ? (
-        <Text variant="label" onGround style={styles.label}>
-          {label}
-        </Text>
-      ) : (
-        <View style={styles.labelSpacer} />
-      )}
+      <Text
+        variant="label"
+        color={isFocused ? colors.ink : colors.inkSoft}
+        style={isFocused ? [styles.label, styles.labelActive] : styles.label}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -100,19 +111,29 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ground,
     paddingTop: space[2],
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(234, 227, 208, 0.10)',
+    borderTopColor: colors.divider,
   },
   item: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: space[2],
+    paddingVertical: space[1],
     gap: 2,
+  },
+  iconWrap: {
+    width: 44,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconWrapActive: {
+    backgroundColor: colors.accentSoft,
   },
   label: {
     marginTop: 2,
   },
-  labelSpacer: {
-    height: 14,
+  labelActive: {
+    fontWeight: '600',
   },
 });
