@@ -18,8 +18,8 @@ describe('db repositories (in-memory via better-sqlite3)', () => {
     it('inserts and counts unconsumed', async () => {
       const id = await insertRawPoint(db, {
         timestampMs: 1_700_000_000_000,
-        latitude: 45.764,
-        longitude: 4.8357,
+        latitude: 45.0,
+        longitude: 5.0,
         altitude: 200,
         accuracyMeters: 5,
         speedMps: 1.4,
@@ -69,16 +69,16 @@ describe('db repositories (in-memory via better-sqlite3)', () => {
 
   describe('places', () => {
     it('creates a place when none nearby exists', async () => {
-      const id = await findOrCreatePlace(db, 45.764, 4.8357, 1000);
+      const id = await findOrCreatePlace(db, 45.0, 5.0, 1000);
       const p = await getPlaceById(db, id);
       expect(p?.visitCount).toBe(1);
       expect(p?.firstSeenMs).toBe(1000);
     });
 
     it('reuses a place within 100m radius and increments visitCount', async () => {
-      const id1 = await findOrCreatePlace(db, 45.764, 4.8357, 1000);
+      const id1 = await findOrCreatePlace(db, 45.0, 5.0, 1000);
       // ~30m east at this latitude
-      const id2 = await findOrCreatePlace(db, 45.764, 4.8361, 2000);
+      const id2 = await findOrCreatePlace(db, 45.0, 5.0004, 2000);
       expect(id2).toBe(id1);
       const p = await getPlaceById(db, id1);
       expect(p?.visitCount).toBe(2);
@@ -86,14 +86,14 @@ describe('db repositories (in-memory via better-sqlite3)', () => {
     });
 
     it('creates a distinct place when > 100m away', async () => {
-      const id1 = await findOrCreatePlace(db, 45.764, 4.8357, 1000);
+      const id1 = await findOrCreatePlace(db, 45.0, 5.0, 1000);
       // ~500m north
-      const id2 = await findOrCreatePlace(db, 45.768, 4.8357, 2000);
+      const id2 = await findOrCreatePlace(db, 45.004, 5.0, 2000);
       expect(id2).not.toBe(id1);
     });
 
     it('sets and reads label', async () => {
-      const id = await findOrCreatePlace(db, 45.764, 4.8357, 1000);
+      const id = await findOrCreatePlace(db, 45.0, 5.0, 1000);
       await setPlaceLabel(db, id, 'home');
       const p = await getPlaceById(db, id);
       expect(p?.label).toBe('home');

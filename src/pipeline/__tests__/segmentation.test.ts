@@ -8,8 +8,8 @@ describe('segmentation', () => {
   it('returns no trips when fewer than 2 dwell windows', () => {
     // single stay point set
     const pts = [
-      mkPoint(0, 45.764, 4.8357),
-      mkPoint(60_000, 45.764, 4.8357),
+      mkPoint(0, 45.0, 5.0),
+      mkPoint(60_000, 45.0, 5.0),
     ];
     const segs = segmentation(pts, [], { dwellMinutes: 1, dwellRadiusM: 50 });
     expect(segs.filter((s) => s.kind === 'trip')).toHaveLength(0);
@@ -26,8 +26,8 @@ describe('segmentation', () => {
 
   it('does not treat a 6-min stationary window as a stay when in_vehicle activity is present (traffic jam)', () => {
     const t0 = 1_700_000_000_000;
-    const lat = 48.85;
-    const lon = 2.35;
+    const lat = 50.0;
+    const lon = 10.0;
     const pts: RawPoint[] = [];
     for (let i = 0; i <= 6; i++) {
       pts.push(mkPoint(t0 + i * 60_000, lat, lon));
@@ -42,8 +42,8 @@ describe('segmentation', () => {
 
   it('still treats a 6-min stationary window as a stay when activity is still/on_foot', () => {
     const t0 = 1_700_000_000_000;
-    const lat = 48.85;
-    const lon = 2.35;
+    const lat = 50.0;
+    const lon = 10.0;
     const pts: RawPoint[] = [];
     for (let i = 0; i <= 6; i++) {
       pts.push(mkPoint(t0 + i * 60_000, lat, lon));
@@ -58,8 +58,8 @@ describe('segmentation', () => {
 
   it('still treats a 6-min stationary window as a stay when no activities are recorded (back-compat)', () => {
     const t0 = 1_700_000_000_000;
-    const lat = 48.85;
-    const lon = 2.35;
+    const lat = 50.0;
+    const lon = 10.0;
     const pts: RawPoint[] = [];
     for (let i = 0; i <= 6; i++) {
       pts.push(mkPoint(t0 + i * 60_000, lat, lon));
@@ -71,8 +71,8 @@ describe('segmentation', () => {
   it('treats a long gap at a different location as an implicit stay', () => {
     // Home cluster, then a walk, then a 2h gap, then home again
     const t0 = 1_700_000_000_000;
-    const lat0 = 48.7737;
-    const lon0 = 2.3226;
+    const lat0 = 48.0;
+    const lon0 = 2.0;
     const pts: ReturnType<typeof mkPoint>[] = [];
     // Stay at home for 10 minutes
     for (let i = 0; i <= 10; i++) {

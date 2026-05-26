@@ -6,11 +6,11 @@ describe('smoothing', () => {
 
   it('keeps a smooth straight line untouched', () => {
     const pts = [
-      mkPoint(0, 45.764, 4.8357),
-      mkPoint(10_000, 45.764, 4.83571),
-      mkPoint(20_000, 45.764, 4.83572),
-      mkPoint(30_000, 45.764, 4.83573),
-      mkPoint(40_000, 45.764, 4.83574),
+      mkPoint(0, 45.0, 5.0),
+      mkPoint(10_000, 45.0, 5.00001),
+      mkPoint(20_000, 45.0, 5.00002),
+      mkPoint(30_000, 45.0, 5.00003),
+      mkPoint(40_000, 45.0, 5.00004),
     ];
     const out = smoothing(pts);
     expect(out).toHaveLength(5);
@@ -18,14 +18,14 @@ describe('smoothing', () => {
 
   it('removes a single big spike in the middle', () => {
     const pts = [
-      mkPoint(0, 45.764, 4.8357),
-      mkPoint(10_000, 45.764, 4.83571),
-      mkPoint(20_000, 45.84, 4.83572), // spike: ~10km north
-      mkPoint(30_000, 45.764, 4.83573),
-      mkPoint(40_000, 45.764, 4.83574),
+      mkPoint(0, 45.0, 5.0),
+      mkPoint(10_000, 45.0, 5.00001),
+      mkPoint(20_000, 45.076, 5.00002), // spike: ~10km north
+      mkPoint(30_000, 45.0, 5.00003),
+      mkPoint(40_000, 45.0, 5.00004),
     ];
     const out = smoothing(pts);
     expect(out).toHaveLength(4);
-    expect(out.find((p) => p.latitude > 45.8)).toBeUndefined();
+    expect(out.find((p) => p.latitude > 45.07)).toBeUndefined();
   });
 });

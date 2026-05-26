@@ -59,8 +59,8 @@ export function syntheticTrip(opts: { startMs?: number } = {}): {
   const points: RawPoint[] = [];
   const activities: RawActivity[] = [];
 
-  const lat0 = 45.764;
-  const lon0 = 4.8357;
+  const lat0 = 45.0;
+  const lon0 = 5.0;
 
   // Stay at A for 10 minutes, 1 point per minute
   for (let i = 0; i <= 10; i++) {
