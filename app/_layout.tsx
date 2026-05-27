@@ -20,36 +20,8 @@ import { adriaticTheme } from '@/theme/paperTheme';
 import { colors } from '@/theme/tokens';
 import { openDb, type Db } from '@/db/client';
 import { DbProvider } from '@/db/DbContext';
-import { runPipelineForForeground, startTracking } from '@/tracking/tracker';
+import { runPipelineForForeground } from '@/tracking/tracker';
 import { shouldRunPipelineOnAppStateChange } from '@/tracking/foregroundTrigger';
-import { MapozyTracker } from 'mapozy-tracker';
-import { getSetting, setSetting, SETTING_KEYS } from '@/db/settings';
-
-// MapozyTracker.isTracking() reads the persisted setting, NOT the actual
-// foreground-service state — so it can't directly detect "OS killed the
-// service". Until the native side grows a heartbeat we use GPS staleness as
-// a heuristic: if the user had a fix at some point but nothing in the last
-// 30 minutes, either the service died or they've been sitting still that
-// long; either way calling start() is safe (subscribeLocation is idempotent
-// when locationSubscribed is true). We skip the call on a null lastLoc to
-// let cold-start warm up naturally without re-subscribing AR for nothing.
-const AUTO_RESTART_STALE_MS = 30 * 60_000;
-
-async function maybeAutoRestartTracking(db: Db) {
-  try {
-    const enabled = (await getSetting(db, SETTING_KEYS.TRACKING_ENABLED)) === '1';
-    if (!enabled) return;
-    const status = await MapozyTracker.getStatus();
-    const lastLoc = status.lastLocationAt ?? null;
-    if (lastLoc == null) return;
-    const now = Date.now();
-    if (now - lastLoc < AUTO_RESTART_STALE_MS) return;
-    await startTracking();
-    await setSetting(db, SETTING_KEYS.LAST_AUTO_RESTART_AT, String(now));
-  } catch {
-    // Leave the banner to surface 'stopped' state; user can hit Restart manually.
-  }
-}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -97,12 +69,10 @@ export default function RootLayout() {
   useEffect(() => {
     if (!db) return;
     void runPipelineForForeground(db, queryClient);
-    void maybeAutoRestartTracking(db);
     let prev: AppStateStatus = AppState.currentState;
     const sub = AppState.addEventListener('change', (next) => {
       if (shouldRunPipelineOnAppStateChange(next, prev)) {
         void runPipelineForForeground(db, queryClient);
-        void maybeAutoRestartTracking(db);
       }
       prev = next;
     });
