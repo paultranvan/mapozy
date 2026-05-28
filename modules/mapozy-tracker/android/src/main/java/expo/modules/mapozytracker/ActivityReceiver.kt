@@ -51,16 +51,18 @@ class ActivityReceiver : BroadcastReceiver() {
         TrackingState.setLastActivity(context, effectiveType, ts)
         NativeStore.insertActivity(context, ts, effectiveType, 100)
 
-        // RULE_AUTO_RESUME_ON_MOVE
+        // RULE_MOTION_STATE_MACHINE — drive MOVING/STATIONARY transitions.
         if (effectiveType != "still" && effectiveType != "unknown") {
-          TrackingService.resumeLocation(context)
-        }
-
-        // RULE_ADAPTIVE_LOCATION_REQUEST
-        val newProfile = TrackingRules.profileForActivity(effectiveType)
-        val activeProfileName = TrackingState.getActiveProfileName(context)
-        if (newProfile.name != activeProfileName) {
-          TrackingService.reconfigureLocationRequest(context, newProfile)
+          TrackingService.enterMoving(context, "ar:$effectiveType")
+          // RULE_ADAPTIVE_LOCATION_REQUEST — pick tight/loose for the new activity.
+          val newProfile = TrackingRules.profileForActivity(effectiveType)
+          if (newProfile.name != TrackingState.getActiveProfileName(context)) {
+            TrackingService.reconfigureLocationRequest(context, newProfile)
+          }
+        } else if (effectiveType == "still") {
+          // Begin stop-detection debounce; service drops GPS after STOP_TIMEOUT_MS
+          // unless motion arrives first.
+          TrackingService.enterStillPending(context)
         }
       } else {
         // EXIT — bump the "last activity arrived" wall clock so silence
