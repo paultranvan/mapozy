@@ -64,16 +64,6 @@ class MapozyTrackerModule : Module() {
       TrackingService.restart(ctx)
     }
 
-    AsyncFunction("pauseLocation") {
-      val ctx = appContext.reactContext ?: error("No context")
-      TrackingService.pauseLocation(ctx)
-    }
-
-    AsyncFunction("resumeLocation") {
-      val ctx = appContext.reactContext ?: error("No context")
-      TrackingService.resumeLocation(ctx)
-    }
-
     AsyncFunction("isIgnoringBatteryOptimizations") {
       val ctx = appContext.reactContext ?: error("No context")
       val pm = ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager
