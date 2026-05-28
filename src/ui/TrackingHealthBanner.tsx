@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { View, StyleSheet, Pressable, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { startTracking, stopTracking } from '@/tracking/tracker';
+import { restartTracking } from '@/tracking/tracker';
 import { setSetting, SETTING_KEYS } from '@/db/settings';
 import { useDb } from '@/db/DbContext';
 import { Text } from '@/ui/Text';
@@ -101,12 +101,7 @@ export function TrackingHealthBanner({ snapshot, pointsToday, onRefresh }: Props
 
   async function doRestart() {
     try {
-      await stopTracking();
-    } catch {
-      // ignore — service may already be dead
-    }
-    try {
-      await startTracking();
+      await restartTracking();
       await setSetting(
         db,
         SETTING_KEYS.LAST_AUTO_RESTART_AT,

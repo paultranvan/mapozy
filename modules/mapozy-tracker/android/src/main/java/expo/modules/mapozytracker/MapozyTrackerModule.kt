@@ -55,6 +55,15 @@ class MapozyTrackerModule : Module() {
       TrackingService.stop(ctx)
     }
 
+    // Atomic re-subscribe (see TrackingService.restart). Use this instead of
+    // stop()+start() — the latter races with onDestroy and leaves AR/location
+    // unsubscribed.
+    AsyncFunction("restart") {
+      val ctx = appContext.reactContext ?: error("No context")
+      TrackingState.setEnabled(ctx, true)
+      TrackingService.restart(ctx)
+    }
+
     AsyncFunction("pauseLocation") {
       val ctx = appContext.reactContext ?: error("No context")
       TrackingService.pauseLocation(ctx)

@@ -35,6 +35,7 @@ class TrackingService : Service() {
     const val NOTIF_ID = 4242
     const val ACTION_START = "mapozy.tracker.START"
     const val ACTION_STOP = "mapozy.tracker.STOP"
+    const val ACTION_RESTART = "mapozy.tracker.RESTART"
     const val ACTION_PAUSE_LOCATION = "mapozy.tracker.PAUSE_LOCATION"
     const val ACTION_RESUME_LOCATION = "mapozy.tracker.RESUME_LOCATION"
     const val ACTION_RECONFIGURE_LR = "mapozy.tracker.RECONFIGURE_LR"
@@ -45,6 +46,15 @@ class TrackingService : Service() {
 
     fun stop(context: Context) {
       sendIntent(context, ACTION_STOP, foreground = false)
+    }
+
+    /**
+     * Atomic re-subscribe: unsubscribe + subscribe in a single onStartCommand,
+     * without stopSelf. Avoids the lifecycle race where stop+start from JS lets
+     * onDestroy fire AFTER the new subscription is established, killing it.
+     */
+    fun restart(context: Context) {
+      sendIntent(context, ACTION_RESTART, foreground = true)
     }
 
     fun pauseLocation(context: Context) {
@@ -120,6 +130,17 @@ class TrackingService : Service() {
         startForegroundCompat(cfg)
         unsubscribeLocation()
         if (hasLocationPermission()) subscribeLocation(cfg)
+        return START_STICKY
+      }
+      ACTION_RESTART -> {
+        val cfg = TrackingState.loadConfig(this)
+        Log.i("mapozy", "TrackingService restart: re-subscribing in place")
+        startForegroundCompat(cfg)
+        unsubscribeLocation()
+        unsubscribeActivity()
+        if (hasLocationPermission()) subscribeLocation(cfg)
+        if (hasActivityRecognitionPermission()) subscribeActivity(cfg)
+        TrackingState.setEnabled(this, true)
         return START_STICKY
       }
       else -> {
@@ -285,12 +306,11 @@ class TrackingService : Service() {
   }
 
   private fun unsubscribeActivity() {
-    activityPendingIntent?.let {
-      try {
-        ActivityRecognition.getClient(this).removeActivityTransitionUpdates(it)
-      } catch (e: Exception) {
-        Log.w("mapozy", "removeActivityTransitionUpdates failed: $e")
-      }
+    val pi = activityPendingIntent ?: return
+    try {
+      ActivityRecognition.getClient(this).removeActivityTransitionUpdates(pi)
+    } catch (e: Exception) {
+      Log.w("mapozy", "removeActivityTransitionUpdates failed: $e")
     }
     activityPendingIntent = null
     NativeStore.insertDiagnostic(

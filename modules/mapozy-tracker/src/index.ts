@@ -16,6 +16,7 @@ interface MapozyTrackerEvents extends Record<string, (...args: any[]) => void> {
 declare class MapozyTrackerNativeModule extends NativeModule<MapozyTrackerEvents> {
   start(config: TrackingConfig): Promise<void>;
   stop(): Promise<void>;
+  restart(): Promise<void>;
   pauseLocation(): Promise<void>;
   resumeLocation(): Promise<void>;
   isTracking(): Promise<boolean>;
@@ -29,6 +30,7 @@ const Native = requireNativeModule<MapozyTrackerNativeModule>('MapozyTracker');
 export const MapozyTracker = {
   start: (cfg: TrackingConfig) => Native.start(cfg),
   stop: () => Native.stop(),
+  restart: () => Native.restart(),
   pauseLocation: () => Native.pauseLocation(),
   resumeLocation: () => Native.resumeLocation(),
   isTracking: () => Native.isTracking(),
