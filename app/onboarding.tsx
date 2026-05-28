@@ -10,6 +10,7 @@ import {
   requestBackgroundLocation,
 } from '@/tracking/permissions';
 import { startTracking } from '@/tracking/tracker';
+import { MapozyTracker } from 'mapozy-tracker';
 import { Text } from '@/ui/Text';
 import { colors, radii, space } from '@/theme/tokens';
 
@@ -25,6 +26,7 @@ export default function OnboardingScreen() {
     notifications: boolean;
   } | null>(null);
   const [requesting, setRequesting] = useState(false);
+  const [batteryExempt, setBatteryExempt] = useState<boolean | null>(null);
 
   async function onGrantPermissions() {
     setRequesting(true);
@@ -33,8 +35,21 @@ export default function OnboardingScreen() {
       const bg = fg.fineLocation ? await requestBackgroundLocation() : false;
       setPermResult({ ...fg, backgroundLocation: bg });
       if (fg.fineLocation && fg.activityRecognition) {
-        setStep(2);
+        const exempt = await MapozyTracker.isIgnoringBatteryOptimizations();
+        setBatteryExempt(exempt);
+        setStep(exempt ? 3 : 2);
       }
+    } finally {
+      setRequesting(false);
+    }
+  }
+
+  async function onRequestBatteryExemption() {
+    setRequesting(true);
+    try {
+      await MapozyTracker.requestIgnoreBatteryOptimizations();
+      const exempt = await MapozyTracker.isIgnoringBatteryOptimizations();
+      setBatteryExempt(exempt);
     } finally {
       setRequesting(false);
     }
@@ -62,7 +77,7 @@ export default function OnboardingScreen() {
       contentContainerStyle={[styles.container, { paddingTop: insets.top + space[5] }]}
     >
       <View style={styles.dots}>
-        {[0, 1, 2].map((i) => (
+        {[0, 1, 2, 3].map((i) => (
           <View
             key={i}
             style={[
@@ -131,6 +146,35 @@ export default function OnboardingScreen() {
       )}
 
       {step === 2 && (
+        <View style={styles.step}>
+          <MaterialCommunityIcons
+            name="battery-charging-outline"
+            size={88}
+            color={colors.inkOnGround}
+          />
+          <Text variant="displayL" onGround align="center" style={styles.title}>
+            Battery
+          </Text>
+          <Text variant="body" onGround soft align="center" style={styles.body}>
+            To keep tracking running in the background, allow Mapozy to ignore battery optimization. Without this, your phone may stop tracking when the screen is off.
+          </Text>
+          {batteryExempt && (
+            <Text variant="meta" onGround align="center" style={styles.body}>
+              Already granted — you're all set.
+            </Text>
+          )}
+          {!batteryExempt && (
+            <PrimaryButton
+              label={requesting ? 'Requesting…' : 'Allow battery exemption'}
+              onPress={onRequestBatteryExemption}
+              disabled={requesting}
+            />
+          )}
+          <TextLink label="Continue" onPress={() => setStep(3)} />
+        </View>
+      )}
+
+      {step === 3 && (
         <View style={styles.step}>
           <MaterialCommunityIcons
             name="check-circle-outline"
