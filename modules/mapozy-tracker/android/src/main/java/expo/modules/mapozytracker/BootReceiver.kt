@@ -14,6 +14,7 @@ class BootReceiver : BroadcastReceiver() {
         a != "android.intent.action.QUICKBOOT_POWERON") {
       return
     }
+    NativeStore.insertDiagnostic(context, System.currentTimeMillis(), "boot", null)
     if (TrackingState.isEnabled(context)) {
       Log.i("mapozy", "BootReceiver: tracking was enabled, restarting service")
       TrackingService.start(context)
