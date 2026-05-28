@@ -2,14 +2,14 @@
   "expo": {
     "name": "Mapozy",
     "slug": "mapozy",
-    "version": "0.2.4",
+    "version": "0.2.7",
     "orientation": "portrait",
     "scheme": "mapozy",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": false,
     "android": {
       "package": "com.paul.mapozy",
-      "versionCode": 6,
+      "versionCode": 9,
       "adaptiveIcon": {
         "backgroundColor": "#2A9D8F"
       },
