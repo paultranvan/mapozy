@@ -24,6 +24,8 @@ import { Text } from '@/ui/Text';
 import { Card } from '@/ui/Card';
 import { colors, space, radii } from '@/theme/tokens';
 import { useTrackingHealth, type TrackingHealth } from '@/tracking/useTrackingHealth';
+import { getInterruptions, type Interruption } from '@/tracking/interruptions';
+import { format } from 'date-fns';
 
 export default function SettingsScreen() {
   const db = useDb();
@@ -34,6 +36,7 @@ export default function SettingsScreen() {
   const [tripCount, setTripCount] = useState(0);
   const [rawCount, setRawCount] = useState(0);
   const [batteryUnrestricted, setBatteryUnrestricted] = useState(false);
+  const [interruptions, setInterruptions] = useState<Interruption[] | null>(null);
   const health = useTrackingHealth();
 
   useEffect(() => {
@@ -42,6 +45,13 @@ export default function SettingsScreen() {
       setTripCount(await countTrips(db));
       setRawCount(await countUnconsumedPoints(db));
       setBatteryUnrestricted(await MapozyTracker.isIgnoringBatteryOptimizations());
+      const now = Date.now();
+      const result = await getInterruptions(db, {
+        intervalMs: 15 * 60_000,
+        nowMs: now,
+        sinceMs: now - 14 * 24 * 60 * 60_000,
+      });
+      setInterruptions(result);
     })();
   }, [db]);
 
@@ -193,6 +203,41 @@ export default function SettingsScreen() {
         </Card>
 
         <Text variant="display" onGround style={styles.section}>
+          Tracking interruptions
+        </Text>
+        <Card style={styles.card}>
+          {interruptions === null ? (
+            <Text variant="meta" soft>
+              Loading…
+            </Text>
+          ) : interruptions.length === 0 ? (
+            <Text variant="meta" soft>
+              No interruptions in the last 14 days.
+            </Text>
+          ) : (
+            interruptions.slice(0, 5).map((item, idx) => (
+              <View key={idx}>
+                {idx > 0 && <View style={styles.divider} />}
+                <View style={styles.row}>
+                  <View style={{ flex: 1 }}>
+                    <Text variant="title">
+                      {format(item.startMs, 'MMM d HH:mm')}
+                      {' – '}
+                      {format(item.endMs, 'HH:mm')}
+                      {' · '}
+                      {formatDuration(item.durationMs)}
+                    </Text>
+                    <Text variant="meta" soft>
+                      {causeLabel(item.cause)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            ))
+          )}
+        </Card>
+
+        <Text variant="display" onGround style={styles.section}>
           Data
         </Text>
         <Card style={styles.card}>
@@ -315,6 +360,28 @@ function DangerButton({ label, onPress }: { label: string; onPress: () => void }
       </Text>
     </Pressable>
   );
+}
+
+function formatDuration(ms: number): string {
+  const totalMinutes = Math.round(ms / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h`;
+  return `${Math.max(1, minutes)}m`;
+}
+
+function causeLabel(cause: Interruption['cause']): string {
+  switch (cause) {
+    case 'device_off':
+      return 'Phone was off';
+    case 'killed_recovered':
+      return 'Phone stopped the app (recovered)';
+    case 'killed_until_reopen':
+      return 'Phone stopped the app until reopened';
+    case 'ongoing':
+      return 'Tracking currently interrupted';
+  }
 }
 
 function trackingHealthSubtitle(
