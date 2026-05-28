@@ -29,5 +29,11 @@
     <receiver
       android:name="expo.modules.mapozytracker.ActivityReceiver"
       android:exported="false"/>
+    <receiver
+      android:name="expo.modules.mapozytracker.GeofenceReceiver"
+      android:exported="false"/>
+    <receiver
+      android:name="expo.modules.mapozytracker.WatchdogReceiver"
+      android:exported="false"/>
   </application>
 </manifest>
