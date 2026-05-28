@@ -174,13 +174,13 @@ class TrackingService : Service() {
       ACTION_ENTER_MOVING -> {
         val cfg = TrackingState.loadConfig(this)
         startForegroundCompat(cfg)
-        applyMoving(cfg, intent?.getStringExtra("trigger") ?: "unknown")
+        applyMoving(cfg, intent.getStringExtra("trigger") ?: "unknown")
         return START_STICKY
       }
       ACTION_STILL_PENDING -> {
         val cfg = TrackingState.loadConfig(this)
         startForegroundCompat(cfg)
-        scheduleStopTimer(cfg)
+        scheduleStopTimer()
         return START_STICKY
       }
       ACTION_RECONFIGURE_LR -> {
@@ -441,7 +441,7 @@ class TrackingService : Service() {
     )
   }
 
-  private fun scheduleStopTimer(cfg: TrackingState.Config) {
+  private fun scheduleStopTimer() {
     cancelStopTimer()
     TrackingState.setStopDeadline(this, System.currentTimeMillis() + TrackingRules.STOP_TIMEOUT_MS)
     val r = Runnable {
