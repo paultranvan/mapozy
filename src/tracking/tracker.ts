@@ -67,13 +67,13 @@ export function useTrackerBridge() {
     // long-but-temporary stop (e.g. 10 min in heavy traffic) gets processed
     // before the trip actually completes.
     //
-    // NOTE: We used to also call MapozyTracker.pauseLocation() / resumeLocation()
-    // here to save battery during stillness. That was removed because the
-    // resume side depended on a stable JS bridge, and an OS-killed JS instance
-    // could leave the native module perpetually paused (observed in a real user
-    // trip: 90 min of activity events with only 23 min of GPS coverage). If we
-    // want this optimization back, it must live on the native side so its
-    // resume can't be lost when JS is torn down.
+    // NOTE: Battery-saving GPS shutoff during stillness now lives entirely on
+    // the native side (TrackingService motion state machine: STATIONARY drops
+    // GPS + arms a geofence; AR/geofence wake it). The old JS-driven
+    // pauseLocation()/resumeLocation() pair was removed — its resume depended on
+    // a stable JS bridge, and an OS-killed JS instance could leave tracking
+    // perpetually paused (once observed: 90 min of activity events, 23 min of
+    // GPS). The native state machine's resume can't be lost when JS is torn down.
     const actSub = MapozyTracker.addActivityListener((act) => {
       const isStill = act.type === 'still' && act.confidence >= 60;
       if (isStill) {

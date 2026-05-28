@@ -17,8 +17,6 @@ declare class MapozyTrackerNativeModule extends NativeModule<MapozyTrackerEvents
   start(config: TrackingConfig): Promise<void>;
   stop(): Promise<void>;
   restart(): Promise<void>;
-  pauseLocation(): Promise<void>;
-  resumeLocation(): Promise<void>;
   isTracking(): Promise<boolean>;
   getStatus(): Promise<TrackingStatus>;
   isIgnoringBatteryOptimizations(): Promise<boolean>;
@@ -31,8 +29,6 @@ export const MapozyTracker = {
   start: (cfg: TrackingConfig) => Native.start(cfg),
   stop: () => Native.stop(),
   restart: () => Native.restart(),
-  pauseLocation: () => Native.pauseLocation(),
-  resumeLocation: () => Native.resumeLocation(),
   isTracking: () => Native.isTracking(),
   getStatus: () => Native.getStatus(),
   isIgnoringBatteryOptimizations: () => Native.isIgnoringBatteryOptimizations(),

@@ -41,8 +41,6 @@ class TrackingService : Service() {
     const val ACTION_START = "mapozy.tracker.START"
     const val ACTION_STOP = "mapozy.tracker.STOP"
     const val ACTION_RESTART = "mapozy.tracker.RESTART"
-    const val ACTION_PAUSE_LOCATION = "mapozy.tracker.PAUSE_LOCATION"
-    const val ACTION_RESUME_LOCATION = "mapozy.tracker.RESUME_LOCATION"
     const val ACTION_RECONFIGURE_LR = "mapozy.tracker.RECONFIGURE_LR"
     const val ACTION_ENTER_MOVING = "mapozy.tracker.ENTER_MOVING"
     const val ACTION_STILL_PENDING = "mapozy.tracker.STILL_PENDING"
@@ -101,16 +99,6 @@ class TrackingService : Service() {
      */
     fun restart(context: Context) {
       sendIntent(context, ACTION_RESTART, foreground = true)
-    }
-
-    fun pauseLocation(context: Context) {
-      if (!TrackingState.isEnabled(context)) return
-      sendIntent(context, ACTION_PAUSE_LOCATION, foreground = true)
-    }
-
-    fun resumeLocation(context: Context) {
-      if (!TrackingState.isEnabled(context)) return
-      sendIntent(context, ACTION_RESUME_LOCATION, foreground = true)
     }
 
     /**
