@@ -79,6 +79,26 @@ describe('computeInterruptions', () => {
     expect(r).toEqual([]);
   });
 
+  it('classifies a watchdog-recovered gap (restart + svc_create) as killed_recovered', () => {
+    const before = beats(NOW - 20 * INTERVAL, 3);
+    const last = before[before.length - 1]!.timestampMs;
+    // Deep-doze gap, then the watchdog wakes in a fresh process: it writes
+    // watchdog_fire + watchdog_restart at the same instant, then restarts the
+    // service which writes svc_create a few ms later.
+    const recoverTs = NOW - 2 * INTERVAL;
+    const recoveryFire = ev(DIAGNOSTIC_EVENTS.WATCHDOG_FIRE, recoverTs);
+    const restart = ev(DIAGNOSTIC_EVENTS.WATCHDOG_RESTART, recoverTs);
+    const svcCreate = ev(DIAGNOSTIC_EVENTS.SVC_CREATE, recoverTs + 5);
+    const r = computeInterruptions(
+      [...before, recoveryFire, restart, svcCreate, ev(DIAGNOSTIC_EVENTS.WATCHDOG_FIRE, NOW)],
+      { intervalMs: INTERVAL, nowMs: NOW }
+    );
+    expect(r).toHaveLength(1);
+    expect(r[0]!.startMs).toBe(last);
+    expect(r[0]!.endMs).toBe(recoverTs);
+    expect(r[0]!.cause).toBe('killed_recovered');
+  });
+
   it('returns newest-first', () => {
     const a = beats(NOW - 40 * INTERVAL, 2);
     const gap1End = ev(DIAGNOSTIC_EVENTS.WATCHDOG_FIRE, NOW - 30 * INTERVAL);
