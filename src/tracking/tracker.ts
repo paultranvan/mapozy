@@ -24,6 +24,13 @@ export async function stopTracking(): Promise<void> {
   await MapozyTracker.stop();
 }
 
+// Atomic re-subscribe — use this instead of stopTracking() + startTracking().
+// The stop+start sequence races inside the native service: onDestroy fires
+// after the new subscription is established and unsubscribes it again.
+export async function restartTracking(): Promise<void> {
+  await MapozyTracker.restart();
+}
+
 export async function isTracking(): Promise<boolean> {
   return MapozyTracker.isTracking();
 }
