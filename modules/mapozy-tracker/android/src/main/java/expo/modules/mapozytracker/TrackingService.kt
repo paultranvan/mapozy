@@ -14,6 +14,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
@@ -22,11 +23,15 @@ import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.ActivityRecognition
 import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionRequest
+import com.google.android.gms.location.Geofence
+import com.google.android.gms.location.GeofencingRequest
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.LocationServices as GmsLocationServices
 import com.google.android.gms.location.Priority
 import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONObject as JsonObj
 
 class TrackingService : Service() {
 
@@ -39,6 +44,47 @@ class TrackingService : Service() {
     const val ACTION_PAUSE_LOCATION = "mapozy.tracker.PAUSE_LOCATION"
     const val ACTION_RESUME_LOCATION = "mapozy.tracker.RESUME_LOCATION"
     const val ACTION_RECONFIGURE_LR = "mapozy.tracker.RECONFIGURE_LR"
+    const val ACTION_ENTER_MOVING = "mapozy.tracker.ENTER_MOVING"
+    const val ACTION_STILL_PENDING = "mapozy.tracker.STILL_PENDING"
+    const val ACTION_WATCHDOG_TICK = "mapozy.tracker.WATCHDOG_TICK"
+
+    @Volatile var isRunning: Boolean = false
+      private set
+
+    fun enterMoving(context: Context, trigger: String) {
+      if (!TrackingState.isEnabled(context)) return
+      val i = Intent(context, TrackingService::class.java).apply {
+        action = ACTION_ENTER_MOVING
+        putExtra("trigger", trigger)
+      }
+      startCompat(context, i)
+    }
+
+    fun enterStillPending(context: Context) {
+      if (!TrackingState.isEnabled(context)) return
+      startCompat(context, Intent(context, TrackingService::class.java).apply {
+        action = ACTION_STILL_PENDING
+      })
+    }
+
+    fun watchdogTick(context: Context) {
+      if (!TrackingState.isEnabled(context)) return
+      startCompat(context, Intent(context, TrackingService::class.java).apply {
+        action = ACTION_WATCHDOG_TICK
+      })
+    }
+
+    private fun startCompat(context: Context, intent: Intent) {
+      try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+          context.startForegroundService(intent)
+        } else {
+          context.startService(intent)
+        }
+      } catch (e: Exception) {
+        Log.w("mapozy", "startCompat failed: $e")
+      }
+    }
 
     fun start(context: Context) {
       sendIntent(context, ACTION_START, foreground = true)
@@ -79,10 +125,14 @@ class TrackingService : Service() {
 
     private fun sendIntent(context: Context, action: String, foreground: Boolean) {
       val intent = Intent(context, TrackingService::class.java).apply { this.action = action }
-      if (foreground && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        context.startForegroundService(intent)
-      } else {
-        context.startService(intent)
+      try {
+        if (foreground && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+          context.startForegroundService(intent)
+        } else {
+          context.startService(intent)
+        }
+      } catch (e: Exception) {
+        Log.w("mapozy", "sendIntent($action) failed: $e")
       }
     }
   }
@@ -90,74 +140,84 @@ class TrackingService : Service() {
   private lateinit var locationListener: LocationListener
   private var activityPendingIntent: PendingIntent? = null
   private var locationSubscribed: Boolean = false
+  private val mainHandler = Handler(Looper.getMainLooper())
+  private var stopRunnable: Runnable? = null
+  private var geofencePendingIntent: PendingIntent? = null
 
   override fun onCreate() {
     super.onCreate()
     createChannel()
     locationListener = LocationListener(this)
+    isRunning = true
+    NativeStore.insertDiagnostic(this, System.currentTimeMillis(), "svc_create", null)
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    when (intent?.action) {
+    val action = intent?.action
+    NativeStore.insertDiagnostic(
+      this, System.currentTimeMillis(), "svc_start_command",
+      JsonObj().apply { put("action", action ?: "null_redelivery") }.toString()
+    )
+    when (action) {
       ACTION_STOP -> {
         Log.i("mapozy", "TrackingService stopping")
+        cancelStopTimer()
         unsubscribeLocation()
         unsubscribeActivity()
+        removeGeofence()
+        TrackerWatchdog.cancel(this)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         TrackingState.setEnabled(this, false)
         return START_NOT_STICKY
       }
-      ACTION_PAUSE_LOCATION -> {
-        Log.i("mapozy", "TrackingService pausing location")
+      ACTION_ENTER_MOVING -> {
         val cfg = TrackingState.loadConfig(this)
         startForegroundCompat(cfg)
-        unsubscribeLocation()
+        applyMoving(cfg, intent?.getStringExtra("trigger") ?: "unknown")
         return START_STICKY
       }
-      ACTION_RESUME_LOCATION -> {
+      ACTION_STILL_PENDING -> {
         val cfg = TrackingState.loadConfig(this)
         startForegroundCompat(cfg)
-        if (hasLocationPermission()) subscribeLocation(cfg)
+        scheduleStopTimer(cfg)
         return START_STICKY
       }
       ACTION_RECONFIGURE_LR -> {
         val cfg = TrackingState.loadConfig(this)
-        Log.i(
-          "mapozy",
-          "TrackingService reconfiguring LR to profile=${TrackingState.getActiveProfileName(this)}"
-        )
         startForegroundCompat(cfg)
-        unsubscribeLocation()
-        if (hasLocationPermission()) subscribeLocation(cfg)
+        if (TrackingState.getState(this) == TrackingState.STATE_MOVING) {
+          unsubscribeLocation()
+          if (hasLocationPermission()) subscribeLocation(cfg)
+        }
+        return START_STICKY
+      }
+      ACTION_WATCHDOG_TICK -> {
+        val cfg = TrackingState.loadConfig(this)
+        startForegroundCompat(cfg)
+        if (hasActivityRecognitionPermission()) subscribeActivity(cfg)
+        if (TrackingState.getState(this) == TrackingState.STATE_STATIONARY) {
+          armGeofence()
+        }
         return START_STICKY
       }
       ACTION_RESTART -> {
         val cfg = TrackingState.loadConfig(this)
-        Log.i("mapozy", "TrackingService restart: re-subscribing in place")
         startForegroundCompat(cfg)
-        unsubscribeLocation()
         unsubscribeActivity()
-        if (hasLocationPermission()) subscribeLocation(cfg)
         if (hasActivityRecognitionPermission()) subscribeActivity(cfg)
         TrackingState.setEnabled(this, true)
+        TrackerWatchdog.schedule(this)
+        applyCurrentState(cfg)
         return START_STICKY
       }
       else -> {
         val cfg = TrackingState.loadConfig(this)
-        Log.i("mapozy", "TrackingService starting with cfg=$cfg")
         startForegroundCompat(cfg)
-        if (hasLocationPermission()) {
-          subscribeLocation(cfg)
-        } else {
-          Log.w("mapozy", "Location permission missing, cannot subscribe")
-        }
-        if (hasActivityRecognitionPermission()) {
-          subscribeActivity(cfg)
-        } else {
-          Log.w("mapozy", "Activity recognition permission missing, skipping")
-        }
+        if (hasActivityRecognitionPermission()) subscribeActivity(cfg)
         TrackingState.setEnabled(this, true)
+        TrackerWatchdog.schedule(this)
+        applyCurrentState(cfg)
         return START_STICKY
       }
     }
@@ -321,10 +381,128 @@ class TrackingService : Service() {
     )
   }
 
+  override fun onTaskRemoved(rootIntent: Intent?) {
+    NativeStore.insertDiagnostic(this, System.currentTimeMillis(), "svc_task_removed", null)
+    if (TrackingState.isEnabled(this)) {
+      val restart = Intent(applicationContext, TrackingService::class.java)
+      restart.action = ACTION_RESTART
+      try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+          startForegroundService(restart)
+        } else {
+          startService(restart)
+        }
+      } catch (e: Exception) {
+        Log.w("mapozy", "onTaskRemoved restart failed: $e")
+      }
+    }
+    super.onTaskRemoved(rootIntent)
+  }
+
   override fun onDestroy() {
+    isRunning = false
+    NativeStore.insertDiagnostic(this, System.currentTimeMillis(), "svc_destroy", null)
+    cancelStopTimer()
     unsubscribeLocation()
     unsubscribeActivity()
     super.onDestroy()
+  }
+
+  /** Re-establish whatever the persisted state says (used on (re)start). */
+  private fun applyCurrentState(cfg: TrackingState.Config) {
+    if (TrackingState.getState(this) == TrackingState.STATE_STATIONARY) {
+      unsubscribeLocation()
+      armGeofence()
+    } else {
+      applyMoving(cfg, "restart")
+    }
+  }
+
+  private fun applyMoving(cfg: TrackingState.Config, trigger: String) {
+    cancelStopTimer()
+    removeGeofence()
+    if (TrackingState.getState(this) != TrackingState.STATE_MOVING) {
+      TrackingState.setState(this, TrackingState.STATE_MOVING)
+      NativeStore.insertDiagnostic(
+        this, System.currentTimeMillis(), "state_moving",
+        JsonObj().apply { put("trigger", trigger) }.toString()
+      )
+    }
+    if (hasLocationPermission()) subscribeLocation(cfg)
+  }
+
+  private fun enterStationaryNow() {
+    TrackingState.setState(this, TrackingState.STATE_STATIONARY)
+    unsubscribeLocation()
+    armGeofence()
+    NativeStore.insertDiagnostic(
+      this, System.currentTimeMillis(), "state_stationary",
+      JsonObj().apply { put("trigger", "stop_timeout") }.toString()
+    )
+  }
+
+  private fun scheduleStopTimer(cfg: TrackingState.Config) {
+    cancelStopTimer()
+    TrackingState.setStopDeadline(this, System.currentTimeMillis() + TrackingRules.STOP_TIMEOUT_MS)
+    val r = Runnable {
+      if (TrackingState.getState(this) == TrackingState.STATE_MOVING) {
+        enterStationaryNow()
+      }
+      stopRunnable = null
+    }
+    stopRunnable = r
+    mainHandler.postDelayed(r, TrackingRules.STOP_TIMEOUT_MS)
+  }
+
+  private fun cancelStopTimer() {
+    stopRunnable?.let { mainHandler.removeCallbacks(it) }
+    stopRunnable = null
+    TrackingState.clearStopDeadline(this)
+  }
+
+  private fun armGeofence() {
+    val center = TrackingState.getGeofenceCenter(this)
+      ?: TrackingState.getLastLocationCoords(this)
+      ?: run {
+        Log.w("mapozy", "armGeofence: no known location yet; skipping")
+        return
+      }
+    TrackingState.setGeofenceCenter(this, center.first, center.second)
+    val geofence = Geofence.Builder()
+      .setRequestId(TrackingRules.GEOFENCE_REQUEST_ID)
+      .setCircularRegion(center.first, center.second, TrackingRules.STATIONARY_RADIUS_M)
+      .setExpirationDuration(Geofence.NEVER_EXPIRE)
+      .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_EXIT)
+      .build()
+    val request = GeofencingRequest.Builder()
+      .setInitialTrigger(0)
+      .addGeofence(geofence)
+      .build()
+    val pi = geofencePendingIntent ?: PendingIntent.getBroadcast(
+      this, 0, Intent(this, GeofenceReceiver::class.java),
+      PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+    ).also { geofencePendingIntent = it }
+    try {
+      GmsLocationServices.getGeofencingClient(this).addGeofences(request, pi)
+      NativeStore.insertDiagnostic(
+        this, System.currentTimeMillis(), "geofence_armed",
+        JsonObj().apply {
+          put("lat", center.first); put("lng", center.second)
+          put("radius", TrackingRules.STATIONARY_RADIUS_M.toDouble())
+        }.toString()
+      )
+    } catch (e: SecurityException) {
+      Log.e("mapozy", "armGeofence: missing permission: $e")
+    }
+  }
+
+  private fun removeGeofence() {
+    try {
+      GmsLocationServices.getGeofencingClient(this)
+        .removeGeofences(listOf(TrackingRules.GEOFENCE_REQUEST_ID))
+    } catch (e: Exception) {
+      Log.w("mapozy", "removeGeofence failed: $e")
+    }
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
