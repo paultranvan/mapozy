@@ -20,7 +20,7 @@ import { adriaticTheme } from '@/theme/paperTheme';
 import { colors } from '@/theme/tokens';
 import { openDb, type Db } from '@/db/client';
 import { DbProvider } from '@/db/DbContext';
-import { runPipelineForForeground } from '@/tracking/tracker';
+import { runPipelineForForeground, isTracking, restartTracking } from '@/tracking/tracker';
 import { shouldRunPipelineOnAppStateChange } from '@/tracking/foregroundTrigger';
 
 const queryClient = new QueryClient({
@@ -58,6 +58,26 @@ export default function RootLayout() {
     return () => {
       mounted = false;
     };
+  }, []);
+
+  // Re-assert the native tracking service on cold start. An app update or OS
+  // process kill tears down the foreground service, and nothing else restarts it
+  // until a reboot or a manual Settings toggle — so simply reopening the app
+  // would silently leave tracking dead (the Settings toggle still reads "on"
+  // from the persisted flag, masking it). If tracking is enabled, restart it
+  // (atomic re-subscribe; also reschedules the watchdog). Runs in the
+  // foreground, so it's exempt from the background FGS-start restriction.
+  useEffect(() => {
+    (async () => {
+      try {
+        if (await isTracking()) {
+          await restartTracking();
+        }
+      } catch {
+        // Native module not ready / permission not yet granted — the Settings
+        // toggle and the boot receiver remain as fallbacks.
+      }
+    })();
   }, []);
 
   // Drain unconsumed raw points on cold start and on every return to foreground,
