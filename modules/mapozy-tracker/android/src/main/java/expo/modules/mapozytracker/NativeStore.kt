@@ -10,8 +10,12 @@ import java.io.File
 /**
  * Writes raw GPS points and activity events directly to the app's SQLite DB
  * from native code, so we don't depend on the JS bridge being alive for
- * persistence. The JS side opens the same file via expo-sqlite; WAL mode
- * allows concurrent writers.
+ * persistence. The JS side opens the same file via expo-sqlite, which is a
+ * different SQLite library — two different SQLite implementations writing
+ * the same file in WAL mode caused page/header drift and physical corruption
+ * (file truncated 2 pages short of what the header claimed). Both sides now
+ * use rollback-journal mode (TRUNCATE), whose plain file locking is honored
+ * identically by both libraries.
  */
 object NativeStore {
 
@@ -28,7 +32,8 @@ object NativeStore {
           path, null,
           SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.NO_LOCALIZED_COLLATORS
         )
-        opened.enableWriteAheadLogging()
+        opened.disableWriteAheadLogging()
+        opened.execSQL("PRAGMA journal_mode = TRUNCATE")
         db = opened
         opened
       } catch (e: Exception) {
