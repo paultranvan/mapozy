@@ -118,4 +118,27 @@ object TrackingRules {
       TIGHT_PROFILE
     }
   }
+
+  /**
+   * RULE_MOTION_STATE_MACHINE — stationary geofence radius + stop-detection
+   * debounce. GPS is removed in STATIONARY; a geofence of this radius and an
+   * AR ENTER(non-still) are the two redundant wake triggers. STOP_TIMEOUT_MS
+   * debounces brief stops (red lights) before we drop GPS.
+   */
+  const val STATIONARY_RADIUS_M = 50f
+  const val STOP_TIMEOUT_MS = 5L * 60_000L
+  const val GEOFENCE_REQUEST_ID = "mapozy_stationary"
+
+  /**
+   * RULE_WATCHDOG — inexact allow-while-idle heartbeat that re-asserts the
+   * service and re-arms AR/geofence. Inexact on purpose (exact alarms need the
+   * Play-restricted SCHEDULE_EXACT_ALARM permission on API 31+).
+   */
+  const val WATCHDOG_INTERVAL_MS = 15L * 60_000L
+
+  /**
+   * RULE_DIAGNOSTICS_RETENTION — prune tracker_diagnostics rows older than this
+   * so the on-device flight recorder can't grow unbounded.
+   */
+  const val DIAGNOSTICS_RETENTION_DAYS = 14L
 }
