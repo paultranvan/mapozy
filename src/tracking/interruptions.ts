@@ -67,12 +67,23 @@ export function computeInterruptions(
     const bootInGap = bootTimes.some(
       (t) => t > a.timestampMs && t <= b.timestampMs
     );
+    // A watchdog_restart shares the recovery watchdog_fire's timestamp (both
+    // written in one WatchdogReceiver pass), so it lands at the gap end (<= b).
+    // It proves the service came back on its own and takes precedence over the
+    // svc_create it triggers, which would otherwise read as a manual reopen.
+    const restartInGap = sorted.some(
+      (e) =>
+        e.eventType === DIAGNOSTIC_EVENTS.WATCHDOG_RESTART &&
+        e.timestampMs > a.timestampMs &&
+        e.timestampMs <= b.timestampMs
+    );
     const reopenInGap = reopenEvents.some(
       (e) => e.timestampMs > a.timestampMs && e.timestampMs < b.timestampMs
     );
 
     let cause: InterruptionCause;
     if (bootInGap) cause = 'device_off';
+    else if (restartInGap) cause = 'killed_recovered';
     else if (reopenInGap) cause = 'killed_until_reopen';
     else cause = 'killed_recovered';
 
