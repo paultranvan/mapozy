@@ -83,6 +83,19 @@ object NativeStore {
     }
   }
 
+  /**
+   * RULE_DIAGNOSTICS_RETENTION — delete diagnostic rows older than the cutoff.
+   * Called on service start and on each watchdog fire. Failures swallowed.
+   */
+  fun pruneDiagnostics(context: Context, olderThanMs: Long) {
+    val d = open(context) ?: return
+    try {
+      d.delete("tracker_diagnostics", "timestamp_ms < ?", arrayOf(olderThanMs.toString()))
+    } catch (e: Exception) {
+      Log.w("mapozy", "NativeStore.pruneDiagnostics failed: $e")
+    }
+  }
+
   fun insertLocation(
     context: Context,
     timestampMs: Long,
