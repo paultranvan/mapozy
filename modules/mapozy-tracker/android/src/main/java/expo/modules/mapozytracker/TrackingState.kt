@@ -27,6 +27,15 @@ object TrackingState {
   // RULE_ADAPTIVE_LOCATION_REQUEST observation state
   private const val KEY_ACTIVE_PROFILE = "active_lr_profile"
 
+  const val STATE_MOVING = "moving"
+  const val STATE_STATIONARY = "stationary"
+  private const val KEY_STATE = "motion_state"
+  private const val KEY_GEOFENCE_LAT = "geofence_lat"
+  private const val KEY_GEOFENCE_LNG = "geofence_lng"
+  private const val KEY_LAST_LOC_LAT = "last_loc_lat"
+  private const val KEY_LAST_LOC_LNG = "last_loc_lng"
+  private const val KEY_STOP_DEADLINE_MS = "stop_deadline_ms"
+
   fun prefs(context: Context): SharedPreferences =
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -114,5 +123,56 @@ object TrackingState {
 
   fun setActiveProfileName(context: Context, name: String) {
     prefs(context).edit().putString(KEY_ACTIVE_PROFILE, name).apply()
+  }
+
+  // Default to MOVING on a never-before-set install so the first start turns GPS on.
+  fun getState(context: Context): String =
+    prefs(context).getString(KEY_STATE, STATE_MOVING) ?: STATE_MOVING
+
+  fun setState(context: Context, state: String) {
+    prefs(context).edit().putString(KEY_STATE, state).apply()
+  }
+
+  fun setLastLocationCoords(context: Context, lat: Double, lng: Double) {
+    prefs(context).edit()
+      .putLong(KEY_LAST_LOC_LAT, java.lang.Double.doubleToRawLongBits(lat))
+      .putLong(KEY_LAST_LOC_LNG, java.lang.Double.doubleToRawLongBits(lng))
+      .apply()
+  }
+
+  fun getLastLocationCoords(context: Context): Pair<Double, Double>? {
+    val p = prefs(context)
+    if (!p.contains(KEY_LAST_LOC_LAT) || !p.contains(KEY_LAST_LOC_LNG)) return null
+    val lat = java.lang.Double.longBitsToDouble(p.getLong(KEY_LAST_LOC_LAT, 0))
+    val lng = java.lang.Double.longBitsToDouble(p.getLong(KEY_LAST_LOC_LNG, 0))
+    return Pair(lat, lng)
+  }
+
+  fun setGeofenceCenter(context: Context, lat: Double, lng: Double) {
+    prefs(context).edit()
+      .putLong(KEY_GEOFENCE_LAT, java.lang.Double.doubleToRawLongBits(lat))
+      .putLong(KEY_GEOFENCE_LNG, java.lang.Double.doubleToRawLongBits(lng))
+      .apply()
+  }
+
+  fun getGeofenceCenter(context: Context): Pair<Double, Double>? {
+    val p = prefs(context)
+    if (!p.contains(KEY_GEOFENCE_LAT) || !p.contains(KEY_GEOFENCE_LNG)) return null
+    val lat = java.lang.Double.longBitsToDouble(p.getLong(KEY_GEOFENCE_LAT, 0))
+    val lng = java.lang.Double.longBitsToDouble(p.getLong(KEY_GEOFENCE_LNG, 0))
+    return Pair(lat, lng)
+  }
+
+  fun setStopDeadline(context: Context, ms: Long) {
+    prefs(context).edit().putLong(KEY_STOP_DEADLINE_MS, ms).apply()
+  }
+
+  fun getStopDeadline(context: Context): Long? {
+    val v = prefs(context).getLong(KEY_STOP_DEADLINE_MS, -1L)
+    return if (v == -1L) null else v
+  }
+
+  fun clearStopDeadline(context: Context) {
+    prefs(context).edit().remove(KEY_STOP_DEADLINE_MS).apply()
   }
 }

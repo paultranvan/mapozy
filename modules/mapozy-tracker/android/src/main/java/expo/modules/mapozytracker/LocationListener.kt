@@ -49,6 +49,7 @@ class LocationListener(private val context: Context) : LocationCallback() {
       // (in ActivityReceiver) can cheaply check "are we actually still?"
       // without a DB read.
       TrackingState.setLastLocation(context, loc.time, speed)
+      TrackingState.setLastLocationCoords(context, loc.latitude, loc.longitude)
 
       // RULE_AR_SILENCE_DETECTION — piggy-back on GPS callbacks (which the
       // OS keeps alive even when AR is throttled) to detect AR pipeline
