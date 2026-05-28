@@ -1,5 +1,6 @@
-import { DIAGNOSTIC_EVENTS } from '../db/diagnostics';
+import { DIAGNOSTIC_EVENTS, listDiagnosticEvents } from '../db/diagnostics';
 import type { DiagnosticEvent } from '../db/diagnostics';
+import type { Db } from '../db/client';
 
 export type InterruptionCause =
   | 'device_off'
@@ -94,4 +95,12 @@ export function computeInterruptions(
   }
 
   return out.sort((x, y) => y.startMs - x.startMs);
+}
+
+export async function getInterruptions(
+  db: Db,
+  opts: { intervalMs: number; nowMs: number; sinceMs?: number }
+): Promise<Interruption[]> {
+  const events = await listDiagnosticEvents(db, { sinceMs: opts.sinceMs });
+  return computeInterruptions(events, { intervalMs: opts.intervalMs, nowMs: opts.nowMs });
 }
