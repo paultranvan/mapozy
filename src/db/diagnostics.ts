@@ -9,6 +9,19 @@ export const DIAGNOSTIC_EVENTS = {
   AR_SUBSCRIBED: 'ar_subscribed',
   AR_UNSUBSCRIBED: 'ar_unsubscribed',
   AR_SILENCE_DETECTED: 'ar_silence_detected',
+  SVC_CREATE: 'svc_create',
+  SVC_START_COMMAND: 'svc_start_command',
+  SVC_DESTROY: 'svc_destroy',
+  SVC_TASK_REMOVED: 'svc_task_removed',
+  BOOT: 'boot',
+  STATE_MOVING: 'state_moving',
+  STATE_STATIONARY: 'state_stationary',
+  GEOFENCE_ARMED: 'geofence_armed',
+  GEOFENCE_EXIT: 'geofence_exit',
+  GEOFENCE_ERROR: 'geofence_error',
+  WATCHDOG_FIRE: 'watchdog_fire',
+  WATCHDOG_RESTART: 'watchdog_restart',
+  ENV_SNAPSHOT: 'env_snapshot',
 } as const;
 
 export type DiagnosticEventType =
