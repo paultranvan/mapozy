@@ -6,6 +6,7 @@ import MapLibreGL, {
   PointAnnotation,
   Camera,
 } from '@maplibre/maplibre-react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useMemo } from 'react';
 import { colors as themeColors, MODE_COLORS } from '../theme/tokens';
 import type { Trip } from '../types';
@@ -99,14 +100,23 @@ export function TripMap({ trip }: { trip: Trip }) {
           </ShapeSource>
         );
       })}
-      <PointAnnotation id="start" coordinate={allCoords[0]!}>
-        <View style={styles.startDot} />
+      <PointAnnotation id="start" coordinate={allCoords[0]!} anchor={{ x: 0.5, y: 0.5 }}>
+        <View style={[styles.marker, styles.startMarker]}>
+          <MaterialCommunityIcons name="play" size={18} color={themeColors.surface} />
+        </View>
       </PointAnnotation>
       <PointAnnotation
         id="end"
         coordinate={allCoords[allCoords.length - 1]!}
+        anchor={{ x: 0.5, y: 0.5 }}
       >
-        <View style={styles.endDot} />
+        <View style={[styles.marker, styles.endMarker]}>
+          <MaterialCommunityIcons
+            name="flag-checkered"
+            size={16}
+            color={themeColors.surface}
+          />
+        </View>
       </PointAnnotation>
     </MapView>
   );
@@ -115,20 +125,25 @@ export function TripMap({ trip }: { trip: Trip }) {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   empty: { alignItems: 'center', justifyContent: 'center' },
-  startDot: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: themeColors.mode.walk,
+  marker: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 3,
-    borderColor: themeColors.inkOnGround,
+    borderColor: themeColors.surface,
+    // Subtle shadow so markers pop above the trace.
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 2,
+    elevation: 3,
   },
-  endDot: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: themeColors.mode.run,
-    borderWidth: 3,
-    borderColor: themeColors.inkOnGround,
+  startMarker: {
+    backgroundColor: themeColors.start,
+  },
+  endMarker: {
+    backgroundColor: themeColors.end,
   },
 });

@@ -23,8 +23,11 @@ export const colors = {
   dangerSurface: '#FFECEC',
   dangerBorder: '#FF939D',
   deep: '#243B55',
+  // Trip start/end markers — cozy-ui successColor / errorColor.
+  start: '#00C853',
+  end: '#FF3347',
   mode: {
-    walk: '#21B930',
+    walk: '#0A84FF',
     bike: '#15CACD',
     car: '#FF7B5E',
     run: '#00AD48',

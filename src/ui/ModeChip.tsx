@@ -12,7 +12,12 @@ export function ModeChip({
 }) {
   const iconName = DOMINANT_MODE_ICONS[mode];
   return (
-    <View style={[styles.chip, { width: size, height: size }]}>
+    <View
+      style={[
+        styles.chip,
+        { width: size, height: size, backgroundColor: colors.mode[mode] },
+      ]}
+    >
       <MaterialCommunityIcons
         name={iconName as keyof typeof MaterialCommunityIcons.glyphMap}
         size={size * 0.55}
@@ -24,7 +29,6 @@ export function ModeChip({
 
 const styles = StyleSheet.create({
   chip: {
-    backgroundColor: colors.deep,
     borderRadius: radii.chip,
     alignItems: 'center',
     justifyContent: 'center',
