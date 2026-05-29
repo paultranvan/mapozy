@@ -124,6 +124,14 @@ object TrackingRules {
    * debounce. GPS is removed in STATIONARY; a geofence of this radius and an
    * AR ENTER(non-still) are the two redundant wake triggers. STOP_TIMEOUT_MS
    * debounces brief stops (red lights) before we drop GPS.
+   *
+   * STATIONARY has TWO independent triggers (both call enterStationaryNow):
+   *  1. RULE_MOTION_STATE_MACHINE itself: AR ENTER(still) sustained for
+   *     STOP_TIMEOUT_MS without a non-still ENTER cancelling it.
+   *  2. RULE_GPS_STATIONARY_DETECTION (LocationListener): recent GPS samples
+   *     have all stayed within STATIONARY_RADIUS_M of the oldest for
+   *     STOP_TIMEOUT_MS, regardless of AR. Saves us when AR flickers
+   *     indefinitely on noisy pipelines (observed on OnePlus, OPlus).
    */
   const val STATIONARY_RADIUS_M = 50f
   const val STOP_TIMEOUT_MS = 5L * 60_000L

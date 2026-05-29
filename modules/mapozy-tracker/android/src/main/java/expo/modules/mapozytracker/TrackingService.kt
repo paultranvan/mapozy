@@ -45,6 +45,7 @@ class TrackingService : Service() {
     const val ACTION_ENTER_MOVING = "mapozy.tracker.ENTER_MOVING"
     const val ACTION_STILL_PENDING = "mapozy.tracker.STILL_PENDING"
     const val ACTION_WATCHDOG_TICK = "mapozy.tracker.WATCHDOG_TICK"
+    const val ACTION_GPS_STATIONARY = "mapozy.tracker.GPS_STATIONARY"
 
     @Volatile var isRunning: Boolean = false
       private set
@@ -69,6 +70,27 @@ class TrackingService : Service() {
       if (!TrackingState.isEnabled(context)) return
       startCompat(context, Intent(context, TrackingService::class.java).apply {
         action = ACTION_WATCHDOG_TICK
+      })
+    }
+
+    /**
+     * RULE_GPS_STATIONARY_DETECTION — independent of AR. Fires when recent GPS
+     * samples confirm the device hasn't moved beyond STATIONARY_RADIUS_M for
+     * STOP_TIMEOUT_MS, regardless of what the activity recogniser reports.
+     */
+    fun gpsStationaryDetected(
+      context: Context,
+      lat: Double,
+      lng: Double,
+      stoppedAtMs: Long
+    ) {
+      if (!TrackingState.isEnabled(context)) return
+      if (TrackingState.getState(context) != TrackingState.STATE_MOVING) return
+      startCompat(context, Intent(context, TrackingService::class.java).apply {
+        action = ACTION_GPS_STATIONARY
+        putExtra("lat", lat)
+        putExtra("lng", lng)
+        putExtra("stoppedAtMs", stoppedAtMs)
       })
     }
 
@@ -186,6 +208,22 @@ class TrackingService : Service() {
         if (hasActivityRecognitionPermission()) subscribeActivity(cfg)
         if (TrackingState.getState(this) == TrackingState.STATE_STATIONARY) {
           armGeofence()
+        }
+        return START_STICKY
+      }
+      ACTION_GPS_STATIONARY -> {
+        val cfg = TrackingState.loadConfig(this)
+        startForegroundCompat(cfg)
+        if (TrackingState.getState(this) == TrackingState.STATE_MOVING) {
+          val lat = intent.getDoubleExtra("lat", Double.NaN)
+          val lng = intent.getDoubleExtra("lng", Double.NaN)
+          val stoppedAt = intent.getLongExtra("stoppedAtMs", System.currentTimeMillis())
+          enterStationaryNow(
+            trigger = "gps_no_movement",
+            stoppedAtMs = stoppedAt,
+            lat = if (lat.isNaN()) null else lat,
+            lng = if (lng.isNaN()) null else lng
+          )
         }
         return START_STICKY
       }
@@ -409,23 +447,41 @@ class TrackingService : Service() {
   private fun applyMoving(cfg: TrackingState.Config, trigger: String) {
     cancelStopTimer()
     removeGeofence()
+    TrackingState.clearRecentGpsSamples(this)
     if (TrackingState.getState(this) != TrackingState.STATE_MOVING) {
       TrackingState.setState(this, TrackingState.STATE_MOVING)
-      NativeStore.insertDiagnostic(
-        this, System.currentTimeMillis(), "state_moving",
-        JsonObj().apply { put("trigger", trigger) }.toString()
-      )
+      val now = System.currentTimeMillis()
+      val coords = TrackingState.getLastLocationCoords(this)
+      val payload = JsonObj().apply {
+        put("trigger", trigger)
+        put("startedAtMs", now)
+        if (coords != null) {
+          put("lat", coords.first); put("lng", coords.second)
+        }
+      }
+      NativeStore.insertDiagnostic(this, now, "state_moving", payload.toString())
     }
     if (hasLocationPermission()) subscribeLocation(cfg)
   }
 
-  private fun enterStationaryNow() {
+  private fun enterStationaryNow(
+    trigger: String,
+    stoppedAtMs: Long,
+    lat: Double?,
+    lng: Double?,
+  ) {
     TrackingState.setState(this, TrackingState.STATE_STATIONARY)
     unsubscribeLocation()
+    TrackingState.clearRecentGpsSamples(this)
     armGeofence()
+    val payload = JsonObj().apply {
+      put("trigger", trigger)
+      put("stoppedAtMs", stoppedAtMs)
+      if (lat != null) put("lat", lat)
+      if (lng != null) put("lng", lng)
+    }
     NativeStore.insertDiagnostic(
-      this, System.currentTimeMillis(), "state_stationary",
-      JsonObj().apply { put("trigger", "stop_timeout") }.toString()
+      this, System.currentTimeMillis(), "state_stationary", payload.toString()
     )
   }
 
@@ -434,7 +490,14 @@ class TrackingService : Service() {
     TrackingState.setStopDeadline(this, System.currentTimeMillis() + TrackingRules.STOP_TIMEOUT_MS)
     val r = Runnable {
       if (TrackingState.getState(this) == TrackingState.STATE_MOVING) {
-        enterStationaryNow()
+        val stoppedAt = System.currentTimeMillis() - TrackingRules.STOP_TIMEOUT_MS
+        val coords = TrackingState.getLastLocationCoords(this)
+        enterStationaryNow(
+          trigger = "stop_timeout",
+          stoppedAtMs = stoppedAt,
+          lat = coords?.first,
+          lng = coords?.second,
+        )
       }
       stopRunnable = null
     }

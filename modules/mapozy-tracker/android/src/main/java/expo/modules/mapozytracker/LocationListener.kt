@@ -1,9 +1,11 @@
 // Rules consumed here (see TrackingRules.kt):
-//   RULE_NATIVE_ACCURACY_FILTER  — drop low-accuracy fixes at the native edge
-//   RULE_AR_SILENCE_DETECTION    — log when AR has been silent while user was moving
+//   RULE_NATIVE_ACCURACY_FILTER     — drop low-accuracy fixes at the native edge
+//   RULE_AR_SILENCE_DETECTION       — log when AR has been silent while user was moving
+//   RULE_GPS_STATIONARY_DETECTION   — declare STATIONARY when GPS itself shows no motion
 package expo.modules.mapozytracker
 
 import android.content.Context
+import android.location.Location as AndroidLocation
 import android.os.BatteryManager
 import android.os.Bundle
 import com.google.android.gms.location.LocationCallback
@@ -58,7 +60,35 @@ class LocationListener(private val context: Context) : LocationCallback() {
       // lands. Dedup so a single stuck subscription doesn't fill the
       // diagnostics table on every fix.
       checkActivityRecognitionSilence(loc.time, speed)
+
+      // RULE_GPS_STATIONARY_DETECTION — independent of the AR-driven stop
+      // timer, which can flicker indefinitely on noisy AR pipelines. If GPS
+      // itself shows the device hasn't moved beyond STATIONARY_RADIUS_M for
+      // STOP_TIMEOUT_MS, declare STATIONARY directly.
+      checkGpsStationary(loc.time, loc.latitude, loc.longitude)
     }
+  }
+
+  private fun checkGpsStationary(currentTs: Long, currentLat: Double, currentLng: Double) {
+    if (TrackingState.getState(context) != TrackingState.STATE_MOVING) return
+    TrackingState.addRecentGpsSample(
+      context, currentTs, currentLat, currentLng, TrackingRules.STOP_TIMEOUT_MS
+    )
+    val samples = TrackingState.getRecentGpsSamples(context)
+    // Require enough samples to be confident this isn't a coincidental
+    // 2-fix cluster — and the window must actually span STOP_TIMEOUT_MS.
+    if (samples.size < 3) return
+    val oldest = samples.first()
+    if (currentTs - oldest.ts < TrackingRules.STOP_TIMEOUT_MS) return
+    // Pairwise check against the oldest sample catches a slow drift (where
+    // the centroid would still look stationary) — if ANY sample is beyond
+    // the radius from the oldest, the device has been moving.
+    val out = FloatArray(1)
+    for (s in samples) {
+      AndroidLocation.distanceBetween(oldest.lat, oldest.lng, s.lat, s.lng, out)
+      if (out[0] > TrackingRules.STATIONARY_RADIUS_M) return
+    }
+    TrackingService.gpsStationaryDetected(context, currentLat, currentLng, oldest.ts)
   }
 
   private fun checkActivityRecognitionSilence(nowMs: Long, speedMps: Float?) {

@@ -2,6 +2,8 @@ package expo.modules.mapozytracker
 
 import android.content.Context
 import android.content.SharedPreferences
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * Per-install state for the tracker, persisted across JS reloads and OS kills.
@@ -35,6 +37,12 @@ object TrackingState {
   private const val KEY_LAST_LOC_LAT = "last_loc_lat"
   private const val KEY_LAST_LOC_LNG = "last_loc_lng"
   private const val KEY_STOP_DEADLINE_MS = "stop_deadline_ms"
+  // RULE_GPS_STATIONARY_DETECTION — recent GPS samples (ts, lat, lng), pruned
+  // to last STOP_TIMEOUT_MS window, used to declare STATIONARY without waiting
+  // on the AR-driven stop timer (which flickers indefinitely on a noisy AR
+  // pipeline). Persisted so a service restart in MOVING state keeps history.
+  private const val KEY_GPS_RING = "gps_ring"
+  private const val MAX_RING_SIZE = 50
 
   fun prefs(context: Context): SharedPreferences =
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -174,5 +182,50 @@ object TrackingState {
 
   fun clearStopDeadline(context: Context) {
     prefs(context).edit().remove(KEY_STOP_DEADLINE_MS).apply()
+  }
+
+  data class GpsSample(val ts: Long, val lat: Double, val lng: Double)
+
+  fun addRecentGpsSample(
+    context: Context,
+    ts: Long,
+    lat: Double,
+    lng: Double,
+    maxAgeMs: Long
+  ) {
+    val cutoff = ts - maxAgeMs
+    val kept = getRecentGpsSamples(context).filter { it.ts >= cutoff }.toMutableList()
+    kept.add(GpsSample(ts, lat, lng))
+    val trimmed = if (kept.size > MAX_RING_SIZE) {
+      kept.subList(kept.size - MAX_RING_SIZE, kept.size).toList()
+    } else {
+      kept.toList()
+    }
+    val arr = JSONArray()
+    for (s in trimmed) {
+      arr.put(JSONObject().apply {
+        put("ts", s.ts); put("lat", s.lat); put("lng", s.lng)
+      })
+    }
+    prefs(context).edit().putString(KEY_GPS_RING, arr.toString()).apply()
+  }
+
+  fun getRecentGpsSamples(context: Context): List<GpsSample> {
+    val s = prefs(context).getString(KEY_GPS_RING, null) ?: return emptyList()
+    return try {
+      val arr = JSONArray(s)
+      val out = ArrayList<GpsSample>(arr.length())
+      for (i in 0 until arr.length()) {
+        val o = arr.getJSONObject(i)
+        out.add(GpsSample(o.getLong("ts"), o.getDouble("lat"), o.getDouble("lng")))
+      }
+      out
+    } catch (e: Exception) {
+      emptyList()
+    }
+  }
+
+  fun clearRecentGpsSamples(context: Context) {
+    prefs(context).edit().remove(KEY_GPS_RING).apply()
   }
 }
