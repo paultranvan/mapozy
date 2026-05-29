@@ -53,8 +53,7 @@ function Stop({
   label: string;
   time: number;
 }) {
-  const inner =
-    kind === 'start' ? colors.mode.walk : colors.mode.run;
+  const inner = kind === 'start' ? colors.start : colors.end;
   return (
     <View style={styles.stopRow}>
       <View style={styles.pinCol}>
