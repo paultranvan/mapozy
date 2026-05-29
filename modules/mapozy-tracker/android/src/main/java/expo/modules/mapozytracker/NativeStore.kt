@@ -33,7 +33,11 @@ object NativeStore {
           SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.NO_LOCALIZED_COLLATORS
         )
         opened.disableWriteAheadLogging()
-        opened.execSQL("PRAGMA journal_mode = TRUNCATE")
+        // PRAGMA journal_mode returns a row, so it MUST run via rawQuery.
+        // execSQL throws "Queries can be performed using query or rawQuery
+        // methods only" on Android 14+, which made every open() fail and
+        // silently dropped all native writes (points/activities/diagnostics).
+        opened.rawQuery("PRAGMA journal_mode=TRUNCATE", null).use { it.moveToFirst() }
         db = opened
         opened
       } catch (e: Exception) {
