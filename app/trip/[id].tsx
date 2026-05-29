@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { View, StyleSheet, Alert } from 'react-native';
+import { View, StyleSheet, Alert, Pressable } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ActivityIndicator } from 'react-native-paper';
 import { useTrip, usePlace } from '@/queries/useTrips';
 import { useDb } from '@/db/DbContext';
@@ -11,7 +13,6 @@ import { geocodePlaceLazy, fallbackPlaceLabel } from '@/pipeline/geocoding';
 import { TripMap } from '@/ui/TripMap';
 import { Text } from '@/ui/Text';
 import { Timeline } from '@/ui/Timeline';
-import { TopBar } from '@/ui/TopBar';
 import { colors, radii, space } from '@/theme/tokens';
 import {
   formatDistance,
@@ -40,6 +41,7 @@ export default function TripDetailScreen() {
   const startPlaceQ = usePlace(tripQ.data?.startPlaceId ?? null);
   const endPlaceQ = usePlace(tripQ.data?.endPlaceId ?? null);
   const sheetRef = useRef<BottomSheet>(null);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     if (!tripQ.data) return;
@@ -77,7 +79,12 @@ export default function TripDetailScreen() {
     return (
       <View style={styles.root}>
         <Stack.Screen options={{ headerShown: false }} />
-        <TopBar title="Trip" onBack={() => router.back()} />
+        <FloatingIconButton
+          icon="chevron-left"
+          onPress={() => router.back()}
+          style={[styles.fabLeft, { top: insets.top + space[2] }]}
+          size={26}
+        />
         <View style={styles.center}>
           <ActivityIndicator color={colors.inkOnGround} />
         </View>
@@ -117,15 +124,21 @@ export default function TripDetailScreen() {
   return (
     <View style={styles.root}>
       <Stack.Screen options={{ headerShown: false }} />
-      <TopBar
-        title={WEEKDAY_UPPER[start.getDay()]!.charAt(0) +
-          WEEKDAY_UPPER[start.getDay()]!.slice(1).toLowerCase()}
-        onBack={() => router.back()}
-        right={{ icon: 'dots-horizontal', onPress: onMenu }}
-      />
       <View style={StyleSheet.absoluteFill}>
         <TripMap trip={trip} />
       </View>
+      <FloatingIconButton
+        icon="chevron-left"
+        onPress={() => router.back()}
+        style={[styles.fabLeft, { top: insets.top + space[2] }]}
+        size={26}
+      />
+      <FloatingIconButton
+        icon="dots-horizontal"
+        onPress={onMenu}
+        style={[styles.fabRight, { top: insets.top + space[2] }]}
+        size={22}
+      />
       <BottomSheet
         ref={sheetRef}
         index={0}
@@ -165,6 +178,32 @@ export default function TripDetailScreen() {
   );
 }
 
+function FloatingIconButton({
+  icon,
+  onPress,
+  style,
+  size,
+}: {
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  onPress: () => void;
+  style: object | object[];
+  size: number;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      hitSlop={8}
+      style={({ pressed }) => [
+        styles.fab,
+        style,
+        pressed && styles.fabPressed,
+      ]}
+    >
+      <MaterialCommunityIcons name={icon} size={size} color={colors.inkOnGround} />
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   root: {
     flex: 1,
@@ -174,6 +213,30 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  fab: {
+    position: 'absolute',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // Pop above the map without competing with the bottom sheet.
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  fabPressed: {
+    backgroundColor: colors.surfaceMuted,
+  },
+  fabLeft: {
+    left: space[3],
+  },
+  fabRight: {
+    right: space[3],
   },
   sheetBg: {
     backgroundColor: colors.surface,
