@@ -62,6 +62,8 @@ export function segmentation(
   const stationaryMaxDispM =
     opts.stationaryMaxDisplacementM ??
     RULES.STATIONARY_BOUNDARY.defaults.maxDisplacementM;
+  const stallCeilingMs =
+    RULES.STALLED_VEHICLE_GUARD.defaults.maxStallMinutes * 60_000;
   if (points.length === 0) return [];
 
   type Window = {
@@ -98,10 +100,14 @@ export function segmentation(
     }
     const startMs = anchor.timestampMs;
     const endMs = j > i ? points[j - 1]!.timestampMs : startMs;
+    // RULE_STALLED_VEHICLE_GUARD only vetoes short dwells (a traffic stall lasts
+    // minutes); a longer stationary period is a genuine stay no matter what the
+    // activity classifier reports.
+    const guardApplies = endMs - startMs < stallCeilingMs;
     if (
       endMs - startMs >= dwellMs &&
       count >= 2 &&
-      !isStalledVehicle(activities, startMs, endMs)
+      !(guardApplies && isStalledVehicle(activities, startMs, endMs))
     ) {
       dwells.push({
         start: startMs,

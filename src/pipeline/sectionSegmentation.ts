@@ -1,6 +1,7 @@
 // Rules implemented here (see ./rules.ts):
 //   RULE_SECTION_ACTIVITY_CONFIDENCE — only count activity events at or above this confidence
 //   RULE_MIN_SECTION_DURATION        — merge sub-threshold sections into the previous one
+//   RULE_SECTION_ACTIVITY_WINDOW     — time window around the trip for considering activities
 import type { RawPoint, RawActivity, ActivityType } from '../types';
 import { RULES } from './rules';
 
@@ -32,11 +33,15 @@ export function sectionSegmentation(
     opts.minConfidence ?? RULES.SECTION_ACTIVITY_CONFIDENCE.defaults.minConfidence;
   if (tripPoints.length === 0) return [];
 
+  // RULE_SECTION_ACTIVITY_WINDOW
+  const { startLookbackMs, endLookaheadMs } = RULES.SECTION_ACTIVITY_WINDOW.defaults;
   const tripStart = tripPoints[0]!.timestampMs;
   const tripEnd = tripPoints[tripPoints.length - 1]!.timestampMs;
   const acts = activities
     .filter(
-      (a) => a.timestampMs >= tripStart - 60_000 && a.timestampMs <= tripEnd + 60_000
+      (a) =>
+        a.timestampMs >= tripStart - startLookbackMs &&
+        a.timestampMs <= tripEnd + endLookaheadMs
     )
     .sort((a, b) => a.timestampMs - b.timestampMs);
 

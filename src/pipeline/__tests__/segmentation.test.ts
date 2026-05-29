@@ -40,6 +40,24 @@ describe('segmentation', () => {
     expect(segs.filter((s) => s.kind === 'stay')).toHaveLength(0);
   });
 
+  it('treats a long stationary window as a stay even with in_vehicle activity present (a long stop is not a traffic jam)', () => {
+    // 30 min motionless at one spot with in_vehicle reported throughout — e.g.
+    // a spurious in_vehicle while parked, or a departure event bleeding into the
+    // dwell. A genuinely long stationary period must end the trip regardless of
+    // what the activity classifier says (RULE_STALLED_VEHICLE_GUARD ceiling).
+    const t0 = 1_700_000_000_000;
+    const lat = 50.0;
+    const lon = 10.0;
+    const pts: RawPoint[] = [];
+    for (let i = 0; i <= 30; i++) pts.push(mkPoint(t0 + i * 60_000, lat, lon));
+    const acts: RawActivity[] = [];
+    for (let i = 0; i <= 30; i++) {
+      acts.push(mkActivity(t0 + i * 60_000, 'in_vehicle', 85));
+    }
+    const segs = segmentation(pts, acts, { dwellMinutes: 5, dwellRadiusM: 100 });
+    expect(segs.filter((s) => s.kind === 'stay')).toHaveLength(1);
+  });
+
   it('still treats a 6-min stationary window as a stay when activity is still/on_foot', () => {
     const t0 = 1_700_000_000_000;
     const lat = 50.0;
