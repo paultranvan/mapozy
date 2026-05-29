@@ -24,6 +24,18 @@ describe('sectionSegmentation', () => {
     expect(sections.map((s) => s.activity)).toEqual(['walking', 'in_vehicle', 'walking']);
   });
 
+  it('recovers a departure activity that precedes the first GPS fix (trip-start lag)', () => {
+    // The activity recogniser flags in_vehicle at the moment of departure, but
+    // the GPS trip only "starts" once the vehicle clears the dwell radius —
+    // a couple of minutes later. The trip must still pick up that departure
+    // activity instead of falling back to unknown (RULE_SECTION_ACTIVITY_WINDOW).
+    const pts = [];
+    for (let i = 0; i <= 6; i++) pts.push(mkPoint(180_000 + i * 30_000, 0, 0));
+    const acts = [mkActivity(60_000, 'in_vehicle')]; // 2 min before first fix
+    const sections = sectionSegmentation(pts, acts);
+    expect(sections[0]!.activity).toBe('in_vehicle');
+  });
+
   it('merges sections shorter than minSection into the previous', () => {
     const pts = [];
     for (let i = 0; i <= 10; i++) pts.push(mkPoint(i * 30_000, 0, 0));

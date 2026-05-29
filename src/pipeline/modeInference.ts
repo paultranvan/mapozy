@@ -1,14 +1,32 @@
-// Rule implemented here: RULE_MODE_SPEED_FALLBACK (see ./rules.ts).
-// (Mode comes from the activity classifier when known; this rule decides what
-// to do when the section's activity is `unknown`.)
+// Rules implemented here (see ./rules.ts):
+//   RULE_MODE_SPEED_FALLBACK   — classify by speed when activity is `unknown`
+//   RULE_VEHICLE_SPEED_SANITY  — distrust an in_vehicle label on a stationary section
 import type { Mode } from '../types';
 import type { RawSection } from './sectionSegmentation';
 import { haversineMeters } from '../lib/distance';
 import { RULES } from './rules';
 
+// RULE_MODE_SPEED_FALLBACK
+function classifyBySpeed(s: RawSection): Mode {
+  const { carThresholdMps, bikeThresholdMps } = RULES.MODE_SPEED_FALLBACK.defaults;
+  const median = medianSpeedMps(s);
+  if (median > carThresholdMps) return 'car';
+  if (median > bikeThresholdMps) return 'bike';
+  return 'walk';
+}
+
 export function modeForSection(s: RawSection): Mode {
   switch (s.activity) {
     case 'in_vehicle':
+      // RULE_VEHICLE_SPEED_SANITY: an in_vehicle section that never reaches
+      // vehicle pace is a spurious classification (e.g. parked). Trust the
+      // measured speed over the activity when we have points to judge it.
+      if (
+        s.points.length >= 2 &&
+        medianSpeedMps(s) < RULES.VEHICLE_SPEED_SANITY.defaults.minMedianSpeedMps
+      ) {
+        return classifyBySpeed(s);
+      }
       return 'car';
     case 'on_bicycle':
       return 'bike';
@@ -19,15 +37,8 @@ export function modeForSection(s: RawSection): Mode {
     case 'still':
       return 'walk';
     case 'unknown':
-    default: {
-      // RULE_MODE_SPEED_FALLBACK
-      const { carThresholdMps, bikeThresholdMps } =
-        RULES.MODE_SPEED_FALLBACK.defaults;
-      const median = medianSpeedMps(s);
-      if (median > carThresholdMps) return 'car';
-      if (median > bikeThresholdMps) return 'bike';
-      return 'walk';
-    }
+    default:
+      return classifyBySpeed(s);
   }
 }
 

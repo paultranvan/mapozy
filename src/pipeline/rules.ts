@@ -61,8 +61,8 @@ export const RULES = {
 
   STALLED_VEHICLE_GUARD: rule(
     'RULE_STALLED_VEHICLE_GUARD',
-    'A dwell window overlapping a confident in_vehicle activity is a stalled vehicle (traffic), not a stay.',
-    { minConfidence: 60 }
+    'A *short* dwell overlapping a confident in_vehicle activity is a stalled vehicle (traffic), not a stay. The guard only applies below maxStallMinutes: a traffic stall lasts minutes, so a longer stationary period is a genuine stay regardless of activity (which is often a spurious in_vehicle while parked, or an adjacent trip\'s departure event bleeding into the dwell window). This keeps GPS-based stationary detection authoritative over activity recognition for ending trips.',
+    { minConfidence: 60, maxStallMinutes: 15 }
   ),
 
   GAP_DWELL: rule(
@@ -99,10 +99,22 @@ export const RULES = {
     { minSectionMs: 30_000 }
   ),
 
+  SECTION_ACTIVITY_WINDOW: rule(
+    'RULE_SECTION_ACTIVITY_WINDOW',
+    "Window around a trip in which activity events are considered. The look-back is wide because GPS trip-start lags the activity recogniser's departure event by the time it takes to clear the dwell radius — without it, a drive's opening section loses its in_vehicle label and reads as walk/bike. RULE_VEHICLE_SPEED_SANITY guards against a stale label sticking to a slow section.",
+    { startLookbackMs: 4 * 60_000, endLookaheadMs: 60_000 }
+  ),
+
   MODE_SPEED_FALLBACK: rule(
     'RULE_MODE_SPEED_FALLBACK',
     'For a section without activity classification, classify mode by median speed.',
     { carThresholdMps: 6.94, bikeThresholdMps: 3.33 }
+  ),
+
+  VEHICLE_SPEED_SANITY: rule(
+    'RULE_VEHICLE_SPEED_SANITY',
+    'A section the activity classifier labeled in_vehicle but whose median speed never reaches vehicle pace is a spurious in_vehicle (e.g. Android reporting in_vehicle while parked). Reclassify it by speed instead of trusting the activity. Skipped when there are too few points to judge speed.',
+    { minMedianSpeedMps: 2.0 }
   ),
 
   MIN_TRIP_DISTANCE: rule(
