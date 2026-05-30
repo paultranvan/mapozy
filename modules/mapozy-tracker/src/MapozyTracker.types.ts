@@ -34,8 +34,18 @@ export interface ActivityUpdate {
   timestampMs: number;
 }
 
+export interface StationaryUpdate {
+  trigger: string;
+  stoppedAtMs: number;
+  lat: number | null;
+  lng: number | null;
+}
+
+export type MotionState = 'moving' | 'stationary';
+
 export interface TrackingStatus {
   isTracking: boolean;
+  motionState: MotionState;
   lastLocationAt: number | null;
   lastActivityType: ActivityType | null;
   lastActivityAt: number | null;

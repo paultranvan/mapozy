@@ -6,11 +6,14 @@ import type {
   LocationUpdate,
   ActivityUpdate,
   ActivityType,
+  MotionState,
+  StationaryUpdate,
 } from './MapozyTracker.types';
 
 interface MapozyTrackerEvents extends Record<string, (...args: any[]) => void> {
   onLocation: (event: LocationUpdate) => void;
   onActivity: (event: ActivityUpdate) => void;
+  onStationary: (event: StationaryUpdate) => void;
 }
 
 declare class MapozyTrackerNativeModule extends NativeModule<MapozyTrackerEvents> {
@@ -37,6 +40,8 @@ export const MapozyTracker = {
     Native.addListener('onLocation', cb),
   addActivityListener: (cb: (a: ActivityUpdate) => void): EventSubscription =>
     Native.addListener('onActivity', cb),
+  addStationaryListener: (cb: (s: StationaryUpdate) => void): EventSubscription =>
+    Native.addListener('onStationary', cb),
 };
 
 export type {
@@ -45,4 +50,6 @@ export type {
   LocationUpdate,
   ActivityUpdate,
   ActivityType,
+  MotionState,
+  StationaryUpdate,
 };
