@@ -31,8 +31,11 @@ function rule<P>(id: string, description: string, defaults: P): Rule<P> {
 export const RULES = {
   ACCURACY_FILTER: rule(
     'RULE_ACCURACY_FILTER',
-    'Drop GPS points whose reported accuracy is worse than the threshold.',
-    { maxAccuracyM: 50 }
+    'Drop GPS points whose reported accuracy is worse than the threshold. ' +
+      'Set at 60m so BALANCED-priority fixes (used for WALK / LOOSE profiles ' +
+      'to save battery) survive poor-reception conditions where reported ' +
+      'accuracy creeps to 30–60m. Bump higher only if walks show visible gaps.',
+    { maxAccuracyM: 60 }
   ),
 
   SPIKE_SMOOTHING: rule(
