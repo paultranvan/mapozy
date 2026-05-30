@@ -20,7 +20,12 @@ import { adriaticTheme } from '@/theme/paperTheme';
 import { colors } from '@/theme/tokens';
 import { openDb, type Db } from '@/db/client';
 import { DbProvider } from '@/db/DbContext';
-import { runPipelineForForeground, isTracking, restartTracking } from '@/tracking/tracker';
+import {
+  runPipelineForForeground,
+  isTracking,
+  restartTracking,
+  subscribeStationary,
+} from '@/tracking/tracker';
 import { shouldRunPipelineOnAppStateChange } from '@/tracking/foregroundTrigger';
 
 const queryClient = new QueryClient({
@@ -80,12 +85,12 @@ export default function RootLayout() {
     })();
   }, []);
 
-  // Drain unconsumed raw points on cold start and on every return to foreground,
-  // BUT only if the most recent unconsumed point is at least 30 min old. This
-  // recovers from "OS killed JS mid-trip, user reopens app and sees nothing"
-  // without the risk of fragmenting an in-progress trip when the user opens
-  // the app while still driving (they'd hit Force pipeline themselves in the
-  // rare case they want partial processing).
+  // Drain unconsumed raw points on cold start and on every return to foreground.
+  // Primary path is the native MOVING→STATIONARY event (see subscribeStationary
+  // below); this foreground call is the backstop for when the event fired while
+  // JS was dead and was lost in transit, or when the native side has been
+  // stationary for the stale-bypass window. Internally guarded so it won't
+  // fragment a trip the user opens mid-drive.
   useEffect(() => {
     if (!db) return;
     void runPipelineForForeground(db, queryClient);
@@ -96,6 +101,15 @@ export default function RootLayout() {
       }
       prev = next;
     });
+    return () => sub.remove();
+  }, [db]);
+
+  // Primary auto-trigger for the pipeline: native fires onStationary at trip
+  // end (STOP_TIMEOUT_MS of confirmed stillness), JS drains immediately so the
+  // trip appears without the user having to wait or hit "Force pipeline".
+  useEffect(() => {
+    if (!db) return;
+    const sub = subscribeStationary(db, queryClient);
     return () => sub.remove();
   }, [db]);
 

@@ -48,6 +48,14 @@ object MapozyTrackerEventBus {
     emit("onActivity", b)
   }
 
+  // Fires once per MOVING → STATIONARY transition (after STOP_TIMEOUT_MS of
+  // confirmed stillness). Used by JS to drain the pipeline at trip end so
+  // trips appear without waiting for the user to re-foreground the app.
+  // Queued like the others if JS is dead, so a cold start still gets it.
+  fun emitStationary(b: Bundle) {
+    emit("onStationary", b)
+  }
+
   private fun emit(name: String, payload: Bundle) {
     val fn = emitterRef
     if (fn != null) {

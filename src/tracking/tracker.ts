@@ -1,7 +1,5 @@
-import { useEffect, useRef } from 'react';
 import { MapozyTracker } from 'mapozy-tracker';
 import type { TrackingConfig } from 'mapozy-tracker';
-import { useDb } from '../db/DbContext';
 import { runPipeline } from '../pipeline/runPipeline';
 import type { Db } from '../db/client';
 import { useQueryClient } from '@tanstack/react-query';
@@ -39,63 +37,6 @@ export async function getTrackingStatus() {
   return MapozyTracker.getStatus();
 }
 
-/**
- * Subscribes to native location + activity events and persists them to SQLite.
- * Triggers a pipeline run when activity stays 'still' for the dwell threshold.
- */
-const STILL_DRAIN_MS = 30 * 60_000;
-
-export function useTrackerBridge() {
-  const db = useDb();
-  const qc = useQueryClient();
-  const stillTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    const locSub = MapozyTracker.addLocationListener(() => {
-      // persistence happens natively in NativeStore — JS listener is no-op
-    });
-
-    // Opportunistic early pipeline run: when JS happens to be alive and the
-    // user has been still for STILL_DRAIN_MS, drain unconsumed rows now
-    // instead of waiting for the next app foreground. Pure JS, no
-    // side-effect on the native tracker — see also the foreground-trigger
-    // in app/_layout.tsx.
-    //
-    // The 30-min threshold is deliberately longer than segmentation's 5-min
-    // dwell threshold: segmentation should still treat a 5-min stop as a
-    // place visit, but the *pipeline* shouldn't fire so eagerly that a
-    // long-but-temporary stop (e.g. 10 min in heavy traffic) gets processed
-    // before the trip actually completes.
-    //
-    // NOTE: Battery-saving GPS shutoff during stillness now lives entirely on
-    // the native side (TrackingService motion state machine: STATIONARY drops
-    // GPS + arms a geofence; AR/geofence wake it). The old JS-driven
-    // pauseLocation()/resumeLocation() pair was removed — its resume depended on
-    // a stable JS bridge, and an OS-killed JS instance could leave tracking
-    // perpetually paused (once observed: 90 min of activity events, 23 min of
-    // GPS). The native state machine's resume can't be lost when JS is torn down.
-    const actSub = MapozyTracker.addActivityListener((act) => {
-      const isStill = act.type === 'still' && act.confidence >= 60;
-      if (isStill) {
-        if (stillTimerRef.current) return;
-        stillTimerRef.current = setTimeout(() => {
-          stillTimerRef.current = null;
-          void runPipelineAndInvalidate(db, qc);
-        }, STILL_DRAIN_MS);
-      } else if (stillTimerRef.current) {
-        clearTimeout(stillTimerRef.current);
-        stillTimerRef.current = null;
-      }
-    });
-
-    return () => {
-      locSub.remove();
-      actSub.remove();
-      if (stillTimerRef.current) clearTimeout(stillTimerRef.current);
-    };
-  }, [db, qc]);
-}
-
 export async function runPipelineAndInvalidate(
   db: Db,
   qc: ReturnType<typeof useQueryClient>
@@ -109,17 +50,49 @@ export async function runPipelineAndInvalidate(
 }
 
 /**
- * Run the pipeline when it's safe to do so without fragmenting an
- * in-progress trip. "Safe" = the user looks idle (last raw point is
- * old enough that the trip likely ended) OR the pending backlog has
- * been sitting unprocessed long enough that we'd rather drain it than
- * keep accumulating (12h bypass — see foregroundTrigger.ts). Used by
- * the app-foreground trigger.
+ * Subscribe to the native MOVING→STATIONARY transition. Native fires this
+ * once per trip end (STOP_TIMEOUT_MS of confirmed stillness, matching the
+ * pipeline's DWELL_STAY threshold) so by the time JS receives it the
+ * segmentation has a terminating stay at the new location and the pipeline
+ * will persist the trip.
+ *
+ * The bus queues events emitted while the JS bridge is down, but the queue
+ * is drained at native-module OnCreate — possibly before the JS layout
+ * subscribes — so events fired while JS was dead can be lost in transit.
+ * `runPipelineForForeground` covers that race by short-circuiting on a
+ * `stationary` motionState at cold start.
+ */
+export function subscribeStationary(
+  db: Db,
+  qc: ReturnType<typeof useQueryClient>
+): { remove: () => void } {
+  const sub = MapozyTracker.addStationaryListener(() => {
+    void runPipelineAndInvalidate(db, qc);
+  });
+  return sub;
+}
+
+/**
+ * Cold-start / app-foreground pipeline trigger. Two paths:
+ *
+ *  1. Native motion state is already 'stationary' — the trip is over,
+ *     drain unconditionally. Covers the case where `onStationary` fired
+ *     while JS was dead and the queued event got lost during drain.
+ *
+ *  2. Otherwise fall back to the time gate: only run if the last raw point
+ *     is old enough (idle threshold) or the backlog has been pending too
+ *     long. Prevents fragmenting an in-progress trip when the user opens
+ *     the app mid-drive.
  */
 export async function runPipelineForForeground(
   db: Db,
   qc: ReturnType<typeof useQueryClient>
 ): Promise<void> {
+  const status = await MapozyTracker.getStatus().catch(() => null);
+  if (status?.motionState === 'stationary') {
+    await runPipelineAndInvalidate(db, qc);
+    return;
+  }
   const row = await db.getFirstAsync<{ last: number | null; oldest: number | null }>(
     `SELECT MAX(timestamp_ms) AS last, MIN(timestamp_ms) AS oldest
      FROM raw_points WHERE consumed=0`

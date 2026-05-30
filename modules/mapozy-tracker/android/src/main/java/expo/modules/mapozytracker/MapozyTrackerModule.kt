@@ -14,7 +14,7 @@ class MapozyTrackerModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("MapozyTracker")
-    Events("onLocation", "onActivity")
+    Events("onLocation", "onActivity", "onStationary")
 
     OnCreate {
       MapozyTrackerEventBus.registerEmitter { name, payload ->
@@ -91,6 +91,7 @@ class MapozyTrackerModule : Module() {
       val ctx = appContext.reactContext ?: error("No context")
       val status = Bundle().apply {
         putBoolean("isTracking", TrackingState.isEnabled(ctx))
+        putString("motionState", TrackingState.getState(ctx))
         val lastLoc = TrackingState.getLastLocation(ctx)
         if (lastLoc != null) putDouble("lastLocationAt", lastLoc.toDouble())
         val lastAct = TrackingState.getLastActivity(ctx)

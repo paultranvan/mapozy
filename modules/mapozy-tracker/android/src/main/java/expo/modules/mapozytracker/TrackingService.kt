@@ -483,6 +483,16 @@ class TrackingService : Service() {
     NativeStore.insertDiagnostic(
       this, System.currentTimeMillis(), "state_stationary", payload.toString()
     )
+    // Tell JS the trip just ended — drains the pipeline. STOP_TIMEOUT_MS
+    // matches the pipeline's DWELL_STAY threshold, so by the time this fires
+    // the segmentation will see a terminating stay at this location.
+    val event = Bundle().apply {
+      putString("trigger", trigger)
+      putDouble("stoppedAtMs", stoppedAtMs.toDouble())
+      if (lat != null) putDouble("lat", lat)
+      if (lng != null) putDouble("lng", lng)
+    }
+    MapozyTrackerEventBus.emitStationary(event)
   }
 
   private fun scheduleStopTimer() {

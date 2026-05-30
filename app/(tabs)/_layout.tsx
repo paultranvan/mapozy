@@ -2,14 +2,11 @@ import { Tabs, useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { useDb } from '@/db/DbContext';
 import { getSetting, SETTING_KEYS } from '@/db/settings';
-import { useTrackerBridge } from '@/tracking/tracker';
 import { TabBar } from '@/ui/TabBar';
 
 export default function TabsLayout() {
   const router = useRouter();
   const db = useDb();
-
-  useTrackerBridge();
 
   useEffect(() => {
     (async () => {
