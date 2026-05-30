@@ -44,25 +44,40 @@ class ActivityReceiver : BroadcastReceiver() {
       }
 
       if (isEnter) {
-        // RULE_ACTIVITY_TRANSITIONS — transitions don't carry a confidence
-        // value (the snapshot API's concept doesn't apply to edges). Store
-        // confidence=100 so downstream RULE_SECTION_ACTIVITY_CONFIDENCE
-        // never filters these out.
-        TrackingState.setLastActivity(context, effectiveType, ts)
-        NativeStore.insertActivity(context, ts, effectiveType, 100)
+        // RULE_RESUBSCRIBE_DEDUP — ActivityTransitionClient replays the
+        // currently-active transition as an initial ENTER on every
+        // (re)subscribe. The watchdog re-subscribes AR every 15 min as a
+        // silence defense, which was injecting a fresh "still" ENTER each
+        // tick and polluting raw_activities (corrupting the
+        // sectionSegmentation "last activity ≤ t wins" semantics — a real
+        // in_vehicle event would get overridden by a stale still 15 min
+        // later). Suppress the duplicate row + state transitions when the
+        // type hasn't changed. Still bump lastActivityMs so
+        // RULE_AR_SILENCE_DETECTION sees the AR pipeline is alive.
+        val lastType = TrackingState.getLastActivity(context)
+        if (lastType == effectiveType) {
+          TrackingState.setLastActivity(context, effectiveType, ts)
+        } else {
+          // RULE_ACTIVITY_TRANSITIONS — transitions don't carry a confidence
+          // value (the snapshot API's concept doesn't apply to edges). Store
+          // confidence=100 so downstream RULE_SECTION_ACTIVITY_CONFIDENCE
+          // never filters these out.
+          TrackingState.setLastActivity(context, effectiveType, ts)
+          NativeStore.insertActivity(context, ts, effectiveType, 100)
 
-        // RULE_MOTION_STATE_MACHINE — drive MOVING/STATIONARY transitions.
-        if (effectiveType != "still" && effectiveType != "unknown") {
-          TrackingService.enterMoving(context, "ar:$effectiveType")
-          // RULE_ADAPTIVE_LOCATION_REQUEST — pick tight/loose for the new activity.
-          val newProfile = TrackingRules.profileForActivity(effectiveType)
-          if (newProfile.name != TrackingState.getActiveProfileName(context)) {
-            TrackingService.reconfigureLocationRequest(context, newProfile)
+          // RULE_MOTION_STATE_MACHINE — drive MOVING/STATIONARY transitions.
+          if (effectiveType != "still" && effectiveType != "unknown") {
+            TrackingService.enterMoving(context, "ar:$effectiveType")
+            // RULE_ADAPTIVE_LOCATION_REQUEST — pick tight/loose for the new activity.
+            val newProfile = TrackingRules.profileForActivity(effectiveType)
+            if (newProfile.name != TrackingState.getActiveProfileName(context)) {
+              TrackingService.reconfigureLocationRequest(context, newProfile)
+            }
+          } else if (effectiveType == "still") {
+            // Begin stop-detection debounce; service drops GPS after STOP_TIMEOUT_MS
+            // unless motion arrives first.
+            TrackingService.enterStillPending(context)
           }
-        } else if (effectiveType == "still") {
-          // Begin stop-detection debounce; service drops GPS after STOP_TIMEOUT_MS
-          // unless motion arrives first.
-          TrackingService.enterStillPending(context)
         }
       } else {
         // EXIT — bump the "last activity arrived" wall clock so silence
