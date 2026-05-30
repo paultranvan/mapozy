@@ -76,6 +76,19 @@ object TrackingRules {
    */
 
   /**
+   * RULE_RESUBSCRIBE_DEDUP — ActivityTransitionClient fires an initial
+   * ENTER event for the currently-active state on every subscribe. The
+   * watchdog re-subscribes AR every WATCHDOG_INTERVAL_MS as a silence
+   * defense, which otherwise injects a fresh ENTER (usually "still") each
+   * tick — polluting raw_activities and breaking sectionSegmentation's
+   * "last activity ≤ t wins" semantics. ActivityReceiver suppresses any
+   * ENTER X when the last persisted activity was already X, but still
+   * bumps lastActivityMs so RULE_AR_SILENCE_DETECTION keeps working.
+   * (No parameters; identified by name so the dedup branch in
+   * ActivityReceiver is grep-able.)
+   */
+
+  /**
    * RULE_MOVING_STILL_GUARD — when DetectedActivity.STILL arrives but
    * the most recent GPS sample is recent AND shows motion above the
    * threshold, reclassify the activity as "unknown" before persisting.
