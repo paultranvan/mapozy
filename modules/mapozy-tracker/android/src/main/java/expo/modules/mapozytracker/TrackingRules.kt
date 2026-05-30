@@ -22,7 +22,7 @@ object TrackingRules {
    * writes from cold-start / network-triangulation samples. Keep the two
    * thresholds in lock-step.
    */
-  const val MAX_INSERT_ACCURACY_M = 60f
+  const val MAX_INSERT_ACCURACY_M = 50f
 
   /**
    * RULE_LOCATION_REQUEST_DEFAULT — startup defaults for FusedLocation.
@@ -93,14 +93,18 @@ object TrackingRules {
    * interval and distance filter, picked to balance trace quality against
    * battery cost for that mode of travel.
    *
-   * Priority is the dominant battery knob: HIGH_ACCURACY pins the GPS chip
-   * on continuously, BALANCED_POWER_ACCURACY lets Android source position
-   * from Wi-Fi / cell / sensor fusion and only ping GPS when needed.
+   * IMPORTANT: all profiles use PRIORITY_HIGH_ACCURACY. PRIORITY_BALANCED
+   * was tried (commit 0938f35) on the theory it would let the OS skip the
+   * GPS chip when cell/Wi-Fi can localise. In practice, on real devices,
+   * BALANCED + a non-zero distance filter simply doesn't fire the GPS chip
+   * at all during car drives — verified on this device with a ~5 min drive
+   * that produced ZERO raw_points (vs ~30 fixes on the previous HIGH config).
+   * Battery savings now come from interval relaxation only, not priority.
    *
    * Profile selection (see profileForActivity):
-   *  - on_bicycle               → TIGHT  — ~5 m fixes for sharp turns
-   *  - in_vehicle               → LOOSE  — vehicles move fast, BALANCED is enough
-   *  - walking / still / unknown / anything else → WALK — battery saver
+   *  - on_bicycle               → TIGHT — ~5 m fixes for sharp turns
+   *  - in_vehicle               → LOOSE — sparse fixes, vehicles move fast
+   *  - walking / still / unknown / anything else → WALK (install default)
    */
   data class LocationProfile(
     val name: String,
@@ -118,26 +122,25 @@ object TrackingRules {
     priority = Priority.PRIORITY_HIGH_ACCURACY,
   )
 
-  // Walking / still / unknown — the install default. BALANCED lets the OS
-  // skip the GPS chip when Wi-Fi/cell can localise, which is the single
-  // biggest battery saving (HIGH at 5s vs BALANCED at 30s is roughly a 5–10×
-  // drain difference during MOVING). Accuracy drops to ~15–50 m; pipeline
-  // smoothing + accuracyFilter handle it.
+  // Walking / still / unknown — the install default. 30 s interval lets the
+  // GPS chip duty-cycle between fixes for a modest battery saving (vs the
+  // 5 s TIGHT default that was used pre-split). HIGH priority is required for
+  // the chip to actually fire — see file-level note above.
   val WALK_PROFILE = LocationProfile(
     name = "walk",
     distanceFilterM = 20f,
     minIntervalMs = 30_000L,
-    priority = Priority.PRIORITY_BALANCED_POWER_ACCURACY,
+    priority = Priority.PRIORITY_HIGH_ACCURACY,
   )
 
-  // Vehicle: at 50+ km/h the GPS signal is strong from speed alone, so
-  // BALANCED gives essentially the same trace quality as HIGH at a fraction
-  // of the cost.
+  // Vehicle: 30 s + 50 m. At highway speeds 30 s is ~830 m between fixes —
+  // sparse but enough for trip visualization, and the pipeline resamples
+  // to 10 s anyway.
   val LOOSE_PROFILE = LocationProfile(
     name = "loose",
     distanceFilterM = 50f,
     minIntervalMs = 30_000L,
-    priority = Priority.PRIORITY_BALANCED_POWER_ACCURACY,
+    priority = Priority.PRIORITY_HIGH_ACCURACY,
   )
 
   fun profileForActivity(activityType: String?): LocationProfile {
