@@ -126,8 +126,8 @@ object TrackingState {
   }
 
   fun getActiveProfileName(context: Context): String =
-    prefs(context).getString(KEY_ACTIVE_PROFILE, TrackingRules.TIGHT_PROFILE.name)
-      ?: TrackingRules.TIGHT_PROFILE.name
+    prefs(context).getString(KEY_ACTIVE_PROFILE, TrackingRules.WALK_PROFILE.name)
+      ?: TrackingRules.WALK_PROFILE.name
 
   fun setActiveProfileName(context: Context, name: String) {
     prefs(context).edit().putString(KEY_ACTIVE_PROFILE, name).apply()

@@ -288,20 +288,19 @@ class TrackingService : Service() {
 
   private fun subscribeLocation(cfg: TrackingState.Config) {
     if (locationSubscribed) return
-    val priority = if (cfg.desiredAccuracy == "high") {
-      Priority.PRIORITY_HIGH_ACCURACY
-    } else {
-      Priority.PRIORITY_BALANCED_POWER_ACCURACY
-    }
-    // RULE_ADAPTIVE_LOCATION_REQUEST — the active profile decides interval +
-    // distance filter. ActivityReceiver may flip the profile at any time;
-    // when it does, it sends ACTION_RECONFIGURE_LR which routes through
-    // here again.
+    // RULE_ADAPTIVE_LOCATION_REQUEST — the active profile decides priority,
+    // interval and distance filter. Priority is the dominant battery knob
+    // (see TrackingRules.LocationProfile). ActivityReceiver flips the profile
+    // on activity changes and routes back here via ACTION_RECONFIGURE_LR.
+    //
+    // cfg.desiredAccuracy is retained for backwards compatibility with
+    // persisted configs but is no longer consulted — accuracy is per-profile.
     val profile = when (TrackingState.getActiveProfileName(this)) {
       TrackingRules.LOOSE_PROFILE.name -> TrackingRules.LOOSE_PROFILE
-      else -> TrackingRules.TIGHT_PROFILE
+      TrackingRules.TIGHT_PROFILE.name -> TrackingRules.TIGHT_PROFILE
+      else -> TrackingRules.WALK_PROFILE
     }
-    val request = LocationRequest.Builder(priority, profile.minIntervalMs)
+    val request = LocationRequest.Builder(profile.priority, profile.minIntervalMs)
       .setMinUpdateDistanceMeters(profile.distanceFilterM)
       .build()
     val client = LocationServices.getFusedLocationProviderClient(this)

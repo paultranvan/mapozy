@@ -1,5 +1,7 @@
 package expo.modules.mapozytracker
 
+import com.google.android.gms.location.Priority
+
 /**
  * Native-side rule manifest. Mirror of `src/pipeline/rules.ts` for the
  * JS side — every threshold and policy that lives in native code is
@@ -17,9 +19,10 @@ object TrackingRules {
    * RULE_NATIVE_ACCURACY_FILTER — drop locations whose reported accuracy is
    * worse than this threshold before writing to SQLite. Mirrors
    * RULE_ACCURACY_FILTER on the JS side, applied earlier to avoid wasted
-   * writes from cold-start / network-triangulation samples.
+   * writes from cold-start / network-triangulation samples. Keep the two
+   * thresholds in lock-step.
    */
-  const val MAX_INSERT_ACCURACY_M = 50f
+  const val MAX_INSERT_ACCURACY_M = 60f
 
   /**
    * RULE_LOCATION_REQUEST_DEFAULT — startup defaults for FusedLocation.
@@ -85,37 +88,63 @@ object TrackingRules {
   const val MOVING_STILL_LOOKBACK_MS = 30_000L
 
   /**
-   * RULE_ADAPTIVE_LOCATION_REQUEST — on activity change, switch the
-   * LocationRequest between a tight profile (walk/still/unknown) and a
-   * loose profile (in_vehicle, etc). Loose saves battery on long drives
-   * where 5s/20m sampling is overkill.
+   * RULE_ADAPTIVE_LOCATION_REQUEST — on activity change, switch the active
+   * LocationRequest. Each profile carries its own GPS priority, sample
+   * interval and distance filter, picked to balance trace quality against
+   * battery cost for that mode of travel.
+   *
+   * Priority is the dominant battery knob: HIGH_ACCURACY pins the GPS chip
+   * on continuously, BALANCED_POWER_ACCURACY lets Android source position
+   * from Wi-Fi / cell / sensor fusion and only ping GPS when needed.
+   *
+   * Profile selection (see profileForActivity):
+   *  - on_bicycle               → TIGHT  — ~5 m fixes for sharp turns
+   *  - in_vehicle               → LOOSE  — vehicles move fast, BALANCED is enough
+   *  - walking / still / unknown / anything else → WALK — battery saver
    */
   data class LocationProfile(
     val name: String,
     val distanceFilterM: Float,
     val minIntervalMs: Long,
+    val priority: Int,
   )
 
+  // Cycling: GPS-on, ~5 m precision. Bikes weave and corner tightly; a coarser
+  // trace would visibly cut corners and misclassify the mode.
   val TIGHT_PROFILE = LocationProfile(
     name = "tight",
-    distanceFilterM = 20f,
+    distanceFilterM = 10f,
     minIntervalMs = 5_000L,
+    priority = Priority.PRIORITY_HIGH_ACCURACY,
   )
 
+  // Walking / still / unknown — the install default. BALANCED lets the OS
+  // skip the GPS chip when Wi-Fi/cell can localise, which is the single
+  // biggest battery saving (HIGH at 5s vs BALANCED at 30s is roughly a 5–10×
+  // drain difference during MOVING). Accuracy drops to ~15–50 m; pipeline
+  // smoothing + accuracyFilter handle it.
+  val WALK_PROFILE = LocationProfile(
+    name = "walk",
+    distanceFilterM = 20f,
+    minIntervalMs = 30_000L,
+    priority = Priority.PRIORITY_BALANCED_POWER_ACCURACY,
+  )
+
+  // Vehicle: at 50+ km/h the GPS signal is strong from speed alone, so
+  // BALANCED gives essentially the same trace quality as HIGH at a fraction
+  // of the cost.
   val LOOSE_PROFILE = LocationProfile(
     name = "loose",
     distanceFilterM = 50f,
-    minIntervalMs = 15_000L,
+    minIntervalMs = 30_000L,
+    priority = Priority.PRIORITY_BALANCED_POWER_ACCURACY,
   )
 
-  // Activity types that map to the loose profile. Everything else uses tight.
-  private val LOOSE_ACTIVITY_TYPES = setOf("in_vehicle")
-
   fun profileForActivity(activityType: String?): LocationProfile {
-    return if (activityType != null && LOOSE_ACTIVITY_TYPES.contains(activityType)) {
-      LOOSE_PROFILE
-    } else {
-      TIGHT_PROFILE
+    return when (activityType) {
+      "in_vehicle" -> LOOSE_PROFILE
+      "on_bicycle" -> TIGHT_PROFILE
+      else -> WALK_PROFILE
     }
   }
 

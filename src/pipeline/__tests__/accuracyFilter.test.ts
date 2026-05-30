@@ -14,8 +14,13 @@ describe('accuracyFilter', () => {
     expect(out.map((p) => p.timestampMs)).toEqual([1000, 3000]);
   });
 
-  it('default threshold is 50m', () => {
-    const out = accuracyFilter([mkPoint(1000, 0, 0, 50.1)]);
+  it('default threshold is 60m', () => {
+    const out = accuracyFilter([mkPoint(1000, 0, 0, 60.1)]);
     expect(out).toEqual([]);
+  });
+
+  it('default threshold keeps a 60m fix (BALANCED-priority typical)', () => {
+    const out = accuracyFilter([mkPoint(1000, 0, 0, 60)]);
+    expect(out.map((p) => p.timestampMs)).toEqual([1000]);
   });
 });
