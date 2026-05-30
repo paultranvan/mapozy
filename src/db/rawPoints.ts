@@ -102,6 +102,33 @@ export async function countPointsSince(db: Db, sinceMs: number): Promise<number>
   return r?.c ?? 0;
 }
 
+export interface RecentPoint {
+  tsMs: number;
+  lat: number;
+  lon: number;
+}
+
+export async function getRecentRawPoints(
+  db: Db,
+  sinceMs: number
+): Promise<RecentPoint[]> {
+  const rows = await db.getAllAsync<{
+    timestamp_ms: number;
+    latitude: number;
+    longitude: number;
+  }>(
+    `SELECT timestamp_ms, latitude, longitude FROM raw_points
+     WHERE timestamp_ms >= ?
+     ORDER BY timestamp_ms ASC`,
+    sinceMs
+  );
+  return rows.map((r) => ({
+    tsMs: r.timestamp_ms,
+    lat: r.latitude,
+    lon: r.longitude,
+  }));
+}
+
 export async function purgeOldConsumedPoints(db: Db, beforeMs: number): Promise<number> {
   const r = await db.runAsync(
     `DELETE FROM raw_points WHERE consumed=1 AND timestamp_ms < ?`,

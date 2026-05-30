@@ -14,8 +14,8 @@ import { geocodePlaceLazy } from '@/pipeline/geocoding';
 import { TripListItem } from '@/ui/TripListItem';
 import { TopBar } from '@/ui/TopBar';
 import { Text } from '@/ui/Text';
-import { TrackingHealthBanner } from '@/ui/TrackingHealthBanner';
-import { useTrackingHealth } from '@/tracking/useTrackingHealth';
+import { RecordingPill } from '@/ui/RecordingPill';
+import { useRecordingStatus } from '@/tracking/useRecordingStatus';
 import { colors, space } from '@/theme/tokens';
 import { dayKey } from '@/lib/time';
 import type { Trip, Place } from '@/types';
@@ -62,15 +62,15 @@ export default function TripsScreen() {
   const qc = useQueryClient();
   const tripsQ = useTripsList(500);
   const placesQ = usePlaces();
-  const health = useTrackingHealth();
+  const recording = useRecordingStatus();
 
   const onRefresh = useCallback(async () => {
     await Promise.all([
       tripsQ.refetch(),
       placesQ.refetch(),
-      health.refresh(),
+      recording.refresh(),
     ]);
-  }, [tripsQ, placesQ, health]);
+  }, [tripsQ, placesQ, recording]);
 
   const sections = useMemo(
     () => (tripsQ.data ? groupByDay(tripsQ.data) : []),
@@ -105,10 +105,17 @@ export default function TripsScreen() {
     };
   }, [db, qc, placesQ.data]);
 
+  const topBar = (
+    <TopBar
+      title="Mapozy"
+      rightNode={<RecordingPill status={recording.status} />}
+    />
+  );
+
   if (tripsQ.isLoading) {
     return (
       <View style={styles.root}>
-        <TopBar title="Mapozy" />
+        {topBar}
         <View style={styles.center}>
           <ActivityIndicator color={colors.inkOnGround} />
         </View>
@@ -116,41 +123,29 @@ export default function TripsScreen() {
     );
   }
 
-  const banner = (
-    <TrackingHealthBanner
-      snapshot={health.snapshot}
-      pointsToday={health.pointsToday}
-      onRefresh={health.refresh}
-    />
-  );
-
   return (
     <View style={styles.root}>
-      <TopBar title="Mapozy" />
+      {topBar}
       {sections.length === 0 ? (
-        <>
-          {banner}
-          <View style={styles.center}>
-            <MaterialCommunityIcons
-              name="compass-outline"
-              size={56}
-              color={colors.inkOnGroundSoft}
-            />
-            <Text variant="display" onGround align="center" style={styles.emptyTitle}>
-              No trips yet
-            </Text>
-            <Text variant="body" onGround soft align="center">
-              Move around — trips will appear here.
-            </Text>
-          </View>
-        </>
+        <View style={styles.center}>
+          <MaterialCommunityIcons
+            name="compass-outline"
+            size={56}
+            color={colors.inkOnGroundSoft}
+          />
+          <Text variant="display" onGround align="center" style={styles.emptyTitle}>
+            No trips yet
+          </Text>
+          <Text variant="body" onGround soft align="center">
+            Move around — trips will appear here.
+          </Text>
+        </View>
       ) : (
         <SectionList
           sections={sections}
           keyExtractor={(t) => String(t.id)}
           stickySectionHeadersEnabled={false}
           contentContainerStyle={styles.list}
-          ListHeaderComponent={banner}
           renderSectionHeader={({ section }) => (
             <Text variant="dayHeader" onGround style={styles.sectionHeader}>
               {section.title}

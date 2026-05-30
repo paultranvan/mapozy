@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -8,9 +9,10 @@ interface Props {
   title: string;
   onBack?: () => void;
   right?: { icon: keyof typeof MaterialCommunityIcons.glyphMap; onPress: () => void };
+  rightNode?: ReactNode;
 }
 
-export function TopBar({ title, onBack, right }: Props) {
+export function TopBar({ title, onBack, right, rightNode }: Props) {
   const insets = useSafeAreaInsets();
   return (
     <View style={[styles.bar, { paddingTop: insets.top + space[2] }]}>
@@ -28,8 +30,10 @@ export function TopBar({ title, onBack, right }: Props) {
       <Text variant="display" onGround style={styles.title}>
         {title}
       </Text>
-      <View style={styles.right}>
-        {right ? (
+      <View style={rightNode ? styles.rightFlex : styles.right}>
+        {rightNode ? (
+          rightNode
+        ) : right ? (
           <Pressable onPress={right.onPress} hitSlop={12} style={styles.iconBtn}>
             <MaterialCommunityIcons
               name={right.icon}
@@ -57,6 +61,9 @@ const styles = StyleSheet.create({
   },
   right: {
     width: 44,
+    alignItems: 'flex-end',
+  },
+  rightFlex: {
     alignItems: 'flex-end',
   },
   title: {
