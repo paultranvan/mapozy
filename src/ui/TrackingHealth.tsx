@@ -1,12 +1,10 @@
 import { useMemo } from 'react';
 import { View, StyleSheet, Pressable, Alert } from 'react-native';
-import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { restartTracking } from '@/tracking/tracker';
 import { setSetting, SETTING_KEYS } from '@/db/settings';
 import { useDb } from '@/db/DbContext';
 import { Text } from '@/ui/Text';
-import { Card } from '@/ui/Card';
 import { colors, space, radii } from '@/theme/tokens';
 import type { HealthSnapshot, HealthState } from '@/tracking/health';
 
@@ -46,7 +44,7 @@ function visualFor(state: HealthState): Visual {
       return {
         dotColor: colors.divider,
         headline: 'Tracking is paused',
-        subtitle: 'Tap to enable in Settings',
+        subtitle: 'Enable the toggle below to resume',
         showRestart: false,
       };
     case 'stopped':
@@ -87,8 +85,7 @@ function visualFor(state: HealthState): Visual {
   }
 }
 
-export function TrackingHealthBanner({ snapshot, pointsToday, onRefresh }: Props) {
-  const router = useRouter();
+export function TrackingHealth({ snapshot, pointsToday, onRefresh }: Props) {
   const db = useDb();
   const visual = useMemo(
     () => (snapshot ? visualFor(snapshot.state) : null),
@@ -124,61 +121,53 @@ export function TrackingHealthBanner({ snapshot, pointsToday, onRefresh }: Props
     );
   }
 
-  function onPress() {
-    if (snapshot && snapshot.state.kind === 'off') {
-      router.push('/settings');
-    }
-  }
-
   return (
-    <Pressable onPress={onPress} disabled={snapshot.state.kind !== 'off'}>
-      <Card style={styles.card}>
-        <View style={styles.headerRow}>
-          <View style={[styles.dot, { backgroundColor: visual.dotColor }]} />
-          <View style={{ flex: 1 }}>
-            <Text variant="title">{visual.headline}</Text>
-            {visual.subtitle != null && (
-              <Text variant="meta" soft>
-                {visual.subtitle}
-              </Text>
-            )}
-          </View>
-          {visual.showRestart ? (
-            <Pressable
-              onPress={confirmRestart}
-              style={({ pressed }) => [
-                styles.restartBtn,
-                pressed && { opacity: 0.85 },
-              ]}
-            >
-              <Text variant="label" color={colors.surface}>
-                Restart
-              </Text>
-            </Pressable>
-          ) : (
-            <Text variant="meta" soft style={styles.pointsToday}>
-              {pointsToday} pts today
+    <View style={styles.container}>
+      <View style={styles.headerRow}>
+        <View style={[styles.dot, { backgroundColor: visual.dotColor }]} />
+        <View style={{ flex: 1 }}>
+          <Text variant="title">{visual.headline}</Text>
+          {visual.subtitle != null && (
+            <Text variant="meta" soft>
+              {visual.subtitle}
             </Text>
           )}
         </View>
-        <View style={styles.chipsRow}>
+        {visual.showRestart ? (
+          <Pressable
+            onPress={confirmRestart}
+            style={({ pressed }) => [
+              styles.restartBtn,
+              pressed && { opacity: 0.85 },
+            ]}
+          >
+            <Text variant="label" color={colors.surface}>
+              Restart
+            </Text>
+          </Pressable>
+        ) : (
+          <Text variant="meta" soft style={styles.pointsToday}>
+            {pointsToday} pts today
+          </Text>
+        )}
+      </View>
+      <View style={styles.chipsRow}>
+        <Chip
+          icon="crosshairs-gps"
+          label={`GPS · ${formatAge(snapshot.gpsAge)}`}
+        />
+        <Chip
+          icon="walk"
+          label={`Activity · ${formatAge(snapshot.activityAge)}`}
+        />
+        {snapshot.recentlyRestarted && snapshot.restartedAt != null && (
           <Chip
-            icon="crosshairs-gps"
-            label={`GPS · ${formatAge(snapshot.gpsAge)}`}
+            icon="restart"
+            label={`Restored at ${formatClock(snapshot.restartedAt)}`}
           />
-          <Chip
-            icon="walk"
-            label={`Activity · ${formatAge(snapshot.activityAge)}`}
-          />
-          {snapshot.recentlyRestarted && snapshot.restartedAt != null && (
-            <Chip
-              icon="restart"
-              label={`Restored at ${formatClock(snapshot.restartedAt)}`}
-            />
-          )}
-        </View>
-      </Card>
-    </Pressable>
+        )}
+      </View>
+    </View>
   );
 }
 
@@ -198,9 +187,7 @@ function Chip({ icon, label }: { icon: string; label: string }) {
 }
 
 const styles = StyleSheet.create({
-  card: {
-    marginHorizontal: space[4],
-    marginTop: space[3],
+  container: {
     gap: space[2],
   },
   headerRow: {

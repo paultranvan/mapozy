@@ -22,8 +22,9 @@ import { shareDb } from '@/lib/shareDb';
 import { TopBar } from '@/ui/TopBar';
 import { Text } from '@/ui/Text';
 import { Card } from '@/ui/Card';
+import { TrackingHealth } from '@/ui/TrackingHealth';
 import { colors, space, radii } from '@/theme/tokens';
-import { useTrackingHealth, type TrackingHealth } from '@/tracking/useTrackingHealth';
+import { useTrackingHealth } from '@/tracking/useTrackingHealth';
 import { getInterruptions, type Interruption } from '@/tracking/interruptions';
 import { format } from 'date-fns';
 
@@ -162,9 +163,8 @@ export default function SettingsScreen() {
         <Card style={styles.card}>
           <View style={styles.row}>
             <View style={{ flex: 1 }}>
-              <Text variant="title">Tracking active</Text>
-              <Text variant="meta" soft>
-                {trackingHealthSubtitle(trackingOn, health)}
+              <Text variant="title">
+                {trackingOn ? 'Tracking active' : 'Paused'}
               </Text>
             </View>
             <Switch
@@ -174,6 +174,12 @@ export default function SettingsScreen() {
               thumbColor={trackingOn ? colors.accent : colors.surface}
             />
           </View>
+          <View style={styles.divider} />
+          <TrackingHealth
+            snapshot={health.snapshot}
+            pointsToday={health.pointsToday}
+            onRefresh={health.refresh}
+          />
           <View style={styles.divider} />
           <Pressable
             style={styles.actionRow}
@@ -382,25 +388,6 @@ function causeLabel(cause: Interruption['cause']): string {
     case 'ongoing':
       return 'Tracking currently interrupted';
   }
-}
-
-function trackingHealthSubtitle(
-  trackingOn: boolean,
-  health: TrackingHealth
-): string {
-  if (!trackingOn) return 'Paused';
-  const snap = health.snapshot;
-  if (!snap) return 'Recording your trips';
-  const ageMs = snap.gpsAge;
-  const ageStr =
-    ageMs == null
-      ? '—'
-      : ageMs < 60_000
-      ? `${Math.max(1, Math.round(ageMs / 1000))}s`
-      : ageMs < 3_600_000
-      ? `${Math.round(ageMs / 60_000)}m`
-      : `${Math.floor(ageMs / 3_600_000)}h ${Math.round((ageMs % 3_600_000) / 60_000)}m`;
-  return `GPS ${ageStr} · ${health.pointsToday} pts today`;
 }
 
 const styles = StyleSheet.create({
