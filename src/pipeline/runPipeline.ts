@@ -1,7 +1,7 @@
 // Rule implemented here: RULE_MIN_TRIP_DISTANCE (see ./rules.ts).
 // All other pipeline rules fire inside the stage functions called below.
 import type { Db } from '../db/client';
-import type { RawPoint, RawActivity } from '../types';
+import type { RawActivity } from '../types';
 import {
   getAllUnconsumedPoints,
   markPointsConsumed,
@@ -19,6 +19,7 @@ import { smoothing } from './smoothing';
 import { resample } from './resample';
 import { sectionSegmentation } from './sectionSegmentation';
 import { assemble } from './assemble';
+import { groupIntoTrips, type TripLegGroup } from './tripGrouping';
 import { RULES } from './rules';
 
 export interface RunPipelineOpts {
@@ -59,43 +60,55 @@ export async function runPipeline(
   }
 
   const segments = segmentation(filtered, activities);
+  const groups = groupIntoTrips(segments);
 
   let tripsInserted = 0;
   let previousStayPlaceId: number | null = await readValidSeedPlaceId(db);
-  let pendingTrip: RawPoint[] | null = null;
+  let openTail: TripLegGroup | null = null;
 
-  for (const seg of segments) {
-    if (seg.kind === 'stay') {
-      const placeId = await findOrCreatePlace(
-        db,
-        seg.centerLat,
-        seg.centerLon,
-        seg.endMs
-      );
-      if (pendingTrip) {
-        const inserted = await assembleAndPersist(
-          db,
-          pendingTrip,
-          activities,
-          previousStayPlaceId,
-          placeId,
-          now
-        );
-        if (inserted) tripsInserted++;
-        pendingTrip = null;
-      }
-      previousStayPlaceId = placeId;
-    } else {
-      pendingTrip = seg.points;
+  for (const group of groups) {
+    if (group.endStay === null) {
+      // Held for the next run — recorded; handled after the loop.
+      openTail = group;
+      break;
     }
+
+    let startPlaceId = previousStayPlaceId;
+    if (group.startStay !== null) {
+      startPlaceId = await findOrCreatePlace(
+        db,
+        group.startStay.centerLat,
+        group.startStay.centerLon,
+        group.startStay.endMs
+      );
+    }
+    const endPlaceId = await findOrCreatePlace(
+      db,
+      group.endStay.centerLat,
+      group.endStay.centerLon,
+      group.endStay.endMs
+    );
+
+    const inserted = await assembleAndPersist(
+      db,
+      group,
+      activities,
+      startPlaceId,
+      endPlaceId,
+      now
+    );
+    if (inserted) tripsInserted++;
+    previousStayPlaceId = endPlaceId;
   }
 
-  if (pendingTrip) {
-    const heldPointIds = new Set(pendingTrip.map((p) => p.id));
-    const heldStartMs = pendingTrip[0]!.timestampMs;
+  if (openTail !== null) {
+    // Hold every raw point + activity from the open group's first leg
+    // onward (covers leg points AND any break-stay points sitting between
+    // legs inside the open group's span).
+    const heldStartMs = openTail.legs[0]![0]!.timestampMs;
     await markPointsConsumed(
       db,
-      points.filter((p) => !heldPointIds.has(p.id)).map((p) => p.id)
+      points.filter((p) => p.timestampMs < heldStartMs).map((p) => p.id)
     );
     await markActivitiesConsumed(
       db,
@@ -139,19 +152,32 @@ async function readValidSeedPlaceId(db: Db): Promise<number | null> {
 
 async function assembleAndPersist(
   db: Db,
-  rawPts: RawPoint[],
+  group: TripLegGroup,
   activities: RawActivity[],
   startPlaceId: number | null,
   endPlaceId: number | null,
   nowMs: number
 ): Promise<boolean> {
-  const smoothed = smoothing(rawPts);
-  const resampled = resample(smoothed);
-  const rawSections = sectionSegmentation(resampled, activities);
-  if (rawSections.length === 0) return false;
-  const trip = assemble({ rawSections, startPlaceId, endPlaceId, nowMs });
-  // RULE_MIN_TRIP_DISTANCE
-  if (trip.distanceM < RULES.MIN_TRIP_DISTANCE.defaults.minTripDistanceM) return false;
+  const legs = group.legs.map((rawPts) => {
+    const smoothed = smoothing(rawPts);
+    const resampled = resample(smoothed);
+    const rawSections = sectionSegmentation(resampled, activities);
+    return { rawSections };
+  });
+
+  if (legs.some((l) => l.rawSections.length === 0)) return false;
+
+  const trip = assemble({
+    legs,
+    breaks: group.breaks,
+    startPlaceId,
+    endPlaceId,
+    nowMs,
+  });
+  // RULE_MIN_TRIP_DISTANCE — threshold applies to the trip total.
+  if (trip.distanceM < RULES.MIN_TRIP_DISTANCE.defaults.minTripDistanceM) {
+    return false;
+  }
   await insertTripWithSections(db, trip);
   return true;
 }

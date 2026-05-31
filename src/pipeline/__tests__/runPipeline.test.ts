@@ -26,10 +26,10 @@ function tripThenStay(t0 = 1_700_000_000_000): {
   for (let i = 0; i < 12; i++) {
     activities.push(mkActivity(t0 + i * 15_000, 'in_vehicle'));
   }
-  // Stay at destination for 10 min (1 point/min)
+  // Stay at destination for 35 min (1 point/min) — ≥ 30 min so it ends the trip.
   const stayStart = t0 + 13 * 15_000 + 1000;
   const endLat = lat0 + 0.018;
-  for (let i = 0; i <= 10; i++) {
+  for (let i = 0; i <= 35; i++) {
     points.push(mkPoint(stayStart + i * 60_000, endLat, lon0));
   }
   activities.push(mkActivity(stayStart + 30_000, 'still'));
