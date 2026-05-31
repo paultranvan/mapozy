@@ -19,6 +19,8 @@ import { detectHomeAndWork } from '@/stats/homeWorkDetection';
 import { injectDemoTrip } from '@/lib/demoTrip';
 import { sendDbToPaul } from '@/lib/sendDbToPaul';
 import { shareDb } from '@/lib/shareDb';
+import { importDb, InvalidDatabaseError } from '@/lib/importDb';
+import * as DocumentPicker from 'expo-document-picker';
 import { TopBar } from '@/ui/TopBar';
 import { Text } from '@/ui/Text';
 import { Card } from '@/ui/Card';
@@ -111,6 +113,56 @@ export default function SettingsScreen() {
     } catch (e) {
       Alert.alert('Could not share database', String(e));
     }
+  }
+
+  async function onImportDb() {
+    let picked: DocumentPicker.DocumentPickerAsset;
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled) return;
+      picked = result.assets[0]!;
+    } catch (e) {
+      Alert.alert('Could not pick file', String(e));
+      return;
+    }
+    Alert.alert(
+      'Replace database?',
+      `Overwrite the current Mapozy database with "${picked.name}"? ` +
+        `Your existing data is backed up to mapozy.db.preimport but the app needs to be closed and reopened to load the new file.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Replace',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Quiet the native side so it stops writing to the file we're
+              // about to swap. Tracking re-enables on the next app start if
+              // the user had it on (per the persisted setting).
+              try {
+                await stopTracking();
+              } catch {
+                // best effort
+              }
+              const r = await importDb(picked.uri);
+              Alert.alert(
+                'Imported',
+                `Wrote ${Math.round(r.sourceSize / 1024)} KB. Close the app from recents and reopen it to see the new data.`
+              );
+            } catch (e) {
+              const msg =
+                e instanceof InvalidDatabaseError
+                  ? e.message
+                  : `Import failed: ${String(e)}`;
+              Alert.alert('Import failed', msg);
+            }
+          },
+        },
+      ]
+    );
   }
 
   function confirmClearAll() {
@@ -278,6 +330,16 @@ export default function SettingsScreen() {
               <Text variant="title">Send data to Paul</Text>
               <Text variant="meta" soft>
                 Attaches your full Mapozy database to an email for debugging help.
+              </Text>
+            </View>
+            <MaterialCommunityIcons name="chevron-right" size={22} color={colors.inkSoft} />
+          </Pressable>
+          <View style={styles.divider} />
+          <Pressable style={styles.actionRow} onPress={onImportDb}>
+            <View style={{ flex: 1 }}>
+              <Text variant="title">Import database…</Text>
+              <Text variant="meta" soft>
+                Replace the current database with a .db file picked from the device. Used for restoring backups and debugging.
               </Text>
             </View>
             <MaterialCommunityIcons name="chevron-right" size={22} color={colors.inkSoft} />
