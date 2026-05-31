@@ -107,14 +107,22 @@ export const RULES = {
 
   MODE_SPEED_FALLBACK: rule(
     'RULE_MODE_SPEED_FALLBACK',
-    'For a section without activity classification, classify mode by median speed.',
+    'For a section without activity classification, classify mode by the p75 ' +
+      'of device-reported speed_mps (Doppler-derived from satellite signal — a ' +
+      'direct velocity reading, not an averaged displacement). Falls back to ' +
+      'p75 of haversine-between-consecutive-points when reported speed is missing. ' +
+      'p75 (not median) so stop-and-go segments at red lights don\'t pull ' +
+      'city driving into the bike range.',
     { carThresholdMps: 6.94, bikeThresholdMps: 3.33 }
   ),
 
   VEHICLE_SPEED_SANITY: rule(
     'RULE_VEHICLE_SPEED_SANITY',
-    'A section the activity classifier labeled in_vehicle but whose median speed never reaches vehicle pace is a spurious in_vehicle (e.g. Android reporting in_vehicle while parked). Reclassify it by speed instead of trusting the activity. Skipped when there are too few points to judge speed.',
-    { minMedianSpeedMps: 2.0 }
+    'A section the activity classifier labeled in_vehicle but whose p75 speed ' +
+      'never reaches vehicle pace is a spurious in_vehicle (e.g. Android reporting ' +
+      'in_vehicle while parked). Reclassify it by speed instead of trusting the ' +
+      'activity. Skipped when there are too few points to judge speed.',
+    { minClassifyingSpeedMps: 2.0 }
   ),
 
   MIN_TRIP_DISTANCE: rule(
