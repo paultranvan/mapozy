@@ -2,16 +2,24 @@
   "expo": {
     "name": "Mapozy",
     "slug": "mapozy",
-    "version": "0.2.9",
+    "version": "0.3.0",
     "orientation": "portrait",
     "scheme": "mapozy",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": false,
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F3F6F9"
+    },
     "android": {
       "package": "com.paul.mapozy",
-      "versionCode": 11,
+      "versionCode": 12,
       "adaptiveIcon": {
-        "backgroundColor": "#2A9D8F"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundImage": "./assets/adaptive-bg.png",
+        "backgroundColor": "#E9EFF5"
       },
       "permissions": [
         "android.permission.ACCESS_FINE_LOCATION",
