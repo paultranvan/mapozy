@@ -2,7 +2,7 @@ import { createMockDb } from '../../db/mockDb';
 import { runMigrations } from '../../db/migrations';
 import { insertRawPoint } from '../../db/rawPoints';
 import { insertRawActivity } from '../../db/rawActivities';
-import { listTrips } from '../../db/trips';
+import { listTrips, getTripById } from '../../db/trips';
 import { getSetting, setSetting, SETTING_KEYS } from '../../db/settings';
 import { runPipeline } from '../runPipeline';
 import { syntheticTrip, mkPoint, mkActivity, resetIds } from './_fixtures';
@@ -132,5 +132,90 @@ describe('runPipeline end-to-end', () => {
     // And the stale setting should be cleared (or overwritten with the new id).
     const seedAfter = await getSetting(db, SETTING_KEYS.LAST_KNOWN_PLACE_ID);
     expect(seedAfter).not.toBe('1');
+  });
+
+  it('produces a 2-leg trip with one break when a short stop sits between two drives', async () => {
+    resetIds();
+    const t0 = 1_700_000_000_000;
+    const lat0 = 45.0;
+    const lon0 = 5.0;
+    const points: RawPoint[] = [];
+    const activities: RawActivity[] = [];
+
+    // Stay at A for 35 min (1 pt/min) — long, opens the trip
+    for (let i = 0; i <= 35; i++) points.push(mkPoint(t0 + i * 60_000, lat0, lon0));
+    activities.push(mkActivity(t0 + 30_000, 'still'));
+
+    // Drive 2km north over 3 min
+    const drive1Start = t0 + 36 * 60_000;
+    for (let i = 0; i <= 12; i++) {
+      const f = i / 12;
+      points.push(mkPoint(drive1Start + i * 15_000, lat0 + 0.018 * f, lon0));
+    }
+    for (let i = 0; i < 12; i++) {
+      activities.push(mkActivity(drive1Start + i * 15_000, 'in_vehicle'));
+    }
+
+    // Short break at midpoint for 20 min (above stall-guard ceiling so it's
+    // admitted as a stay, below 30-min trip-boundary so it's a break).
+    const midLat = lat0 + 0.018;
+    const breakStart = drive1Start + 13 * 15_000;
+    for (let i = 0; i <= 20; i++) points.push(mkPoint(breakStart + i * 60_000, midLat, lon0));
+    activities.push(mkActivity(breakStart + 30_000, 'still'));
+
+    // Drive another 2km north over 3 min
+    const drive2Start = breakStart + 21 * 60_000;
+    for (let i = 0; i <= 12; i++) {
+      const f = i / 12;
+      points.push(mkPoint(drive2Start + i * 15_000, midLat + 0.018 * f, lon0));
+    }
+    for (let i = 0; i < 12; i++) {
+      activities.push(mkActivity(drive2Start + i * 15_000, 'in_vehicle'));
+    }
+
+    // Long stay at end for 60 min — closes the trip
+    const stayEndStart = drive2Start + 13 * 15_000;
+    const endLat = midLat + 0.018;
+    for (let i = 0; i <= 60; i++) points.push(mkPoint(stayEndStart + i * 60_000, endLat, lon0));
+    activities.push(mkActivity(stayEndStart + 30_000, 'still'));
+
+    for (const p of points) {
+      await insertRawPoint(db, {
+        timestampMs: p.timestampMs,
+        latitude: p.latitude,
+        longitude: p.longitude,
+        altitude: p.altitude,
+        accuracyMeters: p.accuracyMeters,
+        speedMps: p.speedMps,
+        bearingDeg: p.bearingDeg,
+        batteryLevel: p.batteryLevel,
+        isCharging: p.isCharging,
+      });
+    }
+    for (const a of activities) {
+      await insertRawActivity(db, {
+        timestampMs: a.timestampMs,
+        type: a.type,
+        confidence: a.confidence,
+      });
+    }
+
+    const upToMs = points[points.length - 1]!.timestampMs + 1000;
+    const result = await runPipeline(db, { upToMs, nowMs: upToMs });
+
+    expect(result.tripsInserted).toBe(1);
+
+    const trips = await listTrips(db, 10, 0);
+    expect(trips).toHaveLength(1);
+
+    const tripId = trips[0]!.id!;
+    const full = await getTripById(db, tripId);
+    expect(full).not.toBeNull();
+    expect(full!.breaks).toHaveLength(1);
+    expect(full!.sections.length).toBeGreaterThanOrEqual(2);
+    // The break sits between two car sections.
+    const breakOrdering = full!.breaks[0]!.ordering;
+    expect(full!.sections[breakOrdering]!.mode).toBe('car');
+    expect(full!.sections[breakOrdering + 1]!.mode).toBe('car');
   });
 });
