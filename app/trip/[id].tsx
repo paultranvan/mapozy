@@ -164,6 +164,7 @@ export default function TripDetailScreen() {
               startTimeMs={trip.startTimeMs}
               endTimeMs={trip.endTimeMs}
               sections={trip.sections}
+              breaks={trip.breaks}
             />
           </View>
 

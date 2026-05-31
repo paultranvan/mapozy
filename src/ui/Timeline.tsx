@@ -3,7 +3,7 @@ import { colors, space } from '@/theme/tokens';
 import { Text } from './Text';
 import { ModeIcon } from './ModeIcon';
 import { formatDistance, formatDuration, formatSpeed, formatTime } from '@/lib/format';
-import type { Mode, Section } from '@/types';
+import type { Mode, Section, TripBreak } from '@/types';
 
 interface Props {
   startLabel: string;
@@ -11,6 +11,7 @@ interface Props {
   startTimeMs: number;
   endTimeMs: number;
   sections: Section[];
+  breaks?: TripBreak[];
   midLabels?: (string | null)[]; // length = sections.length - 1, may include nulls
 }
 
@@ -20,8 +21,12 @@ export function Timeline({
   startTimeMs,
   endTimeMs,
   sections,
+  breaks,
   midLabels,
 }: Props) {
+  const breaksByOrdering = new Map<number, TripBreak>();
+  for (const b of breaks ?? []) breaksByOrdering.set(b.ordering, b);
+
   return (
     <View style={styles.root}>
       <Stop kind="start" label={startLabel} time={startTimeMs} />
@@ -30,11 +35,22 @@ export function Timeline({
         const next = sections[i + 1];
         const midLabel = midLabels?.[i] ?? null;
         const midTime = next ? next.startTimeMs : null;
+        const brk = breaksByOrdering.get(i);
         return (
           <View key={i}>
             <Segment section={s} />
             {!isLast ? (
-              <MidStop label={midLabel ?? 'Transit point'} time={midTime} />
+              brk ? (
+                <MidRow
+                  kind="break"
+                  label={`Break · ${formatDuration(
+                    Math.max(1, Math.round((brk.endTimeMs - brk.startTimeMs) / 1000))
+                  )}`}
+                  time={null}
+                />
+              ) : (
+                <MidRow kind="transit" label={midLabel ?? 'Transit point'} time={midTime} />
+              )
             ) : null}
           </View>
         );
@@ -71,7 +87,15 @@ function Stop({
   );
 }
 
-function MidStop({ label, time }: { label: string; time: number | null }) {
+function MidRow({
+  kind,
+  label,
+  time,
+}: {
+  kind: 'transit' | 'break';
+  label: string;
+  time: number | null;
+}) {
   return (
     <View style={styles.midRow}>
       <View style={styles.pinCol}>
@@ -80,7 +104,11 @@ function MidStop({ label, time }: { label: string; time: number | null }) {
         </View>
       </View>
       <View style={styles.stopBody}>
-        <Text variant="body" numberOfLines={1}>
+        <Text
+          variant={kind === 'break' ? 'meta' : 'body'}
+          soft={kind === 'break'}
+          numberOfLines={1}
+        >
           {label}
         </Text>
         {time !== null ? (
