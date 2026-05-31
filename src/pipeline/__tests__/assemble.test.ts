@@ -13,7 +13,13 @@ describe('assemble', () => {
     const rawSections: RawSection[] = [
       { activity: 'walking', points: pts, startMs: 0, endMs: 60_000 },
     ];
-    const trip = assemble({ rawSections, startPlaceId: 1, endPlaceId: 2, nowMs: 100 });
+    const trip = assemble({
+      legs: [{ rawSections }],
+      breaks: [],
+      startPlaceId: 1,
+      endPlaceId: 2,
+      nowMs: 100,
+    });
     expect(trip.sections).toHaveLength(1);
     expect(trip.sections[0]!.mode).toBe('walk');
     expect(trip.dominantMode).toBe('walk');
@@ -38,7 +44,8 @@ describe('assemble', () => {
       endMs: 90_000,
     };
     const trip = assemble({
-      rawSections: [sectionA, sectionB],
+      legs: [{ rawSections: [sectionA, sectionB] }],
+      breaks: [],
       startPlaceId: null,
       endPlaceId: null,
       nowMs: 1000,
@@ -46,5 +53,43 @@ describe('assemble', () => {
     expect(trip.sections).toHaveLength(2);
     // walk ~100m, car ~145m → ratios ~41% / 59% → mixed
     expect(trip.dominantMode).toBe('mixed');
+  });
+
+  it('builds a 2-leg trip with one break attached at ordering=0', () => {
+    const leg1Pts = [mkPoint(0, 0, 0), mkPoint(60_000, 0, 0.00127)];
+    const leg2Pts = [mkPoint(720_000, 0, 0.00127), mkPoint(780_000, 0, 0.00254)];
+    const sectionA: RawSection = {
+      activity: 'walking',
+      points: leg1Pts,
+      startMs: 0,
+      endMs: 60_000,
+    };
+    const sectionB: RawSection = {
+      activity: 'walking',
+      points: leg2Pts,
+      startMs: 720_000,
+      endMs: 780_000,
+    };
+    const trip = assemble({
+      legs: [{ rawSections: [sectionA] }, { rawSections: [sectionB] }],
+      breaks: [
+        {
+          startMs: 60_001,
+          endMs: 719_999,
+          centerLat: 0,
+          centerLon: 0.00127,
+        },
+      ],
+      startPlaceId: null,
+      endPlaceId: null,
+      nowMs: 1_000_000,
+    });
+    expect(trip.sections).toHaveLength(2);
+    expect(trip.breaks).toHaveLength(1);
+    expect(trip.breaks[0]!.ordering).toBe(0);
+    expect(trip.startTimeMs).toBe(0);
+    expect(trip.endTimeMs).toBe(780_000);
+    // Wall-clock duration includes the break.
+    expect(trip.durationS).toBe(780);
   });
 });
