@@ -39,6 +39,7 @@ function mkTrip(opts: {
         geojson: '{}',
       },
     ],
+    breaks: [],
   };
 }
 

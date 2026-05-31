@@ -149,6 +149,7 @@ describe('db repositories (in-memory via better-sqlite3)', () => {
             geojson: '{"type":"LineString","coordinates":[]}',
           },
         ],
+        breaks: [],
       });
       expect(tripId).toBeGreaterThan(0);
       const trip = await getTripById(db, tripId);
@@ -171,6 +172,7 @@ describe('db repositories (in-memory via better-sqlite3)', () => {
           manualPurpose: null,
           createdAtMs: t,
           sections: [],
+          breaks: [],
         });
       await mk(1000);
       await mk(3000);
@@ -206,6 +208,7 @@ describe('db repositories (in-memory via better-sqlite3)', () => {
             geojson: '{}',
           },
         ],
+        breaks: [],
       });
       await deleteTrip(db, tripId);
       const sections = await db.getAllAsync(`SELECT * FROM sections WHERE trip_id = ?`, tripId);

@@ -58,6 +58,16 @@ export interface Section {
   geojson: string;
 }
 
+export interface TripBreak {
+  id?: number;
+  tripId?: number;
+  ordering: number;
+  startTimeMs: number;
+  endTimeMs: number;
+  centerLat: number;
+  centerLon: number;
+}
+
 export interface Trip {
   id?: number;
   startTimeMs: number;
@@ -72,4 +82,5 @@ export interface Trip {
   manualPurpose: string | null;
   createdAtMs: number;
   sections: Section[];
+  breaks: TripBreak[];
 }
