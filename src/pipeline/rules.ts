@@ -136,4 +136,12 @@ export const RULES = {
     "A trip whose top-mode distance share falls below this ratio is labeled 'mixed'.",
     { dominantModeMinShare: 0.7 }
   ),
+
+  TRIP_BREAK_MAX: rule(
+    'RULE_TRIP_BREAK_MAX',
+    'A stop strictly shorter than this is a break inside the surrounding trip; ' +
+      'at or above it, the stop ends the trip. Applied uniformly to all stops ' +
+      '(radius-based, gap-based) regardless of place identity.',
+    { maxBreakMs: 30 * 60_000 }
+  ),
 } as const;
