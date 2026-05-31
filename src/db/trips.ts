@@ -1,6 +1,7 @@
 import type { Db } from './client';
 import type { Trip, DominantMode } from '../types';
 import { insertSection, getSectionsForTrip } from './sections';
+import { insertBreak, getBreaksForTrip } from './breaks';
 
 interface Row {
   id: number;
@@ -60,6 +61,9 @@ export async function insertTripWithSections(db: Db, trip: Trip): Promise<number
     for (const s of trip.sections) {
       await insertSection(db, tripId, s);
     }
+    for (const b of trip.breaks) {
+      await insertBreak(db, tripId, b);
+    }
   });
   return tripId;
 }
@@ -69,6 +73,7 @@ export async function getTripById(db: Db, id: number): Promise<Trip | null> {
   if (!row) return null;
   const trip = rowToTrip(row);
   trip.sections = await getSectionsForTrip(db, id);
+  trip.breaks = await getBreaksForTrip(db, id);
   return trip;
 }
 
