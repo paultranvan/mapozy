@@ -95,9 +95,27 @@ CREATE INDEX IF NOT EXISTS idx_tracker_diagnostics_type_ts
   ON tracker_diagnostics(event_type, timestamp_ms);
 `;
 
+// Breaks are short stops (5-30 min) that sit *inside* a trip rather than
+// ending it. `ordering` is the section index that the break follows:
+// break with ordering=k sits between section[k] and section[k+1].
+const MIGRATION_003 = `
+CREATE TABLE IF NOT EXISTS trip_breaks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+  ordering INTEGER NOT NULL,
+  start_time_ms INTEGER NOT NULL,
+  end_time_ms INTEGER NOT NULL,
+  center_lat REAL NOT NULL,
+  center_lon REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_trip_breaks_trip
+  ON trip_breaks(trip_id, ordering);
+`;
+
 export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 1, sql: MIGRATION_001 },
   { version: 2, sql: MIGRATION_002 },
+  { version: 3, sql: MIGRATION_003 },
 ];
 
 export async function getSchemaVersion(db: Db): Promise<number> {
