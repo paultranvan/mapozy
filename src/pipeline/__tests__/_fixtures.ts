@@ -9,7 +9,8 @@ export function mkPoint(
   t: number,
   lat: number,
   lon: number,
-  accuracy = 5
+  accuracy = 5,
+  speedMps: number | null = null
 ): RawPoint {
   return {
     id: nextId++,
@@ -18,7 +19,7 @@ export function mkPoint(
     longitude: lon,
     altitude: null,
     accuracyMeters: accuracy,
-    speedMps: null,
+    speedMps,
     bearingDeg: null,
     batteryLevel: null,
     isCharging: false,

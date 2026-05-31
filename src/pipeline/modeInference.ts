@@ -9,9 +9,9 @@ import { RULES } from './rules';
 // RULE_MODE_SPEED_FALLBACK
 function classifyBySpeed(s: RawSection): Mode {
   const { carThresholdMps, bikeThresholdMps } = RULES.MODE_SPEED_FALLBACK.defaults;
-  const median = medianSpeedMps(s);
-  if (median > carThresholdMps) return 'car';
-  if (median > bikeThresholdMps) return 'bike';
+  const v = classifyingSpeedMps(s);
+  if (v > carThresholdMps) return 'car';
+  if (v > bikeThresholdMps) return 'bike';
   return 'walk';
 }
 
@@ -23,7 +23,7 @@ export function modeForSection(s: RawSection): Mode {
       // measured speed over the activity when we have points to judge it.
       if (
         s.points.length >= 2 &&
-        medianSpeedMps(s) < RULES.VEHICLE_SPEED_SANITY.defaults.minMedianSpeedMps
+        classifyingSpeedMps(s) < RULES.VEHICLE_SPEED_SANITY.defaults.minClassifyingSpeedMps
       ) {
         return classifyBySpeed(s);
       }
@@ -42,19 +42,44 @@ export function modeForSection(s: RawSection): Mode {
   }
 }
 
-export function medianSpeedMps(s: RawSection): number {
-  const speeds: number[] = [];
+/**
+ * Representative speed used by RULE_MODE_SPEED_FALLBACK and
+ * RULE_VEHICLE_SPEED_SANITY. p75 of device-reported `speed_mps` (Doppler-
+ * derived from satellite signal — a direct, near-instantaneous measure),
+ * with p75 of haversine-between-consecutive-points as fallback when the
+ * GPS chip didn't report speed.
+ *
+ * Why reported over haversine: haversine averages displacement over each
+ * segment, so stops within a segment (red lights, traffic) drag the
+ * value down. Doppler speed is the chip's actual velocity reading at the
+ * fix moment and isn't biased by the *gaps between fixes*.
+ *
+ * Why p75 over median: with reported speed, half the samples in a city
+ * drive can be stop-and-go (0-3 m/s) — the median lands in the bike
+ * range even when the trip is unambiguously a car. p75 reflects how fast
+ * the user moves *when actually moving*, which is what mode classification
+ * needs.
+ */
+export function classifyingSpeedMps(s: RawSection): number {
+  const reported = s.points
+    .map((p) => p.speedMps)
+    .filter((v): v is number => v != null);
+  if (reported.length >= 2) {
+    reported.sort((a, b) => a - b);
+    return reported[Math.floor(0.75 * reported.length)]!;
+  }
+  const segs: number[] = [];
   for (let i = 1; i < s.points.length; i++) {
     const a = s.points[i - 1]!;
     const b = s.points[i]!;
     const dt = (b.timestampMs - a.timestampMs) / 1000;
     if (dt <= 0) continue;
     const d = haversineMeters(a.latitude, a.longitude, b.latitude, b.longitude);
-    speeds.push(d / dt);
+    segs.push(d / dt);
   }
-  if (speeds.length === 0) return 0;
-  speeds.sort((x, y) => x - y);
-  return speeds[Math.floor(speeds.length / 2)]!;
+  if (segs.length === 0) return 0;
+  segs.sort((x, y) => x - y);
+  return segs[Math.floor(0.75 * segs.length)]!;
 }
 
 export function maxSpeedMps(s: RawSection): number {
