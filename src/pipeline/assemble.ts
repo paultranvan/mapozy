@@ -80,5 +80,6 @@ export function assemble(input: AssembleInput): Trip {
     manualPurpose: null,
     createdAtMs: input.nowMs,
     sections,
+    breaks: [],
   };
 }

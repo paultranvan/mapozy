@@ -32,6 +32,7 @@ function rowToTrip(r: Row): Trip {
     manualPurpose: r.manual_purpose,
     createdAtMs: r.created_at_ms,
     sections: [],
+    breaks: [],
   };
 }
 
