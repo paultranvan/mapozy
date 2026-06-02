@@ -29,6 +29,9 @@ expo-env.d.ts
 .superpowers/
 .claude/
 
+# Internal planning/spec docs — kept locally, not published
+docs/superpowers/
+
 # Release artifacts (built by ./gradlew assembleRelease, copied here for sharing)
 *.apk
 
