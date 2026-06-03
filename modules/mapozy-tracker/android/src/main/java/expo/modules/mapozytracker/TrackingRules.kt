@@ -89,6 +89,26 @@ object TrackingRules {
    */
 
   /**
+   * RULE_TRANSITION_FIX — request a single one-shot high-accuracy GPS fix on
+   * every (deduped) activity-transition ENTER, regardless of the active
+   * profile, distance filter, or MOVING/STATIONARY state.
+   *
+   * The continuous subscription's distance filter (WALK_PROFILE = 20 m) and
+   * the STATIONARY GPS drop both suppress fixes exactly when the user is
+   * moving slowly around a behavioural edge — e.g. parking and walking a child
+   * in to a drop-off, where the walk-out / drop / walk-back collapse into one
+   * featureless multi-minute gap with no anchor at the edges. A one-shot fix
+   * pinned to each ENTER (walking↔still, the drop-off signature; and mode
+   * changes generally) gives sectionSegmentation a positional anchor at the
+   * moment behaviour changes, instead of leaving the segmenter to guess across
+   * a gap. getCurrentLocation accepts a recent cached fix up to
+   * TRANSITION_FIX_MAX_AGE_MS old to avoid spinning the chip when a fresh
+   * sample already exists. Cost is a handful of fixes per trip — negligible
+   * against the install-default HIGH-accuracy continuous stream.
+   */
+  const val TRANSITION_FIX_MAX_AGE_MS = 10_000L
+
+  /**
    * RULE_MOVING_STILL_GUARD — when DetectedActivity.STILL arrives but
    * the most recent GPS sample is recent AND shows motion above the
    * threshold, reclassify the activity as "unknown" before persisting.

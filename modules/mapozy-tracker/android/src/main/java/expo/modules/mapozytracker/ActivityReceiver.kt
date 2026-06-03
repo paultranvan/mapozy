@@ -6,6 +6,7 @@
 //                                    the transition API; only ENTER events are persisted as
 //                                    raw_activities so downstream "most recent activity wins"
 //                                    semantics map cleanly to "the user is now doing X".
+//   RULE_TRANSITION_FIX            — fire a one-shot GPS fix on each real ENTER edge
 package expo.modules.mapozytracker
 
 import android.content.BroadcastReceiver
@@ -64,6 +65,13 @@ class ActivityReceiver : BroadcastReceiver() {
           // never filters these out.
           TrackingState.setLastActivity(context, effectiveType, ts)
           NativeStore.insertActivity(context, ts, effectiveType, 100)
+
+          // RULE_TRANSITION_FIX — anchor this behavioural edge with a one-shot
+          // GPS fix. Fires on every real ENTER (after RULE_RESUBSCRIBE_DEDUP),
+          // so a slow walk→still→walk drop-off gets pinned at the edges even
+          // when the continuous stream's distance filter or a STATIONARY drop
+          // would otherwise leave a featureless gap.
+          TrackingService.requestTransitionFix(context)
 
           // RULE_MOTION_STATE_MACHINE — drive MOVING/STATIONARY transitions.
           if (effectiveType != "still" && effectiveType != "unknown") {
