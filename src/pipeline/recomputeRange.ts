@@ -72,6 +72,13 @@ export async function planRecompute(
   };
 }
 
+// Assumes the span is historical: spanEndMs is a past timestamp (the next
+// trip's start, or now). Resetting consumed flags over [spanStartMs, spanEndMs]
+// and re-running the pipeline up to spanEndMs therefore only ever reprocesses
+// the span's own raw data, never an in-progress live tail (whose points are
+// newer than spanEndMs). Not atomic — runPipeline transacts per trip insert; a
+// mid-way failure leaves the span partially rebuilt and is recovered by simply
+// re-running recompute (or the whole-DB reprocess script).
 export async function recomputeForTrips(
   db: Db,
   plan: RecomputePlan,
