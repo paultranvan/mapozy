@@ -4,8 +4,12 @@ import {
   getTripsOverlapping,
   getTripBefore,
   getTripAfter,
+  deleteTrips,
 } from '../db/trips';
-import { countPointsInRange } from '../db/rawPoints';
+import { countPointsInRange, resetConsumedPointsInRange } from '../db/rawPoints';
+import { resetConsumedActivitiesInRange } from '../db/rawActivities';
+import { getSetting, setSetting, SETTING_KEYS } from '../db/settings';
+import { runPipeline, type RunPipelineResult } from './runPipeline';
 
 export interface RecomputePlan {
   selectedTripIds: number[];
@@ -66,4 +70,37 @@ export async function planRecompute(
     missingRawTripIds,
     hasTripsAfterSpan: nextTrip !== null,
   };
+}
+
+export async function recomputeForTrips(
+  db: Db,
+  plan: RecomputePlan,
+  nowMs: number = Date.now()
+): Promise<RunPipelineResult> {
+  if (plan.inRangeTripIds.length === 0) {
+    return { tripsInserted: 0, pointsConsumed: 0, activitiesConsumed: 0 };
+  }
+
+  const savedSeed = await getSetting(db, SETTING_KEYS.LAST_KNOWN_PLACE_ID);
+
+  await deleteTrips(db, plan.inRangeTripIds);
+  await resetConsumedPointsInRange(db, plan.spanStartMs, plan.spanEndMs);
+  await resetConsumedActivitiesInRange(db, plan.spanStartMs, plan.spanEndMs);
+
+  // Seed the span's first trip from the place the user was at before the span.
+  await setSetting(
+    db,
+    SETTING_KEYS.LAST_KNOWN_PLACE_ID,
+    plan.seedPlaceId === null ? '' : String(plan.seedPlaceId)
+  );
+
+  const result = await runPipeline(db, { upToMs: plan.spanEndMs, nowMs });
+
+  // If trips still exist after the span, the live last-known place is theirs,
+  // not the span's — restore what we saved so live tracking is unaffected.
+  if (plan.hasTripsAfterSpan) {
+    await setSetting(db, SETTING_KEYS.LAST_KNOWN_PLACE_ID, savedSeed ?? '');
+  }
+
+  return result;
 }
