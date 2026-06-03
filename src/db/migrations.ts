@@ -112,10 +112,32 @@ CREATE INDEX IF NOT EXISTS idx_trip_breaks_trip
   ON trip_breaks(trip_id, ordering);
 `;
 
+// Public-transit detection (see docs/superpowers/specs/...transit...md):
+//   - sections gain mode_source / mode_confidence so the UI/debug can show
+//     *why* a section got its mode and so stronger signals outrank weaker.
+//   - trips gain draft / draft_reason: a trip computed without network (or
+//     when Overpass rate-limited) is saved 'draft' and re-enriched on refresh.
+//   - transit_cache memoises Overpass stop/way lookups by geo-cell so repeat
+//     traffic through an area never re-queries.
+const MIGRATION_004 = `
+ALTER TABLE sections ADD COLUMN mode_source TEXT;
+ALTER TABLE sections ADD COLUMN mode_confidence REAL;
+ALTER TABLE trips ADD COLUMN draft INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE trips ADD COLUMN draft_reason TEXT;
+
+CREATE TABLE IF NOT EXISTS transit_cache (
+  cell_key TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  fetched_at_ms INTEGER NOT NULL
+);
+`;
+
 export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 1, sql: MIGRATION_001 },
   { version: 2, sql: MIGRATION_002 },
   { version: 3, sql: MIGRATION_003 },
+  { version: 4, sql: MIGRATION_004 },
 ];
 
 export async function getSchemaVersion(db: Db): Promise<number> {
