@@ -124,3 +124,31 @@ export async function getTripsInRange(
   );
   return rows.map(rowToTrip);
 }
+
+export async function setTripDraft(
+  db: Db,
+  tripId: number,
+  draft: boolean,
+  reason: Trip['draftReason']
+): Promise<void> {
+  await db.runAsync(
+    `UPDATE trips SET draft = ?, draft_reason = ? WHERE id = ?`,
+    draft ? 1 : 0,
+    reason,
+    tripId
+  );
+}
+
+export async function updateTripAggregates(
+  db: Db,
+  tripId: number,
+  dominantMode: string,
+  co2G: number
+): Promise<void> {
+  await db.runAsync(
+    `UPDATE trips SET dominant_mode = ?, co2_g = ? WHERE id = ?`,
+    dominantMode,
+    co2G,
+    tripId
+  );
+}
