@@ -81,6 +81,15 @@ describe('planRecompute', () => {
     expect(plan.hasTripsAfterSpan).toBe(false);
   });
 
+  it('falls back to nowMs and no-seed-after for the last trip in history', async () => {
+    const plan = await planRecompute(db, [t3], 99_999);
+    expect(plan.spanStartMs).toBe(5000);
+    expect(plan.spanEndMs).toBe(99_999); // no trip after t3 -> nowMs
+    expect(plan.seedPlaceId).toBe(30);   // end place of t2
+    expect(plan.inRangeTripIds).toEqual([t3]);
+    expect(plan.hasTripsAfterSpan).toBe(false);
+  });
+
   it('flags trips whose window has no raw points', async () => {
     await db.runAsync(`DELETE FROM raw_points WHERE timestamp_ms BETWEEN 3000 AND 4000`);
     const plan = await planRecompute(db, [t2], 99_999);

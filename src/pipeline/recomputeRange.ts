@@ -40,7 +40,7 @@ export async function planRecompute(
   const spanStartMs = Math.min(...selected.map((t) => t.startTimeMs));
   const latestEndMs = Math.max(...selected.map((t) => t.endTimeMs));
 
-  const nextTrip = await getTripAfter(db, latestEndMs + 1);
+  const nextTrip = await getTripAfter(db, latestEndMs);
   const spanEndMs = nextTrip ? nextTrip.startTimeMs : nowMs;
 
   const prevTrip = await getTripBefore(db, spanStartMs);
