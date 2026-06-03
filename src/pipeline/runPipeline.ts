@@ -21,10 +21,13 @@ import { sectionSegmentation } from './sectionSegmentation';
 import { assemble } from './assemble';
 import { groupIntoTrips, type TripLegGroup } from './tripGrouping';
 import { RULES } from './rules';
+import { enrichTripTransit } from './transit/transitEnrichment';
+import type { OverpassDeps } from '../lib/overpass';
 
 export interface RunPipelineOpts {
   upToMs?: number;
   nowMs?: number;
+  transit?: OverpassDeps;
 }
 
 export interface RunPipelineResult {
@@ -89,7 +92,7 @@ export async function runPipeline(
       group.endStay.endMs
     );
 
-    const inserted = await assembleAndPersist(
+    const tripId = await assembleAndPersist(
       db,
       group,
       activities,
@@ -97,7 +100,12 @@ export async function runPipeline(
       endPlaceId,
       now
     );
-    if (inserted) tripsInserted++;
+    if (tripId !== null) {
+      tripsInserted++;
+      if (opts.transit) {
+        await enrichTripTransit(opts.transit, tripId);
+      }
+    }
     previousStayPlaceId = endPlaceId;
   }
 
@@ -157,7 +165,7 @@ async function assembleAndPersist(
   startPlaceId: number | null,
   endPlaceId: number | null,
   nowMs: number
-): Promise<boolean> {
+): Promise<number | null> {
   const legs = group.legs.map((rawPts) => {
     const smoothed = smoothing(rawPts);
     const resampled = resample(smoothed);
@@ -165,7 +173,7 @@ async function assembleAndPersist(
     return { rawSections };
   });
 
-  if (legs.some((l) => l.rawSections.length === 0)) return false;
+  if (legs.some((l) => l.rawSections.length === 0)) return null;
 
   const trip = assemble({
     legs,
@@ -176,8 +184,7 @@ async function assembleAndPersist(
   });
   // RULE_MIN_TRIP_DISTANCE — threshold applies to the trip total.
   if (trip.distanceM < RULES.MIN_TRIP_DISTANCE.defaults.minTripDistanceM) {
-    return false;
+    return null;
   }
-  await insertTripWithSections(db, trip);
-  return true;
+  return await insertTripWithSections(db, trip);
 }
