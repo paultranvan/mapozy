@@ -1,11 +1,11 @@
 // Rules implemented here: RULE_DOMINANT_MODE_THRESHOLD (see ./rules.ts).
-import type { Trip, Section, TripBreak, DominantMode } from '../types';
+import type { Trip, Section, TripBreak } from '../types';
 import type { RawSection } from './sectionSegmentation';
 import type { RawBreak } from './tripGrouping';
 import { modeForSection, maxSpeedMps } from './modeInference';
 import { pathLengthMeters } from '../lib/distance';
 import { co2GramsForSection } from '../co2/compute';
-import { RULES } from './rules';
+import { dominantModeFor } from './dominantMode';
 
 export interface AssembleLeg {
   rawSections: RawSection[];
@@ -79,21 +79,7 @@ export function assemble(input: AssembleInput): Trip {
   const durationS = Math.max(1, Math.round((endMs - startMs) / 1000));
   const co2G = sections.reduce((s, x) => s + x.co2G, 0);
 
-  const byMode: Record<string, number> = {};
-  for (const s of sections) byMode[s.mode] = (byMode[s.mode] ?? 0) + s.distanceM;
-  let dominantMode: DominantMode = 'mixed';
-  let maxModeDistance = 0;
-  for (const [m, d] of Object.entries(byMode)) {
-    if (d > maxModeDistance) {
-      maxModeDistance = d;
-      dominantMode = m as DominantMode;
-    }
-  }
-  // RULE_DOMINANT_MODE_THRESHOLD
-  const minShare = RULES.DOMINANT_MODE_THRESHOLD.defaults.dominantModeMinShare;
-  if (distanceM > 0 && maxModeDistance / distanceM < minShare) {
-    dominantMode = 'mixed';
-  }
+  const dominantMode = dominantModeFor(sections);
 
   // Single concatenated LineString across all legs — break points have
   // zero extent on the map, matching how the user actually moved.
