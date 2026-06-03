@@ -103,7 +103,14 @@ export async function runPipeline(
     if (tripId !== null) {
       tripsInserted++;
       if (opts.transit) {
-        await enrichTripTransit(opts.transit, tripId);
+        try {
+          await enrichTripTransit(opts.transit, tripId);
+        } catch (err) {
+          // Enrichment is best-effort: the trip is already persisted and can be
+          // re-enriched later (draft refresh). A failure here must NOT abort the
+          // run and lose point-consumption tracking.
+          console.warn('[runPipeline] transit enrichment failed', err);
+        }
       }
     }
     previousStayPlaceId = endPlaceId;

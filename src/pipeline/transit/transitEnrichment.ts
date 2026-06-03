@@ -35,6 +35,7 @@ function coordsOf(geojson: string): Array<[number, number]> {
 }
 
 function bboxOf(coords: Array<[number, number]>): BBox {
+  if (coords.length === 0) throw new Error('bboxOf: empty coords');
   let south = 90;
   let west = 180;
   let north = -90;

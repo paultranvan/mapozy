@@ -63,6 +63,14 @@ let lastFetchMs = 0;
 function snap(v: number): number {
   return Math.floor(v / GRID_DEG) * GRID_DEG;
 }
+function snapBBox(b: BBox): BBox {
+  return {
+    south: Math.floor(b.south / GRID_DEG) * GRID_DEG,
+    west: Math.floor(b.west / GRID_DEG) * GRID_DEG,
+    north: Math.ceil(b.north / GRID_DEG) * GRID_DEG,
+    east: Math.ceil(b.east / GRID_DEG) * GRID_DEG,
+  };
+}
 function r5(v: number): number {
   return Math.round(v * 1e5) / 1e5;
 }
@@ -101,8 +109,8 @@ async function cacheSet(
 async function rateLimit(minInterval: number): Promise<void> {
   if (minInterval <= 0) return;
   const wait = lastFetchMs + minInterval - Date.now();
+  lastFetchMs = Date.now() + Math.max(0, wait); // claim the slot before yielding
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-  lastFetchMs = Date.now();
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -124,8 +132,13 @@ async function overpassFetch(deps: OverpassDeps, query: string): Promise<any[]> 
   }
   if (resp.status === 429) throw new OverpassRateLimitError();
   if (!resp.ok) throw new OverpassUnavailableError(resp.status);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const json = (await resp.json()) as { elements?: any[] };
+  let json: { elements?: any[] };
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    json = (await resp.json()) as { elements?: any[] };
+  } catch {
+    throw new OverpassUnavailableError(resp.status);
+  }
   return json.elements ?? [];
 }
 
@@ -199,10 +212,11 @@ export async function getRailwaysIn(
   bbox: BBox
 ): Promise<RailwayWay[]> {
   const now = (deps.nowMs ?? Date.now)();
-  const key = `ways:${r5(bbox.south)}:${r5(bbox.west)}:${r5(bbox.north)}:${r5(bbox.east)}`;
+  const snapped = snapBBox(bbox);
+  const key = `ways:${r5(snapped.south)}:${r5(snapped.west)}:${r5(snapped.north)}:${r5(snapped.east)}`;
   let ways = await cacheGet<RailwayWay[]>(deps.db, key, now);
   if (ways === null) {
-    const { south, west, north, east } = bbox;
+    const { south, west, north, east } = snapped;
     const q =
       `[out:json][timeout:25];` +
       `way["railway"~"^(rail|light_rail|subway|tram|narrow_gauge)$"](${south},${west},${north},${east});` +
