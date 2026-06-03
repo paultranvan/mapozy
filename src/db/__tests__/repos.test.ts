@@ -122,6 +122,8 @@ describe('db repositories (in-memory via better-sqlite3)', () => {
         co2G: 0,
         geojson: '{"type":"LineString","coordinates":[]}',
         manualPurpose: null,
+        draft: false,
+        draftReason: null,
         createdAtMs: 1000,
         sections: [
           {
@@ -170,6 +172,8 @@ describe('db repositories (in-memory via better-sqlite3)', () => {
           co2G: 0,
           geojson: '{}',
           manualPurpose: null,
+          draft: false,
+          draftReason: null,
           createdAtMs: t,
           sections: [],
           breaks: [],
@@ -193,6 +197,8 @@ describe('db repositories (in-memory via better-sqlite3)', () => {
         co2G: 0,
         geojson: '{}',
         manualPurpose: null,
+        draft: false,
+        draftReason: null,
         createdAtMs: 1000,
         sections: [
           {

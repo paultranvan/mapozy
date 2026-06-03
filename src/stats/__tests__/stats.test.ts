@@ -24,6 +24,8 @@ function mkTrip(opts: {
     co2G: opts.co2G,
     geojson: '{}',
     manualPurpose: null,
+    draft: false,
+    draftReason: null,
     createdAtMs: opts.startMs,
     sections: [
       {
