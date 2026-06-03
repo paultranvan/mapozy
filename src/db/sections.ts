@@ -68,3 +68,23 @@ export async function getSectionsForTrip(db: Db, tripId: number): Promise<Sectio
   );
   return rows.map(rowToSection);
 }
+
+export async function updateSectionClassification(
+  db: Db,
+  sectionId: number,
+  mode: Mode,
+  modeSource: Section['modeSource'],
+  modeConfidence: number,
+  co2G: number
+): Promise<void> {
+  await db.runAsync(
+    `UPDATE sections
+       SET mode = ?, mode_source = ?, mode_confidence = ?, co2_g = ?
+     WHERE id = ?`,
+    mode,
+    modeSource ?? null,
+    modeConfidence,
+    co2G,
+    sectionId
+  );
+}
