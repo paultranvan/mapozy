@@ -105,6 +105,19 @@ export async function deleteAllTrips(db: Db): Promise<void> {
   await db.runAsync(`DELETE FROM trips`);
 }
 
+const SQLITE_MAX_VARIABLES = 900;
+
+export async function deleteTrips(db: Db, ids: number[]): Promise<void> {
+  if (ids.length === 0) return;
+  await db.withTransactionAsync(async () => {
+    for (let i = 0; i < ids.length; i += SQLITE_MAX_VARIABLES) {
+      const chunk = ids.slice(i, i + SQLITE_MAX_VARIABLES);
+      const placeholders = chunk.map(() => '?').join(',');
+      await db.runAsync(`DELETE FROM trips WHERE id IN (${placeholders})`, ...chunk);
+    }
+  });
+}
+
 export async function getTripsInRange(
   db: Db,
   startMs: number,
