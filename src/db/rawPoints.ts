@@ -87,6 +87,32 @@ export async function markPointsConsumed(db: Db, ids: number[]): Promise<void> {
   }
 }
 
+export async function countPointsInRange(
+  db: Db,
+  startMs: number,
+  endMs: number
+): Promise<number> {
+  const r = await db.getFirstAsync<{ c: number }>(
+    `SELECT COUNT(*) as c FROM raw_points WHERE timestamp_ms BETWEEN ? AND ?`,
+    startMs,
+    endMs
+  );
+  return r?.c ?? 0;
+}
+
+export async function resetConsumedPointsInRange(
+  db: Db,
+  startMs: number,
+  endMs: number
+): Promise<number> {
+  const r = await db.runAsync(
+    `UPDATE raw_points SET consumed=0 WHERE timestamp_ms BETWEEN ? AND ?`,
+    startMs,
+    endMs
+  );
+  return r.changes;
+}
+
 export async function countUnconsumedPoints(db: Db): Promise<number> {
   const r = await db.getFirstAsync<{ c: number }>(
     `SELECT COUNT(*) as c FROM raw_points WHERE consumed=0`
