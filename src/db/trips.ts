@@ -31,6 +31,8 @@ function rowToTrip(r: Row): Trip {
     co2G: r.co2_g,
     geojson: r.geojson,
     manualPurpose: r.manual_purpose,
+    draft: false,
+    draftReason: null,
     createdAtMs: r.created_at_ms,
     sections: [],
     breaks: [],
