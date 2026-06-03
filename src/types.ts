@@ -9,6 +9,23 @@ export type ActivityType =
 export type Mode = 'car' | 'bike' | 'walk' | 'run' | 'bus' | 'train' | 'tram' | 'subway';
 export type DominantMode = Mode | 'mixed';
 
+// Why a section received its mode — for UI badges, debugging, and so a
+// stronger signal can be made to outrank a weaker one during enrichment.
+//   'activity'   — Android activity recognition (default for existing modes)
+//   'speed'      — p75-speed fallback
+//   'railmatch'  — trace follows OSM railway geometry
+//   'station'    — endpoints matched transit stops / routes
+//   'gap'        — underground subway gap converted to a section (Plan C)
+export type ModeSource =
+  | 'activity'
+  | 'speed'
+  | 'railmatch'
+  | 'station'
+  | 'gap';
+
+// Why a trip could not be fully classified online (left as a `draft`).
+export type DraftReason = 'offline' | 'rate_limited' | 'overpass_error';
+
 export interface RawPoint {
   id: number;
   timestampMs: number;
@@ -56,6 +73,8 @@ export interface Section {
   maxSpeedMps: number;
   co2G: number;
   geojson: string;
+  modeSource?: ModeSource;
+  modeConfidence?: number;
 }
 
 export interface TripBreak {
@@ -80,6 +99,8 @@ export interface Trip {
   co2G: number;
   geojson: string;
   manualPurpose: string | null;
+  draft: boolean;
+  draftReason: DraftReason | null;
   createdAtMs: number;
   sections: Section[];
   breaks: TripBreak[];
