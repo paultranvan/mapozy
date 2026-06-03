@@ -62,6 +62,12 @@ describe('pointToPolylineMeters', () => {
   it('returns Infinity for an empty line', () => {
     expect(pointToPolylineMeters([lon0, lat0], [])).toBe(Infinity);
   });
+
+  it('handles a single-point polyline', () => {
+    const d = pointToPolylineMeters([lon0 + 0.001, lat0], [[lon0, lat0]]);
+    expect(d).toBeGreaterThan(70); // ~78 m at lat 45
+    expect(d).toBeLessThan(85);
+  });
 });
 
 describe('coverageFraction', () => {
@@ -85,12 +91,19 @@ describe('coverageFraction', () => {
   });
 
   it('counts a point within the buffer of ANY supplied line', () => {
-    const offset: Array<[number, number]> = [
-      [lon0 + 0.007, lat0 + 0.0001], // ~11 m north of last coord
-      [lon0 + 0.009, lat0 + 0.0001],
+    // lat0 + 0.002 ≈ 222 m north of `line` — outside line's 25 m buffer
+    const farCoords: Array<[number, number]> = [
+      [lon0 + 0.001, lat0],          // on `line`
+      [lon0 + 0.003, lat0],          // on `line`
+      [lon0 + 0.005, lat0],          // on `line`
+      [lon0 + 0.008, lat0 + 0.002],  // ~222 m north — outside `line`'s buffer
     ];
-    // 3 of 4 coords lie on `line`; the 4th lies on `offset`.
-    expect(coverageFraction(coords, [line, offset], 25)).toBeCloseTo(1.0, 5);
+    const nearLine: Array<[number, number]> = [
+      [lon0 + 0.007, lat0 + 0.002],  // ~11 m from farCoords[3]
+      [lon0 + 0.009, lat0 + 0.002],
+    ];
+    // 3 of 4 lie on `line`; the 4th lies near `nearLine` only.
+    expect(coverageFraction(farCoords, [line, nearLine], 25)).toBeCloseTo(1.0, 5);
   });
 
   it('is 0 with no lines', () => {
