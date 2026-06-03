@@ -15,6 +15,8 @@ interface Row {
   co2_g: number;
   geojson: string;
   manual_purpose: string | null;
+  draft: number;
+  draft_reason: string | null;
   created_at_ms: number;
 }
 
@@ -31,8 +33,8 @@ function rowToTrip(r: Row): Trip {
     co2G: r.co2_g,
     geojson: r.geojson,
     manualPurpose: r.manual_purpose,
-    draft: false,
-    draftReason: null,
+    draft: r.draft === 1,
+    draftReason: (r.draft_reason as Trip['draftReason']) ?? null,
     createdAtMs: r.created_at_ms,
     sections: [],
     breaks: [],
@@ -45,8 +47,9 @@ export async function insertTripWithSections(db: Db, trip: Trip): Promise<number
     const r = await db.runAsync(
       `INSERT INTO trips
          (start_time_ms, end_time_ms, start_place_id, end_place_id,
-          distance_m, duration_s, dominant_mode, co2_g, geojson, manual_purpose, created_at_ms)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          distance_m, duration_s, dominant_mode, co2_g, geojson, manual_purpose,
+          draft, draft_reason, created_at_ms)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       trip.startTimeMs,
       trip.endTimeMs,
       trip.startPlaceId,
@@ -57,6 +60,8 @@ export async function insertTripWithSections(db: Db, trip: Trip): Promise<number
       trip.co2G,
       trip.geojson,
       trip.manualPurpose,
+      trip.draft ? 1 : 0,
+      trip.draftReason,
       trip.createdAtMs
     );
     tripId = r.lastInsertRowId;
