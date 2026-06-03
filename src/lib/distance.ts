@@ -72,3 +72,71 @@ export function trimLineFromEnd(
   }
   return [coords[0]!];
 }
+
+// Local flat-earth scale at a reference latitude. Good to well under 1% over
+// the ~km spans a single trip section covers — plenty for buffer matching.
+function metersPerDegree(refLat: number): { mLat: number; mLon: number } {
+  return {
+    mLat: 111_320,
+    mLon: 111_320 * Math.cos((refLat * Math.PI) / 180),
+  };
+}
+
+// Distance (m) from point P to segment A–B, via an equirectangular projection
+// anchored at A. All coordinates are [lon, lat].
+export function pointToSegmentMeters(
+  p: [number, number],
+  a: [number, number],
+  b: [number, number]
+): number {
+  const { mLat, mLon } = metersPerDegree(a[1]);
+  const px = (p[0] - a[0]) * mLon;
+  const py = (p[1] - a[1]) * mLat;
+  const bx = (b[0] - a[0]) * mLon;
+  const by = (b[1] - a[1]) * mLat;
+  const segLenSq = bx * bx + by * by;
+  if (segLenSq === 0) return Math.hypot(px, py);
+  let t = (px * bx + py * by) / segLenSq;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - t * bx, py - t * by);
+}
+
+// Minimum distance (m) from point P=[lon,lat] to a polyline (array of
+// [lon,lat]). Infinity for an empty polyline.
+export function pointToPolylineMeters(
+  p: [number, number],
+  line: Array<[number, number]>
+): number {
+  if (line.length === 0) return Infinity;
+  if (line.length === 1) {
+    const { mLat, mLon } = metersPerDegree(line[0]![1]);
+    return Math.hypot((p[0] - line[0]![0]) * mLon, (p[1] - line[0]![1]) * mLat);
+  }
+  let min = Infinity;
+  for (let i = 1; i < line.length; i++) {
+    const d = pointToSegmentMeters(p, line[i - 1]!, line[i]!);
+    if (d < min) min = d;
+  }
+  return min;
+}
+
+// Fraction of `coords` lying within `bufferM` of ANY of the given polylines.
+// Used to decide whether a trace follows a railway line. All [lon,lat].
+export function coverageFraction(
+  coords: Array<[number, number]>,
+  lines: Array<Array<[number, number]>>,
+  bufferM: number
+): number {
+  if (coords.length === 0 || lines.length === 0) return 0;
+  let within = 0;
+  for (const c of coords) {
+    let best = Infinity;
+    for (const line of lines) {
+      const d = pointToPolylineMeters(c, line);
+      if (d < best) best = d;
+      if (best <= bufferM) break;
+    }
+    if (best <= bufferM) within++;
+  }
+  return within / coords.length;
+}
