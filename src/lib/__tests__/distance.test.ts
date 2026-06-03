@@ -1,4 +1,4 @@
-import { haversineMeters, pathLengthMeters } from '../distance';
+import { haversineMeters, pathLengthMeters, pointToPolylineMeters, coverageFraction } from '../distance';
 
 describe('distance', () => {
   it('haversine: zero for same point', () => {
@@ -28,5 +28,72 @@ describe('distance', () => {
   it('pathLength: zero for less than two points', () => {
     expect(pathLengthMeters([])).toBe(0);
     expect(pathLengthMeters([[1, 2]])).toBe(0);
+  });
+});
+
+// Coordinates are [lon, lat]. At lat 45, 0.001 deg lat ≈ 111.3 m;
+// 0.001 deg lon ≈ 78.7 m.
+const lat0 = 45.0;
+const lon0 = 5.0;
+const line: Array<[number, number]> = [
+  [lon0, lat0],
+  [lon0 + 0.01, lat0], // ~787 m due east
+];
+
+describe('pointToPolylineMeters', () => {
+  it('is ~0 for a point on the line', () => {
+    expect(pointToPolylineMeters([lon0 + 0.005, lat0], line)).toBeLessThan(1);
+  });
+
+  it('measures perpendicular offset (~100 m north of mid-line)', () => {
+    // 0.0009 deg lat ≈ 100.2 m
+    const d = pointToPolylineMeters([lon0 + 0.005, lat0 + 0.0009], line);
+    expect(d).toBeGreaterThan(95);
+    expect(d).toBeLessThan(106);
+  });
+
+  it('clamps to the nearest endpoint when the point is past the end', () => {
+    // 0.002 deg lon east of the end ≈ 157 m
+    const d = pointToPolylineMeters([lon0 + 0.012, lat0], line);
+    expect(d).toBeGreaterThan(150);
+    expect(d).toBeLessThan(165);
+  });
+
+  it('returns Infinity for an empty line', () => {
+    expect(pointToPolylineMeters([lon0, lat0], [])).toBe(Infinity);
+  });
+});
+
+describe('coverageFraction', () => {
+  const coords: Array<[number, number]> = [
+    [lon0 + 0.001, lat0],
+    [lon0 + 0.003, lat0],
+    [lon0 + 0.005, lat0],
+    [lon0 + 0.007, lat0],
+  ];
+
+  it('is 1.0 when every point is within the buffer of the line', () => {
+    expect(coverageFraction(coords, [line], 25)).toBeCloseTo(1.0, 5);
+  });
+
+  it('is 0.0 when the line is far away', () => {
+    const farLine: Array<[number, number]> = [
+      [lon0, lat0 + 0.01], // ~1.1 km north
+      [lon0 + 0.01, lat0 + 0.01],
+    ];
+    expect(coverageFraction(coords, [farLine], 25)).toBe(0);
+  });
+
+  it('counts a point within the buffer of ANY supplied line', () => {
+    const offset: Array<[number, number]> = [
+      [lon0 + 0.007, lat0 + 0.0001], // ~11 m north of last coord
+      [lon0 + 0.009, lat0 + 0.0001],
+    ];
+    // 3 of 4 coords lie on `line`; the 4th lies on `offset`.
+    expect(coverageFraction(coords, [line, offset], 25)).toBeCloseTo(1.0, 5);
+  });
+
+  it('is 0 with no lines', () => {
+    expect(coverageFraction(coords, [], 25)).toBe(0);
   });
 });
