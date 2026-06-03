@@ -259,4 +259,102 @@ describe('segmentation', () => {
     expect(stays).toHaveLength(3);
     expect(trips).toHaveLength(2);
   });
+
+  describe('RULE_GAP_DWELL: power-save GPS dropouts at a stationary place', () => {
+    const mpdLat = 111_320;
+
+    it('a multi-hour gap stay is not vetoed by an in_vehicle event at the gap edge', () => {
+      // Power-save suppresses GPS for 4h while parked, then the real drive
+      // begins — its first in_vehicle event lands just inside the gap window.
+      // A single departure event must not erase a 4h stay (the vehicle guard
+      // only applies to short gaps, like a tunnel mid-drive).
+      const t0 = 1_700_000_000_000;
+      const home = { lat: 48.0, lon: 2.0 };
+      const pts: RawPoint[] = [];
+      // arrival trip into home (moving, ends exactly at home — no dwell cluster)
+      pts.push(mkPoint(t0, home.lat - 300 / mpdLat, home.lon));
+      pts.push(mkPoint(t0 + 60_000, home.lat - 150 / mpdLat, home.lon));
+      const arriveTs = t0 + 120_000;
+      pts.push(mkPoint(arriveTs, home.lat, home.lon));
+      // 4h gap, then drive away, each fix 200m further north (all moving)
+      const resumeTs = arriveTs + 4 * 60 * 60_000;
+      for (let i = 0; i <= 8; i++) {
+        pts.push(mkPoint(resumeTs + i * 30_000, home.lat + (121 + i * 200) / mpdLat, home.lon));
+      }
+      const acts: RawActivity[] = [mkActivity(resumeTs - 60_000, 'in_vehicle', 100)];
+
+      const segs = segmentation(pts, acts, {
+        dwellMinutes: 5,
+        dwellRadiusM: 100,
+        gapMinutes: 10,
+      });
+      // The only possible stay here is the 4h gap stay at home.
+      expect(segs.filter((s) => s.kind === 'stay')).toHaveLength(1);
+    });
+
+    it('a gap stay spans the gap duration instead of collapsing to zero', () => {
+      const t0 = 1_700_000_000_000;
+      const lat0 = 48.0;
+      const lon0 = 2.0;
+      const pts: RawPoint[] = [];
+      for (let i = 0; i <= 10; i++) pts.push(mkPoint(t0 + i * 60_000, lat0, lon0));
+      const walkStart = t0 + 11 * 60_000;
+      for (let i = 1; i <= 5; i++) pts.push(mkPoint(walkStart + i * 60_000, lat0 + 0.002 * i, lon0));
+      const gapStartTs = walkStart + 5 * 60_000; // last point before signal loss
+      const homeAgain = gapStartTs + 2 * 60 * 60_000;
+      for (let i = 0; i <= 10; i++) pts.push(mkPoint(homeAgain + i * 60_000, lat0, lon0));
+
+      const segs = segmentation(pts, [], {
+        dwellMinutes: 5,
+        dwellRadiusM: 100,
+        gapMinutes: 10,
+      });
+      const stays = segs.filter((s) => s.kind === 'stay') as Array<{
+        kind: 'stay';
+        startMs: number;
+        endMs: number;
+      }>;
+      const gapStay = stays.find((s) => Math.abs(s.startMs - gapStartTs) < 1000);
+      expect(gapStay).toBeDefined();
+      // Before fix: gap stay is encoded as a single point → zero duration.
+      expect(gapStay!.endMs - gapStay!.startMs).toBeGreaterThan(60 * 60_000);
+    });
+
+    it('does not reattach a pre-gap point to the trip after the gap', () => {
+      // The arrival fix sits ~111m from the post-gap resume fix, so the
+      // approach-point reattachment would pull it into the post-gap trip,
+      // making that trip start 4h early. A multi-hour gap must block reattach.
+      const t0 = 1_700_000_000_000;
+      const home = { lat: 48.0, lon: 2.0 };
+      const pts: RawPoint[] = [];
+      pts.push(mkPoint(t0, home.lat - 300 / mpdLat, home.lon));
+      pts.push(mkPoint(t0 + 60_000, home.lat - 150 / mpdLat, home.lon));
+      const arriveTs = t0 + 120_000;
+      pts.push(mkPoint(arriveTs, home.lat, home.lon));
+      const resumeTs = arriveTs + 4 * 60 * 60_000;
+      // drive north from 111m away to a destination, then dwell there
+      for (let i = 0; i <= 8; i++) {
+        pts.push(mkPoint(resumeTs + i * 30_000, home.lat + (111 + i * 200) / mpdLat, home.lon));
+      }
+      const destLat = home.lat + (111 + 8 * 200) / mpdLat;
+      const cArr = resumeTs + 8 * 30_000;
+      for (let i = 1; i <= 8; i++) pts.push(mkPoint(cArr + i * 60_000, destLat, home.lon));
+
+      const segs = segmentation(pts, [], {
+        dwellMinutes: 5,
+        dwellRadiusM: 100,
+        gapMinutes: 10,
+      });
+      const trips = segs.filter((s) => s.kind === 'trip') as Array<{
+        kind: 'trip';
+        points: RawPoint[];
+      }>;
+      // No trip may straddle the 4h gap.
+      for (const tr of trips) {
+        const dur =
+          tr.points[tr.points.length - 1]!.timestampMs - tr.points[0]!.timestampMs;
+        expect(dur).toBeLessThan(60 * 60_000);
+      }
+    });
+  });
 });
