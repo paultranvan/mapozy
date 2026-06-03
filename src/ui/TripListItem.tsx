@@ -67,7 +67,9 @@ export function TripListItem({
     <Pressable
       onPress={handlePress}
       onLongPress={() => {
-        if (trip.id != null) onLongPress?.(trip.id);
+        // Only enter select mode from a long-press; in select mode a long-press
+        // must not reset an in-progress multi-selection.
+        if (!selectMode && trip.id != null) onLongPress?.(trip.id);
       }}
       delayLongPress={300}
     >
