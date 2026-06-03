@@ -115,6 +115,8 @@ export function assemble(input: AssembleInput): Trip {
     co2G,
     geojson: JSON.stringify({ type: 'LineString', coordinates: allCoords }),
     manualPurpose: null,
+    draft: false,
+    draftReason: null,
     createdAtMs: input.nowMs,
     sections,
     breaks,
