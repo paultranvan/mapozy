@@ -160,4 +160,25 @@ export const RULES = {
       '(radius-based, gap-based) regardless of place identity.',
     { maxBreakMs: 30 * 60_000 }
   ),
+
+  RAIL_MAP_MATCH: rule(
+    'RULE_RAIL_MAP_MATCH',
+    'A motorized section whose resampled trace follows OSM railway geometry ' +
+      '(at least coverageMin of its points within bufferM of a railway=* way) ' +
+      'is rail. This is geometry-based, not speed-based, so it cleanly ' +
+      'separates a train from a motorway drive at the same speed. The matched ' +
+      "way's railway tag picks train (rail/narrow_gauge), tram " +
+      '(tram/light_rail), or subway.',
+    { coverageMin: 0.8, bufferM: 25 }
+  ),
+
+  TRANSIT_STOP_RADIUS: rule(
+    'RULE_TRANSIT_STOP_RADIUS',
+    'Radius around a section endpoint within which OSM transit stops are ' +
+      'considered a match. Tighter than e-mission (150m): dense networks ' +
+      '(Paris) have stops every few hundred metres, so a wide radius would ' +
+      'match almost any endpoint. Bus additionally requires a shared route_ref ' +
+      'at both ends, not bare proximity.',
+    { radiusM: 70 }
+  ),
 } as const;
