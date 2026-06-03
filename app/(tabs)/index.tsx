@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   SectionList,
   StyleSheet,
   View,
   RefreshControl,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
@@ -16,6 +17,9 @@ import { TopBar } from '@/ui/TopBar';
 import { Text } from '@/ui/Text';
 import { RecordingPill } from '@/ui/RecordingPill';
 import { useRecordingStatus } from '@/tracking/useRecordingStatus';
+import { TripSelectionBar } from '@/ui/TripSelectionBar';
+import { deleteTrips } from '@/db/trips';
+import { planRecompute, recomputeForTrips } from '@/pipeline/recomputeRange';
 import { colors, space } from '@/theme/tokens';
 import { dayKey } from '@/lib/time';
 import type { Trip, Place } from '@/types';
@@ -64,6 +68,92 @@ export default function TripsScreen() {
   const placesQ = usePlaces();
   const recording = useRecordingStatus();
 
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+
+  const exitSelect = useCallback(() => {
+    setSelectMode(false);
+    setSelected(new Set());
+  }, []);
+
+  const enterSelect = useCallback((id: number) => {
+    setSelectMode(true);
+    setSelected(new Set([id]));
+  }, []);
+
+  const toggle = useCallback((id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const refreshAfterMutation = useCallback(async () => {
+    await qc.invalidateQueries({ queryKey: ['trips'] });
+    await qc.invalidateQueries({ queryKey: ['stats'] });
+    await qc.invalidateQueries({ queryKey: ['places'] });
+  }, [qc]);
+
+  const onDelete = useCallback(() => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    Alert.alert(
+      `Delete ${ids.length} trip${ids.length > 1 ? 's' : ''}?`,
+      'This removes the trips and their sections. Raw GPS data is kept.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteTrips(db, ids);
+            await refreshAfterMutation();
+            exitSelect();
+          },
+        },
+      ]
+    );
+  }, [selected, db, refreshAfterMutation, exitSelect]);
+
+  const onRecompute = useCallback(async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    const plan = await planRecompute(db, ids);
+    if (plan.missingRawTripIds.length > 0) {
+      Alert.alert(
+        "Can't recompute",
+        `Raw GPS data is missing for ${plan.missingRawTripIds.length} trip(s) in this range, so they can't be rebuilt.`
+      );
+      return;
+    }
+    let body = 'Re-run the pipeline on the raw data for these trips.';
+    if (plan.extraCount > 0) {
+      body +=
+        ` This rebuilds the whole time range and will also recompute ` +
+        `${plan.extraCount} other trip(s) inside it.`;
+    }
+    Alert.alert(`Recompute ${ids.length} trip${ids.length > 1 ? 's' : ''}?`, body, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Recompute',
+        onPress: async () => {
+          try {
+            await recomputeForTrips(db, plan);
+            await refreshAfterMutation();
+            exitSelect();
+          } catch (e) {
+            // Recompute is not atomic; refresh so any partial rebuild shows,
+            // but stay in select mode so the user can retry.
+            await refreshAfterMutation();
+            Alert.alert('Recompute failed', String(e));
+          }
+        },
+      },
+    ]);
+  }, [selected, db, refreshAfterMutation, exitSelect]);
+
   const onRefresh = useCallback(async () => {
     await Promise.all([
       tripsQ.refetch(),
@@ -105,7 +195,14 @@ export default function TripsScreen() {
     };
   }, [db, qc, placesQ.data]);
 
-  const topBar = (
+  const topBar = selectMode ? (
+    <TripSelectionBar
+      count={selected.size}
+      onCancel={exitSelect}
+      onDelete={onDelete}
+      onRecompute={onRecompute}
+    />
+  ) : (
     <TopBar
       title="Mapozy"
       rightNode={<RecordingPill status={recording.status} />}
@@ -156,6 +253,10 @@ export default function TripsScreen() {
               trip={item}
               startPlace={item.startPlaceId !== null ? placeById.get(item.startPlaceId) : null}
               endPlace={item.endPlaceId !== null ? placeById.get(item.endPlaceId) : null}
+              selectMode={selectMode}
+              selected={selected.has(item.id!)}
+              onLongPress={enterSelect}
+              onToggle={toggle}
             />
           )}
           refreshControl={
