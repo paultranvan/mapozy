@@ -138,7 +138,12 @@ export function segmentation(
       points[i + 1]!.longitude
     );
     if (dist <= radius) continue;
-    if (isStalledVehicle(activities, t1, t2)) continue;
+    // RULE_STALLED_VEHICLE_GUARD ceiling — mirror the dwell path: only a *short*
+    // gap with in_vehicle is a moving vehicle that briefly lost signal (tunnel,
+    // urban canyon). A multi-hour gap whose endpoints barely moved is a genuine
+    // stay; a lone in_vehicle event (often the next trip's departure bleeding
+    // into the gap window, or a spurious parked reading) must not veto it.
+    if (gap < stallCeilingMs && isStalledVehicle(activities, t1, t2)) continue;
 
     // RULE_GAP_PLAUSIBILITY: in the soft-to-hard window, if endpoints could
     // plausibly be connected by continuous motion, treat as one trip rather
@@ -184,6 +189,9 @@ export function segmentation(
   for (let di = 0; di < dwells.length; di++) {
     const d = dwells[di]!;
     const { stayStartIdx, stayEndIdx } = refined[di]!;
+    // A gap dwell is encoded as a single representative point (startIdx ===
+    // endIdx); its real time span is the gap [d.start, d.end], not one instant.
+    const isGapDwell = d.startIdx === d.endIdx;
     if (cursor < stayStartIdx) {
       let startIdx = cursor;
       if (cursor > 0) {
@@ -195,7 +203,11 @@ export function segmentation(
           firstTrip.latitude,
           firstTrip.longitude
         );
-        if (dist <= radius * 3) startIdx = cursor - 1;
+        // Pull the prior stay's last point into this trip so the polyline
+        // reaches back to the place — but never across a tracking gap, where
+        // the prior point is a stay anchor hours earlier, not an approach fix.
+        if (dist <= radius * 3 && firstTrip.timestampMs - lastPrev.timestampMs < gapMs)
+          startIdx = cursor - 1;
       }
       const tripPoints = points.slice(startIdx, stayStartIdx + 1);
       if (tripPoints.length >= 2) segs.push({ kind: 'trip', points: tripPoints });
@@ -206,7 +218,7 @@ export function segmentation(
       centerLat: stayCenter.lat,
       centerLon: stayCenter.lon,
       startMs: points[stayStartIdx]!.timestampMs,
-      endMs: points[stayEndIdx]!.timestampMs,
+      endMs: isGapDwell ? d.end : points[stayEndIdx]!.timestampMs,
       representativePoint: points[stayStartIdx]!,
     });
     cursor = stayEndIdx + 1;
