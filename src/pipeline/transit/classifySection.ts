@@ -63,6 +63,7 @@ function dominantRailMode(
   }
   let top: Mode | null = null;
   let max = 0;
+  // Ties broken by first-seen insertion order (rare; any tied rail mode is fine).
   for (const [m, n] of Object.entries(tally)) {
     if (n > max) {
       max = n;
