@@ -2,6 +2,7 @@
 //   RULE_LOCATION_REQUEST_DEFAULT  — startup priority/accuracy mode
 //   RULE_ACTIVITY_TRANSITIONS      — set of activity types we subscribe transitions for
 //   RULE_ADAPTIVE_LOCATION_REQUEST — apply the active LocationProfile when (re)subscribing
+//   RULE_TRANSITION_FIX            — one-shot getCurrentLocation at an activity-transition edge
 package expo.modules.mapozytracker
 
 import android.Manifest
@@ -24,12 +25,14 @@ import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.ActivityRecognition
 import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionRequest
+import com.google.android.gms.location.CurrentLocationRequest
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingRequest
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.LocationServices as GmsLocationServices
 import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONObject as JsonObj
@@ -47,6 +50,7 @@ class TrackingService : Service() {
     const val ACTION_STILL_PENDING = "mapozy.tracker.STILL_PENDING"
     const val ACTION_WATCHDOG_TICK = "mapozy.tracker.WATCHDOG_TICK"
     const val ACTION_GPS_STATIONARY = "mapozy.tracker.GPS_STATIONARY"
+    const val ACTION_TRANSITION_FIX = "mapozy.tracker.TRANSITION_FIX"
 
     @Volatile var isRunning: Boolean = false
       private set
@@ -64,6 +68,17 @@ class TrackingService : Service() {
       if (!TrackingState.isEnabled(context)) return
       startCompat(context, Intent(context, TrackingService::class.java).apply {
         action = ACTION_STILL_PENDING
+      })
+    }
+
+    /**
+     * RULE_TRANSITION_FIX — fire a one-shot GPS fix at an activity-transition
+     * edge. Called from ActivityReceiver on a real (deduped) ENTER.
+     */
+    fun requestTransitionFix(context: Context) {
+      if (!TrackingState.isEnabled(context)) return
+      startCompat(context, Intent(context, TrackingService::class.java).apply {
+        action = ACTION_TRANSITION_FIX
       })
     }
 
@@ -212,6 +227,12 @@ class TrackingService : Service() {
         }
         return START_STICKY
       }
+      ACTION_TRANSITION_FIX -> {
+        val cfg = TrackingState.loadConfig(this)
+        startForegroundCompat(cfg)
+        performTransitionFix()
+        return START_STICKY
+      }
       ACTION_GPS_STATIONARY -> {
         val cfg = TrackingState.loadConfig(this)
         startForegroundCompat(cfg)
@@ -284,6 +305,42 @@ class TrackingService : Service() {
       startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
     } else {
       startForeground(NOTIF_ID, notif)
+    }
+  }
+
+  /**
+   * RULE_TRANSITION_FIX — one-shot high-accuracy fix, independent of the
+   * continuous subscription (which a distance filter or STATIONARY drop may be
+   * suppressing). Routes the result through LocationListener.ingestLocation so
+   * it persists, emits, and refreshes last-known state exactly like a streamed
+   * fix — but with motion checks off, so this sporadic sample can't pollute the
+   * stationary/silence detectors. Best-effort: failures are swallowed (a missed
+   * anchor just leaves the prior gap behaviour).
+   */
+  private fun performTransitionFix() {
+    if (!hasLocationPermission()) return
+    val client = LocationServices.getFusedLocationProviderClient(this)
+    val cts = CancellationTokenSource()
+    val request = CurrentLocationRequest.Builder()
+      .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
+      .setMaxUpdateAgeMillis(TrackingRules.TRANSITION_FIX_MAX_AGE_MS)
+      .build()
+    try {
+      client.getCurrentLocation(request, cts.token)
+        .addOnSuccessListener { loc ->
+          if (loc != null) {
+            locationListener.ingestLocation(loc, runMotionChecks = false)
+            NativeStore.insertDiagnostic(
+              this, System.currentTimeMillis(), "transition_fix",
+              JsonObj().apply {
+                put("lat", loc.latitude); put("lng", loc.longitude)
+                put("accuracy", loc.accuracy.toDouble())
+              }.toString()
+            )
+          }
+        }
+    } catch (e: SecurityException) {
+      Log.e("mapozy", "requestTransitionFix: missing permission: $e")
     }
   }
 
