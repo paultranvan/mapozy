@@ -118,6 +118,49 @@ export async function deleteTrips(db: Db, ids: number[]): Promise<void> {
   });
 }
 
+export async function getTripsByIds(db: Db, ids: number[]): Promise<Trip[]> {
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = await db.getAllAsync<Row>(
+    `SELECT * FROM trips WHERE id IN (${placeholders}) ORDER BY start_time_ms ASC`,
+    ...ids
+  );
+  return rows.map(rowToTrip);
+}
+
+// Half-open span [startMs, endMs): a trip overlaps when it starts before endMs
+// and ends after startMs.
+export async function getTripsOverlapping(
+  db: Db,
+  startMs: number,
+  endMs: number
+): Promise<Trip[]> {
+  const rows = await db.getAllAsync<Row>(
+    `SELECT * FROM trips
+     WHERE start_time_ms < ? AND end_time_ms > ?
+     ORDER BY start_time_ms ASC`,
+    endMs,
+    startMs
+  );
+  return rows.map(rowToTrip);
+}
+
+export async function getTripBefore(db: Db, ms: number): Promise<Trip | null> {
+  const row = await db.getFirstAsync<Row>(
+    `SELECT * FROM trips WHERE start_time_ms < ? ORDER BY start_time_ms DESC LIMIT 1`,
+    ms
+  );
+  return row ? rowToTrip(row) : null;
+}
+
+export async function getTripAfter(db: Db, ms: number): Promise<Trip | null> {
+  const row = await db.getFirstAsync<Row>(
+    `SELECT * FROM trips WHERE start_time_ms >= ? ORDER BY start_time_ms ASC LIMIT 1`,
+    ms
+  );
+  return row ? rowToTrip(row) : null;
+}
+
 export async function getTripsInRange(
   db: Db,
   startMs: number,

@@ -1,6 +1,14 @@
 import { createMockDb } from '../mockDb';
 import { runMigrations } from '../migrations';
-import { insertTripWithSections, listTrips, deleteTrips } from '../trips';
+import {
+  insertTripWithSections,
+  listTrips,
+  deleteTrips,
+  getTripsByIds,
+  getTripsOverlapping,
+  getTripBefore,
+  getTripAfter,
+} from '../trips';
 import { getSectionsForTrip } from '../sections';
 import type { Trip } from '../../types';
 import type { Db } from '../client';
@@ -62,5 +70,44 @@ describe('deleteTrips', () => {
     await deleteTrips(db, []);
     expect(await listTrips(db, 100, 0)).toHaveLength(1);
     expect(a).toBeGreaterThan(0);
+  });
+});
+
+describe('trip range helpers', () => {
+  let db: Db;
+  let a: number, b: number, c: number;
+  beforeEach(async () => {
+    db = createMockDb();
+    await runMigrations(db);
+    a = await insertTripWithSections(db, mkTrip(1000, 2000));
+    b = await insertTripWithSections(db, mkTrip(3000, 4000));
+    c = await insertTripWithSections(db, mkTrip(5000, 6000));
+  });
+
+  it('getTripsByIds returns the requested trips ordered by start', async () => {
+    const got = await getTripsByIds(db, [c, a]);
+    expect(got.map((t) => t.id)).toEqual([a, c]);
+  });
+
+  it('getTripsOverlapping returns trips intersecting the half-open span', async () => {
+    // span [3000, 5000): includes b (start 3000) but not c (start == 5000).
+    const got = await getTripsOverlapping(db, 3000, 5000);
+    expect(got.map((t) => t.id)).toEqual([b]);
+  });
+
+  it('getTripsOverlapping includes a trip that straddles the start bound', async () => {
+    // span [1500, 3500): a ends at 2000 (> 1500) and starts before -> overlaps.
+    const got = await getTripsOverlapping(db, 1500, 3500);
+    expect(got.map((t) => t.id)).toEqual([a, b]);
+  });
+
+  it('getTripBefore returns the latest trip starting before ms', async () => {
+    expect((await getTripBefore(db, 3000))?.id).toBe(a);
+    expect(await getTripBefore(db, 1000)).toBeNull();
+  });
+
+  it('getTripAfter returns the earliest trip starting at/after ms', async () => {
+    expect((await getTripAfter(db, 4000))?.id).toBe(c);
+    expect(await getTripAfter(db, 6000)).toBeNull();
   });
 });
