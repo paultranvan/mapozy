@@ -31,6 +31,10 @@ export const colors = {
     bike: '#15CACD',
     car: '#FF7B5E',
     run: '#00AD48',
+    bus: '#F5A623',
+    train: '#7B68EE',
+    tram: '#20B2AA',
+    subway: '#9370DB',
     mixed: '#A4A7AC',
   } satisfies Record<DominantMode, string>,
 } as const;
@@ -144,6 +148,10 @@ export const MODE_ICONS: Record<Mode, string> = {
   bike: 'bike',
   walk: 'walk',
   run: 'run',
+  bus: 'bus',
+  train: 'train',
+  tram: 'tram',
+  subway: 'subway',
 };
 
 export const DOMINANT_MODE_ICONS: Record<DominantMode, string> = {

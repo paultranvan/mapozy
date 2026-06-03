@@ -9,6 +9,8 @@ export const CO2_FACTORS_KG_PER_KM: Record<string, number> = {
   run: 0,
   bus: 0.103,
   train: 0.0241,
+  tram: 0.0046,
+  subway: 0.0036,
   metro: 0.0036,
   unknown: 0.218,
 };

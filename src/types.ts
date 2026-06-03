@@ -6,7 +6,7 @@ export type ActivityType =
   | 'in_vehicle'
   | 'unknown';
 
-export type Mode = 'car' | 'bike' | 'walk' | 'run';
+export type Mode = 'car' | 'bike' | 'walk' | 'run' | 'bus' | 'train' | 'tram' | 'subway';
 export type DominantMode = Mode | 'mixed';
 
 export interface RawPoint {
