@@ -124,7 +124,7 @@ export default function TripsScreen() {
     if (plan.missingRawTripIds.length > 0) {
       Alert.alert(
         "Can't recompute",
-        `Raw GPS data is missing for ${plan.missingRawTripIds.length} trip(s) in this range, so they can’t be rebuilt.`
+        `Raw GPS data is missing for ${plan.missingRawTripIds.length} trip(s) in this range, so they can't be rebuilt.`
       );
       return;
     }
@@ -141,11 +141,13 @@ export default function TripsScreen() {
         onPress: async () => {
           try {
             await recomputeForTrips(db, plan);
-          } catch (e) {
-            Alert.alert('Recompute failed', String(e));
-          } finally {
             await refreshAfterMutation();
             exitSelect();
+          } catch (e) {
+            // Recompute is not atomic; refresh so any partial rebuild shows,
+            // but stay in select mode so the user can retry.
+            await refreshAfterMutation();
+            Alert.alert('Recompute failed', String(e));
           }
         },
       },
