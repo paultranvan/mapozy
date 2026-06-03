@@ -2,8 +2,54 @@
 //   RULE_SECTION_ACTIVITY_CONFIDENCE — only count activity events at or above this confidence
 //   RULE_MIN_SECTION_DURATION        — merge sub-threshold sections into the previous one
 //   RULE_SECTION_ACTIVITY_WINDOW     — time window around the trip for considering activities
+//   RULE_WALK_SPEED_BOUNDARY         — move fast tail fixes off a walk section into the next faster one
 import type { RawPoint, RawActivity, ActivityType } from '../types';
+import { haversineMeters } from '../lib/distance';
 import { RULES } from './rules';
+
+const WALK_LIKE: ReadonlySet<ActivityType> = new Set(['walking', 'still', 'unknown']);
+const FASTER_THAN_WALK: ReadonlySet<ActivityType> = new Set([
+  'in_vehicle',
+  'on_bicycle',
+  'running',
+]);
+
+function stepSpeedMps(a: RawPoint, b: RawPoint): number {
+  const dt = (b.timestampMs - a.timestampMs) / 1000;
+  if (dt <= 0) return 0;
+  return haversineMeters(a.latitude, a.longitude, b.latitude, b.longitude) / dt;
+}
+
+/**
+ * RULE_WALK_SPEED_BOUNDARY. For each walk-like section directly followed by a
+ * faster section, find the first step whose displacement speed is too fast to
+ * be on foot and move that point and everything after it into the following
+ * section. Corrects the lagging in_vehicle boundary without trusting the
+ * activity stream's timing.
+ */
+function refineWalkVehicleBoundary(sections: RawSection[]): RawSection[] {
+  const maxWalkMps = RULES.WALK_SPEED_BOUNDARY.defaults.maxWalkSpeedMps;
+  for (let i = 0; i < sections.length - 1; i++) {
+    const prev = sections[i]!;
+    const next = sections[i + 1]!;
+    if (!WALK_LIKE.has(prev.activity) || !FASTER_THAN_WALK.has(next.activity)) continue;
+
+    let onset = -1;
+    for (let k = 1; k < prev.points.length; k++) {
+      if (stepSpeedMps(prev.points[k - 1]!, prev.points[k]!) > maxWalkMps) {
+        onset = k;
+        break;
+      }
+    }
+    if (onset < 0) continue;
+
+    const moved = prev.points.splice(onset);
+    next.points = [...moved, ...next.points];
+    prev.endMs = prev.points[prev.points.length - 1]!.timestampMs;
+    next.startMs = next.points[0]!.timestampMs;
+  }
+  return sections.filter((s) => s.points.length > 0);
+}
 
 export interface SectionSegOpts {
   minSectionMs?: number;
@@ -115,5 +161,5 @@ export function sectionSegmentation(
       combined.push(s);
     }
   }
-  return combined;
+  return refineWalkVehicleBoundary(combined);
 }

@@ -125,6 +125,22 @@ export const RULES = {
     { minClassifyingSpeedMps: 2.0 }
   ),
 
+  WALK_SPEED_BOUNDARY: rule(
+    'RULE_WALK_SPEED_BOUNDARY',
+    'The activity recogniser flags in_vehicle a beat after a drive actually ' +
+      'starts, so a walk section preceding a drive absorbs the first fixes of ' +
+      'the drive. When a walk-like section is immediately followed by a faster ' +
+      "section (in_vehicle / on_bicycle / running), split at the section's " +
+      'first step whose displacement speed exceeds a pace no longer plausible ' +
+      'on foot, and hand the remaining points to the following section — so the ' +
+      'boundary sits where GPS shows movement sped up, not where the lagging ' +
+      'activity flipped. A drive that hits a red light right after pulling away ' +
+      'still keeps its early fixes (we split at the first fast step, not a ' +
+      'sustained run). Upstream accuracy filtering and spike smoothing guard ' +
+      'against a lone GPS jump triggering a spurious split.',
+    { maxWalkSpeedMps: 2.5 }
+  ),
+
   MIN_TRIP_DISTANCE: rule(
     'RULE_MIN_TRIP_DISTANCE',
     'Drop trips with total distance below this threshold.',
