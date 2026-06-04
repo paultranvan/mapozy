@@ -9,6 +9,7 @@ interface Row {
   end_time_ms: number;
   center_lat: number;
   center_lon: number;
+  gap: number;
 }
 
 function rowToBreak(r: Row): TripBreak {
@@ -20,6 +21,7 @@ function rowToBreak(r: Row): TripBreak {
     endTimeMs: r.end_time_ms,
     centerLat: r.center_lat,
     centerLon: r.center_lon,
+    gap: r.gap === 1,
   };
 }
 
@@ -30,14 +32,15 @@ export async function insertBreak(
 ): Promise<number> {
   const r = await db.runAsync(
     `INSERT INTO trip_breaks
-       (trip_id, ordering, start_time_ms, end_time_ms, center_lat, center_lon)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+       (trip_id, ordering, start_time_ms, end_time_ms, center_lat, center_lon, gap)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     tripId,
     b.ordering,
     b.startTimeMs,
     b.endTimeMs,
     b.centerLat,
-    b.centerLon
+    b.centerLon,
+    b.gap ? 1 : 0
   );
   return r.lastInsertRowId;
 }

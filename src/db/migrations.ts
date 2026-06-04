@@ -133,11 +133,19 @@ CREATE TABLE IF NOT EXISTS transit_cache (
 );
 `;
 
+// Subway gap detection: mark a break as gap-derived (a GPS dropout, i.e. a data
+// gap) vs a real dwell, so transit enrichment can convert a gap between two
+// metro stations into a subway section.
+const MIGRATION_005 = `
+ALTER TABLE trip_breaks ADD COLUMN gap INTEGER NOT NULL DEFAULT 0;
+`;
+
 export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 1, sql: MIGRATION_001 },
   { version: 2, sql: MIGRATION_002 },
   { version: 3, sql: MIGRATION_003 },
   { version: 4, sql: MIGRATION_004 },
+  { version: 5, sql: MIGRATION_005 },
 ];
 
 export async function getSchemaVersion(db: Db): Promise<number> {
