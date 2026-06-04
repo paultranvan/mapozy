@@ -152,3 +152,35 @@ export async function updateTripAggregates(
     tripId
   );
 }
+
+export async function replaceTripSectionsAndBreaks(
+  db: Db,
+  tripId: number,
+  sections: Trip['sections'],
+  breaks: Trip['breaks']
+): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(`DELETE FROM sections WHERE trip_id = ?`, tripId);
+    await db.runAsync(`DELETE FROM trip_breaks WHERE trip_id = ?`, tripId);
+    for (const s of sections) await insertSection(db, tripId, s);
+    for (const b of breaks) await insertBreak(db, tripId, b);
+  });
+}
+
+export async function updateTripTotals(
+  db: Db,
+  tripId: number,
+  distanceM: number,
+  co2G: number,
+  dominantMode: string,
+  geojson: string
+): Promise<void> {
+  await db.runAsync(
+    `UPDATE trips SET distance_m = ?, co2_g = ?, dominant_mode = ?, geojson = ? WHERE id = ?`,
+    distanceM,
+    co2G,
+    dominantMode,
+    geojson,
+    tripId
+  );
+}
