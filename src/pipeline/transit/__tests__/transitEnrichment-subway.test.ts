@@ -98,5 +98,6 @@ describe('enrichTripTransit — subway gap', () => {
     const t = await getTripById(deps.db, id);
     expect(t!.sections.map((s) => s.mode)).toEqual(['walk', 'walk']);
     expect(t!.breaks).toHaveLength(1);
+    expect(t!.breaks[0]!.gap).toBe(true);
   });
 });

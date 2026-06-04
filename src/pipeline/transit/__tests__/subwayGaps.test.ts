@@ -106,4 +106,25 @@ describe('rebuildWithSubway + recomputeTotals', () => {
     expect(out.breaks).toHaveLength(1);
     expect(out.breaks[0]!.ordering).toBe(0);
   });
+
+  it('renumbers correctly with two breaks when only the first converts', () => {
+    // S0 | break@0 (convert→subway) | S1 | break@1 (keep) | S2
+    const sections = [
+      sec(0, 'walk', [[lon0, lat0], [lon0, lat0 + 0.0005]]),
+      sec(1, 'walk', [[lon0 + 0.01, lat0], [lon0 + 0.01, lat0 + 0.0005]]),
+      sec(2, 'walk', [[lon0 + 0.02, lat0], [lon0 + 0.02, lat0 + 0.0005]]),
+    ];
+    const breaks: TripBreak[] = [
+      { ordering: 0, startTimeMs: 600, endTimeMs: 600 + 600_000, centerLat: lat0, centerLon: lon0, gap: true },
+      { ordering: 1, startTimeMs: 1200, endTimeMs: 1800, centerLat: lat0, centerLon: lon0, gap: false },
+    ];
+    const subway = buildSubwaySection(breaks[0]!, [lon0, lat0 + 0.0005], [lon0 + 0.01, lat0]);
+    const out = rebuildWithSubway(sections, breaks, new Map([[0, subway]]));
+
+    // Stream becomes: S0, subway, S1, S2 — and the kept break now follows S1 (index 2).
+    expect(out.sections.map((s) => s.mode)).toEqual(['walk', 'subway', 'walk', 'walk']);
+    expect(out.sections.map((s) => s.ordering)).toEqual([0, 1, 2, 3]);
+    expect(out.breaks).toHaveLength(1);
+    expect(out.breaks[0]!.ordering).toBe(2); // follows S1, which sits at index 2
+  });
 });
