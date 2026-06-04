@@ -13,6 +13,10 @@ interface Props {
   trip: Trip;
   startPlace: Place | null | undefined;
   endPlace: Place | null | undefined;
+  selectMode?: boolean;
+  selected?: boolean;
+  onLongPress?: (id: number) => void;
+  onToggle?: (id: number) => void;
 }
 
 function placeLabel(p: Place | null | undefined): string {
@@ -36,18 +40,57 @@ function modeBarSegments(trip: Trip) {
   }));
 }
 
-export function TripListItem({ trip, startPlace, endPlace }: Props) {
+export function TripListItem({
+  trip,
+  startPlace,
+  endPlace,
+  selectMode = false,
+  selected = false,
+  onLongPress,
+  onToggle,
+}: Props) {
   const router = useRouter();
   const distance = formatDistance(trip.distanceM);
   const [distValue, distUnit] = distance.split(' ');
   const modeSummary = summarizeModes(trip);
   const segments = modeBarSegments(trip);
 
+  const handlePress = () => {
+    if (selectMode) {
+      if (trip.id != null) onToggle?.(trip.id);
+    } else {
+      router.push(`/trip/${trip.id}`);
+    }
+  };
+
   return (
-    <Pressable onPress={() => router.push(`/trip/${trip.id}`)}>
+    <Pressable
+      onPress={handlePress}
+      onLongPress={() => {
+        // Only enter select mode from a long-press; in select mode a long-press
+        // must not reset an in-progress multi-selection.
+        if (!selectMode && trip.id != null) onLongPress?.(trip.id);
+      }}
+      delayLongPress={300}
+    >
       {({ pressed }) => (
-        <Card padded="sm" style={[styles.card, trip.draft && styles.draftCard, pressed && styles.pressed]}>
+        <Card
+          padded="sm"
+          style={[
+            styles.card,
+            trip.draft && styles.draftCard,
+            pressed && styles.pressed,
+            selected && styles.selected,
+          ]}
+        >
           <View style={styles.row}>
+            {selectMode ? (
+              <MaterialCommunityIcons
+                name={selected ? 'check-circle' : 'circle-outline'}
+                size={24}
+                color={selected ? colors.accent : colors.inkOnGroundSoft}
+              />
+            ) : null}
             <ModeChip mode={trip.dominantMode} />
             <View style={styles.body}>
               <Text variant="title" numberOfLines={1}>
@@ -102,6 +145,9 @@ const styles = StyleSheet.create({
   },
   draftBadge: {
     marginRight: space[1],
+  },
+  selected: {
+    backgroundColor: colors.accentSoft,
   },
   row: {
     flexDirection: 'row',
