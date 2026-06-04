@@ -5,6 +5,7 @@ import {
   View,
   RefreshControl,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
@@ -16,6 +17,7 @@ import { TopBar } from '@/ui/TopBar';
 import { Text } from '@/ui/Text';
 import { RecordingPill } from '@/ui/RecordingPill';
 import { useRecordingStatus } from '@/tracking/useRecordingStatus';
+import { refreshDraftTrips } from '@/tracking/refreshDrafts';
 import { colors, space } from '@/theme/tokens';
 import { dayKey } from '@/lib/time';
 import type { Trip, Place } from '@/types';
@@ -65,12 +67,15 @@ export default function TripsScreen() {
   const recording = useRecordingStatus();
 
   const onRefresh = useCallback(async () => {
-    await Promise.all([
-      tripsQ.refetch(),
-      placesQ.refetch(),
-      recording.refresh(),
-    ]);
-  }, [tripsQ, placesQ, recording]);
+    const res = await refreshDraftTrips(db).catch(() => ({ enriched: 0, rateLimited: false }));
+    if (res.rateLimited) {
+      Alert.alert(
+        'Transit lookup busy',
+        'OpenStreetMap rate-limited the request. Some trips are still draft — pull to refresh again in a moment.'
+      );
+    }
+    await Promise.all([tripsQ.refetch(), placesQ.refetch(), recording.refresh()]);
+  }, [db, tripsQ, placesQ, recording]);
 
   const sections = useMemo(
     () => (tripsQ.data ? groupByDay(tripsQ.data) : []),
