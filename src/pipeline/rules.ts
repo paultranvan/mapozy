@@ -181,4 +181,21 @@ export const RULES = {
       'at both ends, not bare proximity.',
     { radiusM: 70 }
   ),
+
+  SUBWAY_GAP: rule(
+    'RULE_SUBWAY_GAP',
+    'A gap-derived break (no GPS during the stop) of plausible ride length and ' +
+      'with endpoints far enough apart to be travel, not a pause, is a subway ' +
+      'candidate. Confirmed only when BOTH the entry and exit points sit near a ' +
+      'metro station — otherwise it stays a break (a real stop).',
+    { minMinutes: 2, maxMinutes: 40, minDistanceM: 200 }
+  ),
+
+  SUBWAY_STATION_RADIUS: rule(
+    'RULE_SUBWAY_STATION_RADIUS',
+    'Radius for matching a subway-gap endpoint to a metro station. Wider than ' +
+      'the surface stop radius because the last GPS fix before going underground ' +
+      '(and the first after surfacing) can be a street away from the entrance.',
+    { radiusM: 150 }
+  ),
 } as const;
