@@ -78,6 +78,7 @@ describe('assemble', () => {
           endMs: 719_999,
           centerLat: 0,
           centerLon: 0.00127,
+          gap: false,
         },
       ],
       startPlaceId: null,

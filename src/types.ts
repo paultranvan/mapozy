@@ -85,6 +85,7 @@ export interface TripBreak {
   endTimeMs: number;
   centerLat: number;
   centerLon: number;
+  gap?: boolean;
 }
 
 export interface Trip {

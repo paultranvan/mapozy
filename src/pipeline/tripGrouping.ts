@@ -11,6 +11,7 @@ export interface RawBreak {
   endMs: number;
   centerLat: number;
   centerLon: number;
+  gap: boolean;
 }
 
 export interface TripStayBoundary {
@@ -62,6 +63,7 @@ export function groupIntoTrips(segments: Segment[]): TripLegGroup[] {
             endMs: seg.endMs,
             centerLat: seg.centerLat,
             centerLon: seg.centerLon,
+            gap: seg.gap,
           });
         }
         previousStay = stayBoundary;

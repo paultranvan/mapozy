@@ -26,6 +26,7 @@ export type Segment =
       startMs: number;
       endMs: number;
       representativePoint: RawPoint;
+      gap: boolean;
     };
 
 // RULE_STALLED_VEHICLE_GUARD
@@ -220,6 +221,7 @@ export function segmentation(
       startMs: points[stayStartIdx]!.timestampMs,
       endMs: isGapDwell ? d.end : points[stayEndIdx]!.timestampMs,
       representativePoint: points[stayStartIdx]!,
+      gap: isGapDwell,
     });
     cursor = stayEndIdx + 1;
   }
@@ -395,6 +397,7 @@ function injectInferredTrips(segs: Segment[], radius: number): Segment[] {
           startMs: cur.startMs,
           endMs: tripStart,
           representativePoint: cur.representativePoint,
+          gap: cur.gap,
         });
         out.push({
           kind: 'trip',

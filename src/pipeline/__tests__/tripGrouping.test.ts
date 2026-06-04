@@ -20,6 +20,7 @@ function stay(startMs: number, endMs: number, lat = 45.0, lon = 5.0): Segment {
     startMs,
     endMs,
     representativePoint: mkPoint(startMs, lat, lon),
+    gap: false,
   };
 }
 

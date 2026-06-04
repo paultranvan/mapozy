@@ -71,6 +71,7 @@ export function assemble(input: AssembleInput): Trip {
     endTimeMs: b.endMs,
     centerLat: b.centerLat,
     centerLon: b.centerLon,
+    gap: b.gap,
   }));
 
   const distanceM = sections.reduce((s, x) => s + x.distanceM, 0);
