@@ -22,9 +22,16 @@ export async function refreshDraftTrips(
   let enriched = 0;
   let rateLimited = false;
   for (const id of ids) {
-    const res = await enrichTripTransit(deps, id);
-    if (res.status === 'enriched') enriched++;
-    if (res.reason === 'rate_limited') rateLimited = true;
+    try {
+      const res = await enrichTripTransit(deps, id);
+      if (res.status === 'enriched') enriched++;
+      if (res.reason === 'rate_limited') {
+        rateLimited = true;
+        break; // further calls would just hit the same 429
+      }
+    } catch (err) {
+      console.warn('[refreshDraftTrips] enrichment failed for trip', id, err);
+    }
   }
   return { enriched, rateLimited };
 }
