@@ -62,6 +62,11 @@ export function TripListItem({ trip, startPlace, endPlace }: Props) {
                   <ModeBar segments={segments} height={3} radius={2} gap={1} />
                 </View>
               ) : null}
+              {trip.draft ? (
+                <Text variant="meta" soft>
+                  Tap refresh to finish classifying
+                </Text>
+              ) : null}
             </View>
             {trip.draft ? (
               <MaterialCommunityIcons

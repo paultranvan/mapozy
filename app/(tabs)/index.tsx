@@ -75,7 +75,10 @@ export default function TripsScreen() {
       );
     }
     await Promise.all([tripsQ.refetch(), placesQ.refetch(), recording.refresh()]);
-  }, [db, tripsQ, placesQ, recording]);
+    if (res.enriched > 0) {
+      await qc.invalidateQueries({ queryKey: ['stats'] });
+    }
+  }, [db, qc, tripsQ, placesQ, recording]);
 
   const sections = useMemo(
     () => (tripsQ.data ? groupByDay(tripsQ.data) : []),
