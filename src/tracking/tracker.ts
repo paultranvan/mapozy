@@ -4,6 +4,7 @@ import { runPipeline } from '../pipeline/runPipeline';
 import type { Db } from '../db/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { shouldRunPipelineForForeground } from './foregroundTrigger';
+import { makeOverpassDeps } from './overpassDeps';
 
 export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
   desiredAccuracy: 'high',
@@ -41,7 +42,7 @@ export async function runPipelineAndInvalidate(
   db: Db,
   qc: ReturnType<typeof useQueryClient>
 ): Promise<void> {
-  const r = await runPipeline(db);
+  const r = await runPipeline(db, { transit: makeOverpassDeps(db) });
   if (r.tripsInserted > 0) {
     await qc.invalidateQueries({ queryKey: ['trips'] });
     await qc.invalidateQueries({ queryKey: ['stats'] });
