@@ -68,6 +68,19 @@ export async function markActivitiesConsumed(db: Db, ids: number[]): Promise<voi
   }
 }
 
+export async function resetConsumedActivitiesInRange(
+  db: Db,
+  startMs: number,
+  endMs: number
+): Promise<number> {
+  const r = await db.runAsync(
+    `UPDATE raw_activities SET consumed=0 WHERE timestamp_ms BETWEEN ? AND ?`,
+    startMs,
+    endMs
+  );
+  return r.changes;
+}
+
 export async function purgeOldConsumedActivities(db: Db, beforeMs: number): Promise<number> {
   const r = await db.runAsync(
     `DELETE FROM raw_activities WHERE consumed=1 AND timestamp_ms < ?`,
