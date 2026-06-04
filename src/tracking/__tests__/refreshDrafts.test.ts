@@ -1,6 +1,6 @@
 import { createMockDb } from '../../db/mockDb';
 import { runMigrations } from '../../db/migrations';
-import { insertTripWithSections } from '../../db/trips';
+import { insertTripWithSections, getTripById } from '../../db/trips';
 import { refreshDraftTrips } from '../refreshDrafts';
 import type { OverpassDeps } from '../../lib/overpass';
 import type { Trip } from '../../types';
@@ -65,12 +65,15 @@ describe('refreshDraftTrips', () => {
 
   it('reports rateLimited when Overpass 429s', async () => {
     const db = await mkDb();
-    await insertTripWithSections(db, draftCarTrip());
+    const id = await insertTripWithSections(db, draftCarTrip());
     const deps: OverpassDeps = { db, fetchFn: async () => fakeResponse({}, { status: 429, ok: false }), nowMs: () => 1_000_000, minIntervalMs: 0 };
 
     const res = await refreshDraftTrips(db, deps);
     expect(res.rateLimited).toBe(true);
     expect(res.enriched).toBe(0);
+    const t = await getTripById(db, id);
+    expect(t!.draft).toBe(true);
+    expect(t!.draftReason).toBe('rate_limited');
   });
 
   it('is a no-op with no drafts', async () => {
