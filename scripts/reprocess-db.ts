@@ -52,9 +52,11 @@ function makeAdapter(raw: any) {
 }
 
 async function main() {
-  const [src, out] = process.argv.slice(2);
+  const argv = process.argv.slice(2);
+  const enrich = argv.includes('--enrich');
+  const [src, out] = argv.filter((a) => !a.startsWith('--'));
   if (!src || !out) {
-    console.error('Usage: reprocess-db <source.db> <out.db>');
+    console.error('Usage: reprocess-db <source.db> <out.db> [--enrich]');
     process.exit(1);
   }
   fs.copyFileSync(src, out);
@@ -76,8 +78,10 @@ async function main() {
 
   const maxTs = (raw.prepare('SELECT MAX(timestamp_ms) m FROM raw_points').get() as any).m as number;
 
-  const res = await runPipeline(db, { upToMs: maxTs + 1, nowMs: maxTs });
-  console.log('runPipeline result:', JSON.stringify(res));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const transit = enrich ? ({ db, fetchFn: fetch } as any) : undefined;
+  const res = await runPipeline(db, { upToMs: maxTs + 1, nowMs: maxTs, transit });
+  console.log('runPipeline result:', JSON.stringify(res), enrich ? '(enriched)' : '(offline)');
 
   const trips = raw.prepare('SELECT COUNT(*) c FROM trips').get() as any;
   const sections = raw.prepare('SELECT COUNT(*) c FROM sections').get() as any;
