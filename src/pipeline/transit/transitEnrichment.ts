@@ -1,14 +1,24 @@
 import type { DraftReason } from '../../types';
+import type { Section } from '../../types';
 import {
   getTripById,
   setTripDraft,
   updateTripAggregates,
+  replaceTripSectionsAndBreaks,
+  updateTripTotals,
 } from '../../db/trips';
 import { updateSectionClassification } from '../../db/sections';
 import { co2GramsForSection } from '../../co2/compute';
 import { dominantModeFor } from '../dominantMode';
 import { RULES } from '../rules';
 import { classifySection } from './classifySection';
+import {
+  isMetroStation,
+  qualifiesAsSubwayGap,
+  buildSubwaySection,
+  rebuildWithSubway,
+  recomputeTotals,
+} from './subwayGaps';
 import {
   getRailwaysIn,
   getStopsNear,
@@ -49,6 +59,25 @@ function bboxOf(coords: Array<[number, number]>): BBox {
   return { south, west, north, east };
 }
 
+function firstCoord(geojson: string): [number, number] | null {
+  try {
+    const g = JSON.parse(geojson) as { coordinates?: Array<[number, number]> };
+    return g.coordinates && g.coordinates.length > 0 ? g.coordinates[0]! : null;
+  } catch {
+    return null;
+  }
+}
+function lastCoord(geojson: string): [number, number] | null {
+  try {
+    const g = JSON.parse(geojson) as { coordinates?: Array<[number, number]> };
+    return g.coordinates && g.coordinates.length > 0
+      ? g.coordinates[g.coordinates.length - 1]!
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Re-runnable, network-touching transit classification for one stored trip.
  * Walks the trip's `car` sections, reclassifies via Overpass, recomputes
@@ -66,34 +95,49 @@ export async function enrichTripTransit(
   if (!trip || trip.id == null) return { status: 'skipped', changed: 0 };
 
   const radius = RULES.TRANSIT_STOP_RADIUS.defaults.radiusM;
+  const subwayRadius = RULES.SUBWAY_STATION_RADIUS.defaults.radiusM;
   let changed = 0;
+  let restructured = false;
+  const conversions = new Map<number, Section>();
 
   try {
+    // Pass 1: reclassify motorized (car) sections via rail-match/station/bus.
     for (const sec of trip.sections) {
       if (sec.mode !== 'car' || sec.id == null) continue;
       const coords = coordsOf(sec.geojson);
       if (coords.length < 2) continue;
-
       const ways = await getRailwaysIn(deps, bboxOf(coords));
       const start = coords[0]!;
       const end = coords[coords.length - 1]!;
       const startStops = await getStopsNear(deps, start[1], start[0], radius);
       const endStops = await getStopsNear(deps, end[1], end[0], radius);
-
       const cls = classifySection({ coords, ways, startStops, endStops });
       if (cls) {
         const co2 = co2GramsForSection(cls.mode, sec.distanceM);
-        await updateSectionClassification(
-          db,
-          sec.id,
-          cls.mode,
-          cls.modeSource,
-          cls.modeConfidence,
-          co2
-        );
+        await updateSectionClassification(db, sec.id, cls.mode, cls.modeSource, cls.modeConfidence, co2);
         sec.mode = cls.mode;
         sec.co2G = co2;
         changed++;
+      }
+    }
+
+    // Pass 2: convert gap-derived breaks between two metro stations to subway.
+    const byOrdering = new Map<number, (typeof trip.sections)[number]>();
+    for (const s of trip.sections) byOrdering.set(s.ordering, s);
+    for (const b of trip.breaks) {
+      if (!b.gap) continue;
+      const before = byOrdering.get(b.ordering);
+      const after = byOrdering.get(b.ordering + 1);
+      if (!before || !after) continue;
+      const entry = lastCoord(before.geojson);
+      const exit = firstCoord(after.geojson);
+      if (!entry || !exit) continue;
+      if (!qualifiesAsSubwayGap(b, entry, exit)) continue;
+      const startStops = await getStopsNear(deps, entry[1], entry[0], subwayRadius);
+      const endStops = await getStopsNear(deps, exit[1], exit[0], subwayRadius);
+      if (startStops.some(isMetroStation) && endStops.some(isMetroStation)) {
+        conversions.set(b.ordering, buildSubwaySection(b, entry, exit));
+        restructured = true;
       }
     }
   } catch (err) {
@@ -106,9 +150,16 @@ export async function enrichTripTransit(
     return { status: 'draft', reason, changed };
   }
 
-  const dom = dominantModeFor(trip.sections);
-  const co2Total = trip.sections.reduce((a, s) => a + s.co2G, 0);
-  await updateTripAggregates(db, trip.id, dom, co2Total);
+  if (restructured) {
+    const rebuilt = rebuildWithSubway(trip.sections, trip.breaks, conversions);
+    await replaceTripSectionsAndBreaks(db, trip.id, rebuilt.sections, rebuilt.breaks);
+    const totals = recomputeTotals(rebuilt.sections);
+    await updateTripTotals(db, trip.id, totals.distanceM, totals.co2G, totals.dominantMode, totals.geojson);
+  } else {
+    const dom = dominantModeFor(trip.sections);
+    const co2Total = trip.sections.reduce((a, s) => a + s.co2G, 0);
+    await updateTripAggregates(db, trip.id, dom, co2Total);
+  }
   await setTripDraft(db, trip.id, false, null);
   return { status: 'enriched', changed };
 }
