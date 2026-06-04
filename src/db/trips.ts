@@ -167,6 +167,13 @@ export async function replaceTripSectionsAndBreaks(
   });
 }
 
+export async function listDraftTripIds(db: Db): Promise<number[]> {
+  const rows = await db.getAllAsync<{ id: number }>(
+    `SELECT id FROM trips WHERE draft = 1 ORDER BY start_time_ms DESC`
+  );
+  return rows.map((r) => r.id);
+}
+
 export async function updateTripTotals(
   db: Db,
   tripId: number,
