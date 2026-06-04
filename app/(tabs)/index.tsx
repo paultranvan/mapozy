@@ -21,6 +21,7 @@ import { refreshDraftTrips } from '@/tracking/refreshDrafts';
 import { TripSelectionBar } from '@/ui/TripSelectionBar';
 import { deleteTrips } from '@/db/trips';
 import { planRecompute, recomputeForTrips } from '@/pipeline/recomputeRange';
+import { makeOverpassDeps } from '@/tracking/overpassDeps';
 import { colors, space } from '@/theme/tokens';
 import { dayKey } from '@/lib/time';
 import type { Trip, Place } from '@/types';
@@ -141,7 +142,7 @@ export default function TripsScreen() {
         text: 'Recompute',
         onPress: async () => {
           try {
-            await recomputeForTrips(db, plan);
+            await recomputeForTrips(db, plan, Date.now(), makeOverpassDeps(db));
             await refreshAfterMutation();
             exitSelect();
           } catch (e) {
