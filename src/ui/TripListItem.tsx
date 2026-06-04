@@ -1,4 +1,5 @@
 import { View, StyleSheet, Pressable } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Text } from './Text';
 import { Card } from './Card';
@@ -45,7 +46,7 @@ export function TripListItem({ trip, startPlace, endPlace }: Props) {
   return (
     <Pressable onPress={() => router.push(`/trip/${trip.id}`)}>
       {({ pressed }) => (
-        <Card padded="sm" style={[styles.card, pressed && styles.pressed]}>
+        <Card padded="sm" style={[styles.card, trip.draft && styles.draftCard, pressed && styles.pressed]}>
           <View style={styles.row}>
             <ModeChip mode={trip.dominantMode} />
             <View style={styles.body}>
@@ -62,6 +63,14 @@ export function TripListItem({ trip, startPlace, endPlace }: Props) {
                 </View>
               ) : null}
             </View>
+            {trip.draft ? (
+              <MaterialCommunityIcons
+                name="wifi-off"
+                size={16}
+                color={colors.inkSoft}
+                style={styles.draftBadge}
+              />
+            ) : null}
             <View style={styles.tail}>
               <Text variant="numberM">{distValue}</Text>
               <Text variant="meta" soft style={styles.unit}>
@@ -82,6 +91,12 @@ const styles = StyleSheet.create({
   },
   pressed: {
     backgroundColor: colors.surfaceMuted,
+  },
+  draftCard: {
+    opacity: 0.55,
+  },
+  draftBadge: {
+    marginRight: space[1],
   },
   row: {
     flexDirection: 'row',
