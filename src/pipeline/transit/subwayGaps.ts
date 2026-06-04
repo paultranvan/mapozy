@@ -42,6 +42,7 @@ export function buildSubwaySection(
     distanceM,
     durationS,
     avgSpeedMps: distanceM / durationS,
+    // 2-point stub: max == avg (no intra-section samples to compute a real max).
     maxSpeedMps: distanceM / durationS,
     co2G: co2GramsForSection('subway', distanceM),
     geojson: JSON.stringify({ type: 'LineString', coordinates: coords }),
@@ -51,7 +52,8 @@ export function buildSubwaySection(
 }
 
 // Merge sections + breaks into one ordered stream, replacing each converted
-// break (keyed by its ordering) with its subway section, and renumber.
+// break (keyed by its original, pre-rebuild ordering) with its subway section,
+// and renumber.
 export function rebuildWithSubway(
   sections: Section[],
   breaks: TripBreak[],
