@@ -66,6 +66,25 @@ export async function getUnconsumedPointsInRange(
   return rows.map(rowToPoint);
 }
 
+// Raw fixes in a window regardless of consumed status. Transit enrichment runs
+// on stored (already-consumed) trips and needs the original sparse GPS fixes —
+// they sit on the rail, whereas the persisted section trace is resampled and
+// interpolates straight chords across gaps that bow off curved track.
+export async function getPointsInRange(
+  db: Db,
+  startMs: number,
+  endMs: number
+): Promise<RawPoint[]> {
+  const rows = await db.getAllAsync<Row>(
+    `SELECT * FROM raw_points
+     WHERE timestamp_ms BETWEEN ? AND ?
+     ORDER BY timestamp_ms ASC`,
+    startMs,
+    endMs
+  );
+  return rows.map(rowToPoint);
+}
+
 export async function getAllUnconsumedPoints(db: Db): Promise<RawPoint[]> {
   const rows = await db.getAllAsync<Row>(
     `SELECT * FROM raw_points WHERE consumed=0 ORDER BY timestamp_ms ASC`

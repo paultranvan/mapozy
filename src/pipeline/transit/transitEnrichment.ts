@@ -8,6 +8,7 @@ import {
   updateTripTotals,
 } from '../../db/trips';
 import { updateSectionClassification } from '../../db/sections';
+import { getPointsInRange } from '../../db/rawPoints';
 import { co2GramsForSection } from '../../co2/compute';
 import { dominantModeFor } from '../dominantMode';
 import { RULES } from '../rules';
@@ -102,9 +103,18 @@ export async function enrichTripTransit(
 
   try {
     // Pass 1: reclassify motorized (car) sections via rail-match/station/bus.
+    const maxAccM = RULES.ACCURACY_FILTER.defaults.maxAccuracyM;
     for (const sec of trip.sections) {
       if (sec.mode !== 'car' || sec.id == null) continue;
-      const coords = coordsOf(sec.geojson);
+      // Match on the RAW fixes, not the persisted resampled trace. A section's
+      // 10-s resampling interpolates straight chords across GPS gaps (e.g. a
+      // subway surfacing only near stations), and those chords bow far off the
+      // curved track — tanking rail coverage. The raw fixes sit on the rail.
+      // Fall back to the resampled trace when raw points aren't available.
+      const rawFixes = (await getPointsInRange(db, sec.startTimeMs, sec.endTimeMs))
+        .filter((p) => p.accuracyMeters <= maxAccM)
+        .map((p) => [p.longitude, p.latitude] as [number, number]);
+      const coords = rawFixes.length >= 2 ? rawFixes : coordsOf(sec.geojson);
       if (coords.length < 2) continue;
       const ways = await getRailwaysIn(deps, bboxOf(coords));
       const start = coords[0]!;
