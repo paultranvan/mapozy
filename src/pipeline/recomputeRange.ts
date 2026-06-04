@@ -10,6 +10,7 @@ import { countPointsInRange, resetConsumedPointsInRange } from '../db/rawPoints'
 import { resetConsumedActivitiesInRange } from '../db/rawActivities';
 import { getSetting, setSetting, SETTING_KEYS } from '../db/settings';
 import { runPipeline, type RunPipelineResult } from './runPipeline';
+import type { OverpassDeps } from '../lib/overpass';
 
 export interface RecomputePlan {
   selectedTripIds: number[];
@@ -82,7 +83,8 @@ export async function planRecompute(
 export async function recomputeForTrips(
   db: Db,
   plan: RecomputePlan,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  transit?: OverpassDeps
 ): Promise<RunPipelineResult> {
   if (plan.inRangeTripIds.length === 0) {
     return { tripsInserted: 0, pointsConsumed: 0, activitiesConsumed: 0 };
@@ -101,7 +103,7 @@ export async function recomputeForTrips(
     plan.seedPlaceId === null ? '' : String(plan.seedPlaceId)
   );
 
-  const result = await runPipeline(db, { upToMs: plan.spanEndMs, nowMs });
+  const result = await runPipeline(db, { upToMs: plan.spanEndMs, nowMs, transit });
 
   // If trips still exist after the span, the live last-known place is theirs,
   // not the span's — restore what we saved so live tracking is unaffected.
