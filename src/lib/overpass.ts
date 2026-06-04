@@ -51,7 +51,14 @@ export interface OverpassDeps {
   minIntervalMs?: number; // rate-limit; default 1100, tests pass 0
 }
 
-const ENDPOINT = 'https://overpass-api.de/api/interpreter';
+// Heavy rail-geometry queries over dense areas frequently 429/504 on a single
+// public instance, which would needlessly draft trips. Try mirrors in turn and
+// only fail once they all reject.
+const ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.openstreetmap.fr/api/interpreter',
+];
 const USER_AGENT = 'mapozy/0.1.0 (personal use)';
 const DEFAULT_MIN_INTERVAL_MS = 1100;
 const CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
@@ -116,30 +123,52 @@ async function rateLimit(minInterval: number): Promise<void> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function overpassFetch(deps: OverpassDeps, query: string): Promise<any[]> {
   const doFetch = deps.fetchFn ?? fetch;
-  await rateLimit(deps.minIntervalMs ?? DEFAULT_MIN_INTERVAL_MS);
-  let resp: Response;
-  try {
-    resp = await doFetch(ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': USER_AGENT,
-      },
-      body: 'data=' + encodeURIComponent(query),
-    });
-  } catch {
-    throw new OverpassOfflineError();
+  // Track failure kinds across endpoints so the thrown error (and hence the
+  // draft reason) reflects what actually went wrong.
+  let saw429 = false;
+  let sawServer = false;
+  let lastStatus = 0;
+  let sawNetwork = false;
+  for (const endpoint of ENDPOINTS) {
+    await rateLimit(deps.minIntervalMs ?? DEFAULT_MIN_INTERVAL_MS);
+    let resp: Response;
+    try {
+      resp = await doFetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': USER_AGENT,
+        },
+        body: 'data=' + encodeURIComponent(query),
+      });
+    } catch {
+      sawNetwork = true;
+      continue;
+    }
+    if (resp.status === 429) {
+      saw429 = true;
+      continue;
+    }
+    if (!resp.ok) {
+      sawServer = true;
+      lastStatus = resp.status;
+      continue;
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const json = (await resp.json()) as { elements?: any[] };
+      return json.elements ?? [];
+    } catch {
+      sawServer = true;
+      lastStatus = resp.status;
+      continue;
+    }
   }
-  if (resp.status === 429) throw new OverpassRateLimitError();
-  if (!resp.ok) throw new OverpassUnavailableError(resp.status);
-  let json: { elements?: any[] };
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    json = (await resp.json()) as { elements?: any[] };
-  } catch {
-    throw new OverpassUnavailableError(resp.status);
-  }
-  return json.elements ?? [];
+  // All endpoints rejected. Prefer the most actionable reason.
+  if (saw429) throw new OverpassRateLimitError();
+  if (sawServer) throw new OverpassUnavailableError(lastStatus);
+  if (sawNetwork) throw new OverpassOfflineError();
+  throw new OverpassUnavailableError(lastStatus);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -196,7 +225,7 @@ export async function getStopsNear(
     const north = snap(lat) + GRID_DEG + PAD_DEG;
     const east = snap(lon) + GRID_DEG + PAD_DEG;
     const q =
-      `[out:json][timeout:25];(` +
+      `[out:json][timeout:60];(` +
       `node["highway"="bus_stop"](${south},${west},${north},${east});` +
       `node["railway"~"^(station|halt|tram_stop|subway_entrance)$"](${south},${west},${north},${east});` +
       `node["public_transport"~"^(platform|stop_position)$"](${south},${west},${north},${east});` +
@@ -218,7 +247,7 @@ export async function getRailwaysIn(
   if (ways === null) {
     const { south, west, north, east } = snapped;
     const q =
-      `[out:json][timeout:25];` +
+      `[out:json][timeout:60];` +
       `way["railway"~"^(rail|light_rail|subway|tram|narrow_gauge)$"](${south},${west},${north},${east});` +
       `out geom;`;
     ways = parseWays(await overpassFetch(deps, q));

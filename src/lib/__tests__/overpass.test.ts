@@ -53,7 +53,19 @@ describe('overpass — getStopsNear', () => {
     expect(calls).toBe(1);
   });
 
-  it('throws OverpassRateLimitError on HTTP 429', async () => {
+  it('falls back to the next endpoint when the first one errors', async () => {
+    let calls = 0;
+    const deps = await mkDeps(async () => {
+      calls++;
+      if (calls === 1) return fakeResponse({}, { status: 504, ok: false });
+      return fakeResponse(stopsBody);
+    });
+    const stops = await getStopsNear(deps, 45.0, 5.0, 70);
+    expect(calls).toBe(2); // first endpoint 504'd, second succeeded
+    expect(stops.map((s) => s.id)).toEqual([1]);
+  });
+
+  it('throws OverpassRateLimitError only after all endpoints 429', async () => {
     const deps = await mkDeps(async () => fakeResponse({}, { status: 429, ok: false }));
     await expect(getStopsNear(deps, 45.0, 5.0, 70)).rejects.toBeInstanceOf(
       OverpassRateLimitError
