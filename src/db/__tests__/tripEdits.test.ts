@@ -8,7 +8,12 @@ import {
   splitSection,
   mergeTrips,
   splitTrip,
+  resetTripToAuto,
 } from '../tripEdits';
+import { insertRawPoint } from '../rawPoints';
+import { insertRawActivity } from '../rawActivities';
+import { runPipeline } from '../../pipeline/runPipeline';
+import type { Db } from '../client';
 import type { Trip, Section } from '../../types';
 
 function line(coords: Array<[number, number]>): string {
@@ -160,6 +165,61 @@ describe('mergeTrips', () => {
     expect(out.endTimeMs).toBe(50_000);
     expect(out.locked).toBe(true);
     expect(out.breaks.some((b) => b.ordering === 1)).toBe(true);
+  });
+});
+
+async function seedOneTrip(db: Db, t0 = 1_700_000_000_000): Promise<number> {
+  let t = t0;
+  const lat0 = 45.0;
+  const lon0 = 5.0;
+  const stayMin = 35;
+  for (let k = 0; k <= 1; k++) {
+    const lat = lat0 + 0.02 * k;
+    for (let i = 0; i <= stayMin; i++) {
+      await insertRawPoint(db, {
+        timestampMs: t + i * 60_000, latitude: lat, longitude: lon0, altitude: null,
+        accuracyMeters: 5, speedMps: null, bearingDeg: null, batteryLevel: null, isCharging: false,
+      });
+    }
+    await insertRawActivity(db, { timestampMs: t + 60_000, type: 'still', confidence: 90 });
+    await insertRawActivity(db, { timestampMs: t + 10 * 60_000, type: 'still', confidence: 90 });
+    t += stayMin * 60_000 + 60_000;
+    if (k === 1) break;
+    const nextLat = lat0 + 0.02;
+    for (let i = 0; i <= 12; i++) {
+      const f = i / 12;
+      await insertRawPoint(db, {
+        timestampMs: t + i * 15_000, latitude: lat + (nextLat - lat) * f, longitude: lon0,
+        altitude: null, accuracyMeters: 5, speedMps: null, bearingDeg: null,
+        batteryLevel: null, isCharging: false,
+      });
+      await insertRawActivity(db, { timestampMs: t + i * 15_000, type: 'in_vehicle', confidence: 90 });
+    }
+    t += 13 * 15_000 + 1000;
+  }
+  return t;
+}
+
+describe('resetTripToAuto', () => {
+  it('clears locked/edited and rebuilds the trip from raw data', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    const endMs = await seedOneTrip(db);
+    await runPipeline(db, { upToMs: endMs + 1, nowMs: endMs });
+    const trips = await listTrips(db, 100, 0);
+    expect(trips.length).toBe(1);
+    const tripId = trips[0]!.id!;
+
+    // Simulate a structural edit having happened.
+    await db.runAsync(`UPDATE trips SET locked = 1, edited = 1 WHERE id = ?`, tripId);
+
+    await resetTripToAuto(db, tripId, endMs);
+
+    const after = await listTrips(db, 100, 0);
+    for (const t of after) {
+      expect(t.locked).toBe(false);
+      expect(t.edited).toBe(false);
+    }
   });
 });
 
