@@ -11,6 +11,8 @@ import { countPointsInRange, resetConsumedPointsInRange } from '../db/rawPoints'
 import { resetConsumedActivitiesInRange } from '../db/rawActivities';
 import { getSetting, setSetting, SETTING_KEYS } from '../db/settings';
 import { runPipeline, type RunPipelineResult } from './runPipeline';
+import { snapshotUserModes, reapplyUserModes } from './edits/reapplyUserModes';
+import { recomputeAndPersistTripAggregates } from '../db/tripAggregates';
 import type { OverpassDeps } from '../lib/overpass';
 
 export interface RecomputePlan {
@@ -126,6 +128,10 @@ export async function recomputeForTrips(
 
   const savedSeed = await getSetting(db, SETTING_KEYS.LAST_KNOWN_PLACE_ID);
 
+  // Capture mode overrides so a no-op rebuild (identical section bounds) keeps
+  // the user's edits; a structural rebuild drops the now-orphaned overrides.
+  const userModeSnapshot = await snapshotUserModes(db, plan.inRangeTripIds);
+
   await deleteTrips(db, plan.inRangeTripIds);
   // Reset consumed flags only OUTSIDE locked trips' ranges, so the pipeline
   // re-segments the unlocked gaps while leaving locked trips' points consumed
@@ -144,6 +150,13 @@ export async function recomputeForTrips(
   );
 
   const result = await runPipeline(db, { upToMs: plan.spanEndMs, nowMs, transit });
+
+  // Reapply mode overrides to rebuilt sections with matching bounds, then
+  // refresh aggregates for any trip that regained an override.
+  await reapplyUserModes(db, userModeSnapshot);
+  for (const t of await getTripsOverlapping(db, plan.spanStartMs, plan.spanEndMs)) {
+    if (t.id != null && t.edited) await recomputeAndPersistTripAggregates(db, t.id);
+  }
 
   // If trips still exist after the span, the live last-known place is theirs,
   // not the span's — restore what we saved so live tracking is unaffected.
