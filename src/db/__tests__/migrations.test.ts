@@ -32,3 +32,21 @@ describe('migration 004', () => {
     expect(t?.name).toBe('transit_cache');
   });
 });
+
+describe('migration 006: trip editing columns', () => {
+  it('adds user_mode to sections and locked/edited to trips', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    expect(await getSchemaVersion(db)).toBeGreaterThanOrEqual(6);
+
+    const secCols = (
+      await db.getAllAsync<{ name: string }>(`PRAGMA table_info(sections)`)
+    ).map((r) => r.name);
+    expect(secCols).toContain('user_mode');
+
+    const tripCols = (
+      await db.getAllAsync<{ name: string }>(`PRAGMA table_info(trips)`)
+    ).map((r) => r.name);
+    expect(tripCols).toEqual(expect.arrayContaining(['locked', 'edited']));
+  });
+});

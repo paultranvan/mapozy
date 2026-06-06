@@ -21,7 +21,8 @@ export type ModeSource =
   | 'speed'
   | 'railmatch'
   | 'station'
-  | 'gap';
+  | 'gap'
+  | 'manual';
 
 // Why a trip could not be fully classified online (left as a `draft`).
 export type DraftReason = 'offline' | 'rate_limited' | 'overpass_error';
@@ -75,6 +76,7 @@ export interface Section {
   geojson: string;
   modeSource?: ModeSource;
   modeConfidence?: number;
+  userMode?: Mode | null;
 }
 
 export interface TripBreak {
@@ -102,6 +104,8 @@ export interface Trip {
   manualPurpose: string | null;
   draft: boolean;
   draftReason: DraftReason | null;
+  edited: boolean;
+  locked: boolean;
   createdAtMs: number;
   sections: Section[];
   breaks: TripBreak[];
