@@ -158,6 +158,21 @@ export async function getTripsOverlapping(
   return rows.map(rowToTrip);
 }
 
+export async function getLockedTripsOverlapping(
+  db: Db,
+  startMs: number,
+  endMs: number
+): Promise<Trip[]> {
+  const rows = await db.getAllAsync<Row>(
+    `SELECT * FROM trips
+     WHERE locked = 1 AND start_time_ms < ? AND end_time_ms > ?
+     ORDER BY start_time_ms ASC`,
+    endMs,
+    startMs
+  );
+  return rows.map(rowToTrip);
+}
+
 export async function getTripBefore(db: Db, ms: number): Promise<Trip | null> {
   const row = await db.getFirstAsync<Row>(
     `SELECT * FROM trips WHERE start_time_ms < ? ORDER BY start_time_ms DESC LIMIT 1`,
