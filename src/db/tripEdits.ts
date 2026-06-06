@@ -18,6 +18,8 @@ import {
   splitSectionAt,
   parseCoords,
 } from '../pipeline/edits/sectionGeometry';
+import { planRecompute, recomputeForTrips } from '../pipeline/recomputeRange';
+import type { OverpassDeps } from '../lib/overpass';
 
 /** Re-number sections 0..n-1 and recompute each section's co2 from effective mode. */
 function renumberAndCost(sections: Section[]): Section[] {
@@ -229,4 +231,20 @@ export async function splitTrip(
   await recomputeAndPersistTripAggregates(db, result.firstTripId);
   await recomputeAndPersistTripAggregates(db, result.secondTripId);
   return result;
+}
+
+/**
+ * Discard all manual edits on a trip and rebuild it (and its span) from raw
+ * GPS. Unlocks first so the recompute treats it as eligible. `nowMs`/`transit`
+ * pass through to the pipeline.
+ */
+export async function resetTripToAuto(
+  db: Db,
+  tripId: number,
+  nowMs: number = Date.now(),
+  transit?: OverpassDeps
+): Promise<void> {
+  await setTripEditFlags(db, tripId, false, false);
+  const plan = await planRecompute(db, [tripId], nowMs);
+  await recomputeForTrips(db, plan, nowMs, transit);
 }
