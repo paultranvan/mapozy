@@ -2,6 +2,7 @@ import type { Db } from '../db/client';
 import {
   getTripsByIds,
   getTripsOverlapping,
+  getLockedTripsOverlapping,
   getTripBefore,
   getTripAfter,
   deleteTrips,
@@ -21,6 +22,9 @@ export interface RecomputePlan {
   extraCount: number; // in-range trips not in selectedTripIds
   missingRawTripIds: number[];
   hasTripsAfterSpan: boolean;
+  // Locked trips overlapping the span: never deleted, and their raw-point time
+  // ranges are kept consumed so the pipeline doesn't recreate them.
+  lockedRanges: [number, number][];
 }
 
 export async function planRecompute(
@@ -39,6 +43,7 @@ export async function planRecompute(
       extraCount: 0,
       missingRawTripIds: [],
       hasTripsAfterSpan: false,
+      lockedRanges: [],
     };
   }
 
@@ -52,11 +57,20 @@ export async function planRecompute(
   const seedPlaceId = prevTrip ? prevTrip.endPlaceId : null;
 
   const inRange = await getTripsOverlapping(db, spanStartMs, spanEndMs);
+  const lockedSet = new Set(
+    (await getLockedTripsOverlapping(db, spanStartMs, spanEndMs)).map((t) => t.id!)
+  );
+  // Locked trips are user-curated: never delete or reprocess them.
+  const deletable = inRange.filter((t) => !lockedSet.has(t.id!));
+  const lockedRanges = inRange
+    .filter((t) => lockedSet.has(t.id!))
+    .map((t) => [t.startTimeMs, t.endTimeMs] as [number, number]);
+
   const selectedSet = new Set(tripIds);
-  const extraCount = inRange.filter((t) => !selectedSet.has(t.id!)).length;
+  const extraCount = deletable.filter((t) => !selectedSet.has(t.id!)).length;
 
   const missingRawTripIds: number[] = [];
-  for (const t of inRange) {
+  for (const t of deletable) {
     const n = await countPointsInRange(db, t.startTimeMs, t.endTimeMs);
     if (n === 0) missingRawTripIds.push(t.id!);
   }
@@ -66,10 +80,11 @@ export async function planRecompute(
     spanStartMs,
     spanEndMs,
     seedPlaceId,
-    inRangeTripIds: inRange.map((t) => t.id!),
+    inRangeTripIds: deletable.map((t) => t.id!),
     extraCount,
     missingRawTripIds,
     hasTripsAfterSpan: nextTrip !== null,
+    lockedRanges,
   };
 }
 
@@ -80,6 +95,25 @@ export async function planRecompute(
 // newer than spanEndMs). Not atomic — runPipeline transacts per trip insert; a
 // mid-way failure leaves the span partially rebuilt and is recovered by simply
 // re-running recompute (or the whole-DB reprocess script).
+// Complement of `locked` intervals within [start, end), as sorted sub-ranges.
+function unlockedSubRanges(
+  start: number,
+  end: number,
+  locked: [number, number][]
+): [number, number][] {
+  const sorted = [...locked].sort((a, b) => a[0] - b[0]);
+  const out: [number, number][] = [];
+  let cursor = start;
+  for (const [ls, le] of sorted) {
+    const s = Math.max(start, ls);
+    const e = Math.min(end, le);
+    if (s > cursor) out.push([cursor, s]);
+    if (e > cursor) cursor = e;
+  }
+  if (cursor < end) out.push([cursor, end]);
+  return out;
+}
+
 export async function recomputeForTrips(
   db: Db,
   plan: RecomputePlan,
@@ -93,8 +127,14 @@ export async function recomputeForTrips(
   const savedSeed = await getSetting(db, SETTING_KEYS.LAST_KNOWN_PLACE_ID);
 
   await deleteTrips(db, plan.inRangeTripIds);
-  await resetConsumedPointsInRange(db, plan.spanStartMs, plan.spanEndMs);
-  await resetConsumedActivitiesInRange(db, plan.spanStartMs, plan.spanEndMs);
+  // Reset consumed flags only OUTSIDE locked trips' ranges, so the pipeline
+  // re-segments the unlocked gaps while leaving locked trips' points consumed
+  // (and thus their trips intact).
+  const subRanges = unlockedSubRanges(plan.spanStartMs, plan.spanEndMs, plan.lockedRanges);
+  for (const [s, e] of subRanges) {
+    await resetConsumedPointsInRange(db, s, e);
+    await resetConsumedActivitiesInRange(db, s, e);
+  }
 
   // Seed the span's first trip from the place the user was at before the span.
   await setSetting(
