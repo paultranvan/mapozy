@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet, Alert, Pressable } from 'react-native';
-import type { AlertButton } from 'react-native';
+import { View, StyleSheet, Pressable } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,14 +18,14 @@ import {
   resetTripToAuto,
 } from '@/db/tripEdits';
 import { locateSplitPoint } from '@/pipeline/edits/locateSplitPoint';
-import { effectiveMode } from '@/pipeline/effectiveMode';
 import { makeOverpassDeps } from '@/tracking/overpassDeps';
 import { geocodePlaceLazy, fallbackPlaceLabel } from '@/pipeline/geocoding';
 import { TripMap } from '@/ui/TripMap';
 import { Text } from '@/ui/Text';
 import { Timeline } from '@/ui/Timeline';
-import { ModePickerSheet } from '@/ui/ModePickerSheet';
 import { SplitPickerSheet } from '@/ui/SplitPickerSheet';
+import { ActionSheet, type SheetAction } from '@/ui/ActionSheet';
+import { EditedPill } from '@/ui/EditedPill';
 import { colors, radii, space } from '@/theme/tokens';
 import type { Section, Mode } from '@/types';
 import {
@@ -75,8 +74,9 @@ export default function TripDetailScreen() {
   }, [db, qc, tripQ.data]);
 
   const snapPoints = useMemo(() => ['38%', '88%'], []);
-  const [modePickerSection, setModePickerSection] = useState<Section | null>(null);
   const [splitTarget, setSplitTarget] = useState<SplitTarget | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuActions, setMenuActions] = useState<SheetAction[]>([]);
 
   if (tripQ.isLoading || !tripQ.data) {
     return (
@@ -111,16 +111,24 @@ export default function TripDetailScreen() {
     }
   }
 
-  async function onPickMode(mode: Mode) {
-    const sec = modePickerSection;
-    setModePickerSection(null);
-    if (!sec?.id) return;
-    await setSectionMode(db, id, sec.id, mode);
+  async function onChangeMode(section: Section, mode: Mode) {
+    if (!section.id) return;
+    await setSectionMode(db, id, section.id, mode);
     await refresh();
   }
 
-  function openSplit(target: SplitTarget) {
-    setSplitTarget(target);
+  function onSplitLeg(section: Section) {
+    setSplitTarget({ kind: 'leg', section });
+  }
+
+  async function onMergeUp(index: number) {
+    await mergeAdjacentSections(db, id, index - 1);
+    await refresh();
+  }
+
+  async function onMergeDown(index: number) {
+    await mergeAdjacentSections(db, id, index);
+    await refresh();
   }
 
   async function onSplitConfirm(point: [number, number]) {
@@ -138,46 +146,21 @@ export default function TripDetailScreen() {
     await refresh();
   }
 
-  function onSectionPress(section: Section, index: number) {
-    const buttons: AlertButton[] = [
-      { text: 'Change mode', onPress: () => setModePickerSection(section) },
-    ];
-    if (sectionVertexCount(section) >= 3) {
-      buttons.push({ text: 'Split this leg…', onPress: () => openSplit({ kind: 'leg', section }) });
-    }
-    if (index > 0) {
-      buttons.push({
-        text: 'Merge with leg above',
-        onPress: async () => {
-          await mergeAdjacentSections(db, id, index - 1);
-          await refresh();
-        },
-      });
-    }
-    if (index < trip.sections.length - 1) {
-      buttons.push({
-        text: 'Merge with leg below',
-        onPress: async () => {
-          await mergeAdjacentSections(db, id, index);
-          await refresh();
-        },
-      });
-    }
-    buttons.push({ text: 'Cancel', style: 'cancel' });
-    const m = effectiveMode(section);
-    Alert.alert(`${m.charAt(0).toUpperCase() + m.slice(1)} leg`, undefined, buttons);
-  }
-
   async function onMenu() {
     const prev = await getTripBefore(db, trip.startTimeMs);
     const next = await getTripAfter(db, trip.endTimeMs);
-    const buttons: AlertButton[] = [];
+    const acts: SheetAction[] = [];
     if (trip.sections.some((s: Section) => sectionVertexCount(s) >= 3)) {
-      buttons.push({ text: 'Split trip…', onPress: () => openSplit({ kind: 'trip' }) });
+      acts.push({
+        label: 'Split this trip',
+        icon: 'call-split',
+        onPress: () => setSplitTarget({ kind: 'trip' }),
+      });
     }
     if (prev?.id != null) {
-      buttons.push({
-        text: 'Merge with previous trip',
+      acts.push({
+        label: 'Merge with previous trip',
+        icon: 'arrow-up',
         onPress: async () => {
           const prevId = prev.id!;
           await mergeTrips(db, prevId, id);
@@ -187,8 +170,9 @@ export default function TripDetailScreen() {
       });
     }
     if (next?.id != null) {
-      buttons.push({
-        text: 'Merge with next trip',
+      acts.push({
+        label: 'Merge with next trip',
+        icon: 'arrow-down',
         onPress: async () => {
           await mergeTrips(db, id, next.id!);
           await refresh();
@@ -196,8 +180,9 @@ export default function TripDetailScreen() {
       });
     }
     if (trip.edited) {
-      buttons.push({
-        text: 'Reset to auto',
+      acts.push({
+        label: 'Reset to auto-detected',
+        icon: 'backup-restore',
         onPress: async () => {
           await resetTripToAuto(db, id, Date.now(), makeOverpassDeps(db));
           await refresh();
@@ -205,17 +190,18 @@ export default function TripDetailScreen() {
         },
       });
     }
-    buttons.push({
-      text: 'Delete trip',
-      style: 'destructive',
+    acts.push({
+      label: 'Delete trip',
+      icon: 'trash-can-outline',
+      destructive: true,
       onPress: async () => {
         await deleteTrip(db, id);
         await refresh();
         router.back();
       },
     });
-    buttons.push({ text: 'Cancel', style: 'cancel' });
-    Alert.alert('Trip', undefined, buttons);
+    setMenuActions(acts);
+    setMenuOpen(true);
   }
 
   const startLabel =
@@ -273,10 +259,12 @@ export default function TripDetailScreen() {
         handleIndicatorStyle={styles.handle}
       >
         <BottomSheetScrollView contentContainerStyle={styles.sheet}>
-          <Text variant="ribbon" soft style={styles.ribbon}>
-            {ribbon}
-            {trip.edited ? '  ·  EDITED' : ''}
-          </Text>
+          <View style={styles.ribbonRow}>
+            <Text variant="ribbon" soft>
+              {ribbon}
+            </Text>
+            {trip.edited ? <EditedPill /> : null}
+          </View>
           <Text variant="display" style={styles.headline}>
             {startLabel} to {endLabel}
           </Text>
@@ -292,7 +280,11 @@ export default function TripDetailScreen() {
               endTimeMs={trip.endTimeMs}
               sections={trip.sections}
               breaks={trip.breaks}
-              onSectionPress={onSectionPress}
+              editable
+              onChangeMode={onChangeMode}
+              onSplitLeg={onSplitLeg}
+              onMergeUp={onMergeUp}
+              onMergeDown={onMergeDown}
             />
           </View>
 
@@ -303,10 +295,11 @@ export default function TripDetailScreen() {
           </View>
         </BottomSheetScrollView>
       </BottomSheet>
-      <ModePickerSheet
-        visible={modePickerSection !== null}
-        onPick={onPickMode}
-        onClose={() => setModePickerSection(null)}
+      <ActionSheet
+        visible={menuOpen}
+        title="Edit trip"
+        actions={menuActions}
+        onClose={() => setMenuOpen(false)}
       />
       <SplitPickerSheet
         visible={splitTarget !== null}
@@ -402,7 +395,10 @@ const styles = StyleSheet.create({
     paddingTop: space[2],
     paddingBottom: space[6],
   },
-  ribbon: {
+  ribbonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
     marginBottom: space[1],
   },
   headline: {
