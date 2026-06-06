@@ -210,8 +210,9 @@ describe('resetTripToAuto', () => {
     expect(trips.length).toBe(1);
     const tripId = trips[0]!.id!;
 
-    // Simulate a structural edit having happened.
+    // Simulate edits: a structural lock AND a per-leg mode override.
     await db.runAsync(`UPDATE trips SET locked = 1, edited = 1 WHERE id = ?`, tripId);
+    await db.runAsync(`UPDATE sections SET user_mode = 'subway' WHERE trip_id = ?`, tripId);
 
     await resetTripToAuto(db, tripId, endMs);
 
@@ -220,6 +221,11 @@ describe('resetTripToAuto', () => {
       expect(t.locked).toBe(false);
       expect(t.edited).toBe(false);
     }
+    // The override must NOT be reapplied to the rebuilt sections.
+    const overrides = await db.getAllAsync<{ c: number }>(
+      `SELECT COUNT(*) as c FROM sections WHERE user_mode IS NOT NULL`
+    );
+    expect(overrides[0]!.c).toBe(0);
   });
 });
 

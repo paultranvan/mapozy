@@ -244,6 +244,12 @@ export async function resetTripToAuto(
   nowMs: number = Date.now(),
   transit?: OverpassDeps
 ): Promise<void> {
+  // Clear overrides BEFORE recompute so they aren't snapshotted and reapplied
+  // to the rebuilt sections — reset must discard every manual edit.
+  await db.runAsync(
+    `UPDATE sections SET user_mode = NULL WHERE trip_id = ?`,
+    tripId
+  );
   await setTripEditFlags(db, tripId, false, false);
   const plan = await planRecompute(db, [tripId], nowMs);
   await recomputeForTrips(db, plan, nowMs, transit);
