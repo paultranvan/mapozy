@@ -57,4 +57,14 @@ describe('sections DB — mode metadata round-trip', () => {
     expect(s!.modeSource).toBeUndefined();
     expect(s!.modeConfidence).toBeUndefined();
   });
+
+  it('round-trips user_mode', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    const tripId = await makeTripRow(db);
+    await insertSection(db, tripId, baseSection({ userMode: 'bus' }));
+
+    const [s] = await getSectionsForTrip(db, tripId);
+    expect(s!.userMode).toBe('bus');
+  });
 });

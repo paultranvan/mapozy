@@ -25,6 +25,8 @@ function draftCarTrip(): Trip {
     manualPurpose: null,
     draft: true,
     draftReason: 'offline',
+    edited: false,
+    locked: false,
     createdAtMs: 0,
     sections: [
       { ordering: 0, startTimeMs: 0, endTimeMs: 600_000, mode: 'car', distanceM: 5000, durationS: 600, avgSpeedMps: 8.3, maxSpeedMps: 30, co2G: 1090, geojson: gj },

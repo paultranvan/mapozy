@@ -17,6 +17,8 @@ function baseTrip(over: Partial<Trip>): Trip {
     manualPurpose: null,
     draft: false,
     draftReason: null,
+    edited: false,
+    locked: false,
     createdAtMs: 0,
     sections: [],
     breaks: [],

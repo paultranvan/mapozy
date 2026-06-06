@@ -124,6 +124,8 @@ describe('db repositories (in-memory via better-sqlite3)', () => {
         manualPurpose: null,
         draft: false,
         draftReason: null,
+        edited: false,
+        locked: false,
         createdAtMs: 1000,
         sections: [
           {
@@ -174,6 +176,8 @@ describe('db repositories (in-memory via better-sqlite3)', () => {
           manualPurpose: null,
           draft: false,
           draftReason: null,
+          edited: false,
+          locked: false,
           createdAtMs: t,
           sections: [],
           breaks: [],
@@ -199,6 +203,8 @@ describe('db repositories (in-memory via better-sqlite3)', () => {
         manualPurpose: null,
         draft: false,
         draftReason: null,
+        edited: false,
+        locked: false,
         createdAtMs: 1000,
         sections: [
           {

@@ -34,6 +34,8 @@ function carTrip(): Trip {
     manualPurpose: null,
     draft: false,
     draftReason: null,
+    edited: false,
+    locked: false,
     createdAtMs: 0,
     sections: [mkSec(0), mkSec(1)],
     breaks: [{ ordering: 0, startTimeMs: 500, endTimeMs: 600_500, centerLat: 45, centerLon: 5, gap: true }],

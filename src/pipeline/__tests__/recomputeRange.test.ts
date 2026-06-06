@@ -29,6 +29,8 @@ function mkTrip(
     manualPurpose: null,
     draft: false,
     draftReason: null,
+    edited: false,
+    locked: false,
     createdAtMs: startMs,
     sections: [],
     breaks: [],

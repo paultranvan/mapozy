@@ -26,6 +26,8 @@ function mkTrip(opts: {
     manualPurpose: null,
     draft: false,
     draftReason: null,
+    edited: false,
+    locked: false,
     createdAtMs: opts.startMs,
     sections: [
       {

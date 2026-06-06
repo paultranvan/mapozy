@@ -18,6 +18,8 @@ function tripWithCarSection(): Trip {
     manualPurpose: null,
     draft: true,
     draftReason: 'offline',
+    edited: false,
+    locked: false,
     createdAtMs: 0,
     sections: [
       {

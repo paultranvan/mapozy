@@ -54,6 +54,8 @@ function carTrip(): Trip {
     manualPurpose: null,
     draft: false,
     draftReason: null,
+    edited: false,
+    locked: false,
     createdAtMs: 0,
     sections: [
       {
