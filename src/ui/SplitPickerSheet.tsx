@@ -127,8 +127,12 @@ export function SplitPickerSheet({
           </View>
         )}
         <View style={styles.bar}>
-          <Text variant="title" style={styles.title}>
+          <View style={styles.grab} />
+          <Text variant="display" style={styles.title}>
             {title}
+          </Text>
+          <Text variant="ribbon" soft style={styles.hint}>
+            Drag the marker along the route
           </Text>
           <View style={styles.buttons}>
             <Pressable style={[styles.btn, styles.cancel]} onPress={onClose}>
@@ -165,15 +169,26 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    padding: space[4],
+    paddingHorizontal: space[4],
+    paddingTop: space[2],
+    paddingBottom: space[5],
     backgroundColor: colors.surface,
     borderTopLeftRadius: radii.sheet,
     borderTopRightRadius: radii.sheet,
-    gap: space[3],
+    gap: space[2],
+  },
+  grab: {
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.divider,
+    alignSelf: 'center',
+    marginBottom: space[1],
   },
   title: { textAlign: 'center' },
+  hint: { textAlign: 'center', marginBottom: space[2] },
   buttons: { flexDirection: 'row', gap: space[3] },
   btn: { flex: 1, paddingVertical: space[3], borderRadius: radii.pill, alignItems: 'center' },
   cancel: { backgroundColor: colors.surfaceMuted },
-  confirm: { backgroundColor: colors.accent },
+  confirm: { backgroundColor: colors.deep },
 });
