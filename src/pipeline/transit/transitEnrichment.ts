@@ -94,6 +94,8 @@ export async function enrichTripTransit(
   const db = deps.db;
   const trip = await getTripById(db, tripId);
   if (!trip || trip.id == null) return { status: 'skipped', changed: 0 };
+  // Structurally-edited trips are user-curated; never auto-reclassify them.
+  if (trip.locked) return { status: 'skipped', changed: 0 };
 
   const radius = RULES.TRANSIT_STOP_RADIUS.defaults.radiusM;
   const subwayRadius = RULES.SUBWAY_STATION_RADIUS.defaults.radiusM;
@@ -106,6 +108,7 @@ export async function enrichTripTransit(
     const maxAccM = RULES.ACCURACY_FILTER.defaults.maxAccuracyM;
     for (const sec of trip.sections) {
       if (sec.mode !== 'car' || sec.id == null) continue;
+      if (sec.userMode != null) continue; // user override wins
       // Match on the RAW fixes, not the persisted resampled trace. A section's
       // 10-s resampling interpolates straight chords across GPS gaps (e.g. a
       // subway surfacing only near stations), and those chords bow far off the
