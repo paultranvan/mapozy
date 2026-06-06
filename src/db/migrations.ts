@@ -140,12 +140,26 @@ const MIGRATION_005 = `
 ALTER TABLE trip_breaks ADD COLUMN gap INTEGER NOT NULL DEFAULT 0;
 `;
 
+// Trip editing (see docs/superpowers/specs/2026-06-06-trip-editing-design.md):
+//   - sections.user_mode: a user override of the auto-detected mode. NULL = use
+//     mode. effectiveMode = user_mode ?? mode.
+//   - trips.edited: any manual edit happened (mode or structural) — drives the
+//     "edited" badge and enables Reset to auto.
+//   - trips.locked: trip was STRUCTURALLY edited (split/merge); excluded from
+//     auto-recompute and transit refresh until Reset to auto.
+const MIGRATION_006 = `
+ALTER TABLE sections ADD COLUMN user_mode TEXT;
+ALTER TABLE trips ADD COLUMN edited INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE trips ADD COLUMN locked INTEGER NOT NULL DEFAULT 0;
+`;
+
 export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 1, sql: MIGRATION_001 },
   { version: 2, sql: MIGRATION_002 },
   { version: 3, sql: MIGRATION_003 },
   { version: 4, sql: MIGRATION_004 },
   { version: 5, sql: MIGRATION_005 },
+  { version: 6, sql: MIGRATION_006 },
 ];
 
 export async function getSchemaVersion(db: Db): Promise<number> {
