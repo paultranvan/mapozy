@@ -43,4 +43,12 @@ describe('listDraftTripIds', () => {
     await insertTripWithSections(db, trip(false, 1000));
     expect(await listDraftTripIds(db)).toEqual([]);
   });
+
+  it('excludes locked trips even if they are draft', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    const id = await insertTripWithSections(db, trip(true, 1000));
+    await db.runAsync(`UPDATE trips SET locked = 1 WHERE id = ?`, id);
+    expect(await listDraftTripIds(db)).not.toContain(id);
+  });
 });
