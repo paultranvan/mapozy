@@ -70,6 +70,23 @@ export async function findOrCreatePlace(
   return res.lastInsertRowId;
 }
 
+export async function insertPlaceAt(
+  db: Db,
+  lat: number,
+  lon: number,
+  timestampMs: number
+): Promise<number> {
+  const res = await db.runAsync(
+    `INSERT INTO places (latitude, longitude, radius_m, visit_count, first_seen_ms, last_seen_ms)
+     VALUES (?, ?, 50, 1, ?, ?)`,
+    lat,
+    lon,
+    timestampMs,
+    timestampMs
+  );
+  return res.lastInsertRowId;
+}
+
 export async function getPlaceById(db: Db, id: number): Promise<Place | null> {
   const r = await db.getFirstAsync<Row>(`SELECT * FROM places WHERE id = ?`, id);
   return r ? rowToPlace(r) : null;

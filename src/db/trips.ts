@@ -250,6 +250,22 @@ export async function listDraftTripIds(db: Db): Promise<number[]> {
   return rows.map((r) => r.id);
 }
 
+export async function updateTripTimes(
+  db: Db,
+  tripId: number,
+  startTimeMs: number,
+  endTimeMs: number,
+  endPlaceId: number | null
+): Promise<void> {
+  await db.runAsync(
+    `UPDATE trips SET start_time_ms = ?, end_time_ms = ?, end_place_id = ? WHERE id = ?`,
+    startTimeMs,
+    endTimeMs,
+    endPlaceId,
+    tripId
+  );
+}
+
 export async function updateTripTotals(
   db: Db,
   tripId: number,
