@@ -72,6 +72,21 @@ export async function getSectionsForTrip(db: Db, tripId: number): Promise<Sectio
   return rows.map(rowToSection);
 }
 
+export async function setSectionUserMode(
+  db: Db,
+  sectionId: number,
+  userMode: Mode | null,
+  co2G: number
+): Promise<void> {
+  await db.runAsync(
+    `UPDATE sections SET user_mode = ?, mode_source = ?, co2_g = ? WHERE id = ?`,
+    userMode,
+    userMode ? 'manual' : null,
+    co2G,
+    sectionId
+  );
+}
+
 export async function updateSectionClassification(
   db: Db,
   sectionId: number,
