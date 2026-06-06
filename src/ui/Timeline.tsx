@@ -1,9 +1,11 @@
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Pressable } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, space } from '@/theme/tokens';
 import { Text } from './Text';
 import { ModeIcon } from './ModeIcon';
+import { effectiveMode } from '@/pipeline/effectiveMode';
 import { formatDistance, formatDuration, formatSpeed, formatTime } from '@/lib/format';
-import type { Mode, Section, TripBreak } from '@/types';
+import type { Section, TripBreak } from '@/types';
 
 interface Props {
   startLabel: string;
@@ -13,6 +15,7 @@ interface Props {
   sections: Section[];
   breaks?: TripBreak[];
   midLabels?: (string | null)[]; // length = sections.length - 1, may include nulls
+  onSectionPress?: (section: Section, index: number) => void;
 }
 
 export function Timeline({
@@ -23,6 +26,7 @@ export function Timeline({
   sections,
   breaks,
   midLabels,
+  onSectionPress,
 }: Props) {
   const breaksByOrdering = new Map<number, TripBreak>();
   for (const b of breaks ?? []) breaksByOrdering.set(b.ordering, b);
@@ -38,7 +42,10 @@ export function Timeline({
         const brk = breaksByOrdering.get(i);
         return (
           <View key={i}>
-            <Segment section={s} />
+            <Segment
+              section={s}
+              onPress={onSectionPress ? () => onSectionPress(s, i) : undefined}
+            />
             {!isLast ? (
               brk ? (
                 <MidRow
@@ -121,19 +128,23 @@ function MidRow({
   );
 }
 
-function Segment({ section }: { section: Section }) {
-  const color = colors.mode[section.mode as Mode];
-  return (
+function Segment({ section, onPress }: { section: Section; onPress?: () => void }) {
+  const mode = effectiveMode(section);
+  const color = colors.mode[mode];
+  const body = (
     <View style={styles.segmentRow}>
       <View style={styles.pinCol}>
         <View style={[styles.line, { backgroundColor: color }]} />
       </View>
       <View style={styles.segmentBody}>
         <View style={styles.segmentTitle}>
-          <ModeIcon mode={section.mode} size={16} color={color} />
+          <ModeIcon mode={mode} size={16} color={color} />
           <Text variant="title" style={styles.segmentLabel}>
-            {capitalize(section.mode)}
+            {capitalize(mode)}
           </Text>
+          {section.userMode != null ? (
+            <MaterialCommunityIcons name="pencil" size={12} color={colors.inkSoft} />
+          ) : null}
         </View>
         <Text variant="meta" soft>
           {formatDuration(section.durationS)} · {formatDistance(section.distanceM)} · avg{' '}
@@ -141,6 +152,13 @@ function Segment({ section }: { section: Section }) {
         </Text>
       </View>
     </View>
+  );
+  return onPress ? (
+    <Pressable onPress={onPress} android_ripple={{ color: colors.surfaceMuted }}>
+      {body}
+    </Pressable>
+  ) : (
+    body
   );
 }
 

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, Alert, Pressable } from 'react-native';
+import type { AlertButton } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,18 +9,34 @@ import { ActivityIndicator } from 'react-native-paper';
 import { useTrip, usePlace } from '@/queries/useTrips';
 import { useDb } from '@/db/DbContext';
 import { useQueryClient } from '@tanstack/react-query';
-import { deleteTrip } from '@/db/trips';
+import { deleteTrip, getTripBefore, getTripAfter } from '@/db/trips';
+import {
+  setSectionMode,
+  mergeAdjacentSections,
+  splitSection,
+  splitTrip,
+  mergeTrips,
+  resetTripToAuto,
+} from '@/db/tripEdits';
+import { locateSplitPoint } from '@/pipeline/edits/locateSplitPoint';
+import { effectiveMode } from '@/pipeline/effectiveMode';
+import { makeOverpassDeps } from '@/tracking/overpassDeps';
 import { geocodePlaceLazy, fallbackPlaceLabel } from '@/pipeline/geocoding';
 import { TripMap } from '@/ui/TripMap';
 import { Text } from '@/ui/Text';
 import { Timeline } from '@/ui/Timeline';
+import { ModePickerSheet } from '@/ui/ModePickerSheet';
+import { SplitPickerSheet } from '@/ui/SplitPickerSheet';
 import { colors, radii, space } from '@/theme/tokens';
+import type { Section, Mode } from '@/types';
 import {
   formatDistance,
   formatDuration,
   formatCo2,
   formatTime,
 } from '@/lib/format';
+
+type SplitTarget = { kind: 'leg'; section: Section } | { kind: 'trip' };
 
 const WEEKDAY_UPPER = [
   'SUNDAY',
@@ -58,22 +75,8 @@ export default function TripDetailScreen() {
   }, [db, qc, tripQ.data]);
 
   const snapPoints = useMemo(() => ['38%', '88%'], []);
-
-  function onMenu() {
-    Alert.alert('Trip', undefined, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete trip',
-        style: 'destructive',
-        onPress: async () => {
-          await deleteTrip(db, id);
-          await qc.invalidateQueries({ queryKey: ['trips'] });
-          await qc.invalidateQueries({ queryKey: ['stats'] });
-          router.back();
-        },
-      },
-    ]);
-  }
+  const [modePickerSection, setModePickerSection] = useState<Section | null>(null);
+  const [splitTarget, setSplitTarget] = useState<SplitTarget | null>(null);
 
   if (tripQ.isLoading || !tripQ.data) {
     return (
@@ -93,6 +96,127 @@ export default function TripDetailScreen() {
   }
 
   const trip = tripQ.data;
+
+  async function refresh() {
+    await qc.invalidateQueries({ queryKey: ['trip'] });
+    await qc.invalidateQueries({ queryKey: ['trips'] });
+    await qc.invalidateQueries({ queryKey: ['stats'] });
+  }
+
+  function sectionVertexCount(s: Section): number {
+    try {
+      return (JSON.parse(s.geojson).coordinates as unknown[]).length;
+    } catch {
+      return 0;
+    }
+  }
+
+  async function onPickMode(mode: Mode) {
+    const sec = modePickerSection;
+    setModePickerSection(null);
+    if (!sec?.id) return;
+    await setSectionMode(db, id, sec.id, mode);
+    await refresh();
+  }
+
+  function openSplit(target: SplitTarget) {
+    setSplitTarget(target);
+  }
+
+  async function onSplitConfirm(point: [number, number]) {
+    const target = splitTarget;
+    setSplitTarget(null);
+    if (!target) return;
+    if (target.kind === 'leg') {
+      if (!target.section.id) return;
+      const loc = locateSplitPoint([target.section], point);
+      if (loc) await splitSection(db, id, loc.sectionId, loc.vertexIndex);
+    } else {
+      const loc = locateSplitPoint(trip.sections, point);
+      if (loc) await splitTrip(db, id, loc.sectionId, loc.vertexIndex);
+    }
+    await refresh();
+  }
+
+  function onSectionPress(section: Section, index: number) {
+    const buttons: AlertButton[] = [
+      { text: 'Change mode', onPress: () => setModePickerSection(section) },
+    ];
+    if (sectionVertexCount(section) >= 3) {
+      buttons.push({ text: 'Split this leg…', onPress: () => openSplit({ kind: 'leg', section }) });
+    }
+    if (index > 0) {
+      buttons.push({
+        text: 'Merge with leg above',
+        onPress: async () => {
+          await mergeAdjacentSections(db, id, index - 1);
+          await refresh();
+        },
+      });
+    }
+    if (index < trip.sections.length - 1) {
+      buttons.push({
+        text: 'Merge with leg below',
+        onPress: async () => {
+          await mergeAdjacentSections(db, id, index);
+          await refresh();
+        },
+      });
+    }
+    buttons.push({ text: 'Cancel', style: 'cancel' });
+    const m = effectiveMode(section);
+    Alert.alert(`${m.charAt(0).toUpperCase() + m.slice(1)} leg`, undefined, buttons);
+  }
+
+  async function onMenu() {
+    const prev = await getTripBefore(db, trip.startTimeMs);
+    const next = await getTripAfter(db, trip.endTimeMs);
+    const buttons: AlertButton[] = [];
+    if (trip.sections.some((s: Section) => sectionVertexCount(s) >= 3)) {
+      buttons.push({ text: 'Split trip…', onPress: () => openSplit({ kind: 'trip' }) });
+    }
+    if (prev?.id != null) {
+      buttons.push({
+        text: 'Merge with previous trip',
+        onPress: async () => {
+          const prevId = prev.id!;
+          await mergeTrips(db, prevId, id);
+          await refresh();
+          router.replace(`/trip/${prevId}`);
+        },
+      });
+    }
+    if (next?.id != null) {
+      buttons.push({
+        text: 'Merge with next trip',
+        onPress: async () => {
+          await mergeTrips(db, id, next.id!);
+          await refresh();
+        },
+      });
+    }
+    if (trip.edited) {
+      buttons.push({
+        text: 'Reset to auto',
+        onPress: async () => {
+          await resetTripToAuto(db, id, Date.now(), makeOverpassDeps(db));
+          await refresh();
+          router.back();
+        },
+      });
+    }
+    buttons.push({
+      text: 'Delete trip',
+      style: 'destructive',
+      onPress: async () => {
+        await deleteTrip(db, id);
+        await refresh();
+        router.back();
+      },
+    });
+    buttons.push({ text: 'Cancel', style: 'cancel' });
+    Alert.alert('Trip', undefined, buttons);
+  }
 
   const startLabel =
     startPlaceQ.data?.label === 'home'
@@ -135,7 +259,9 @@ export default function TripDetailScreen() {
       />
       <FloatingIconButton
         icon="dots-horizontal"
-        onPress={onMenu}
+        onPress={() => {
+          void onMenu();
+        }}
         style={[styles.fabRight, { top: insets.top + space[2] }]}
         size={22}
       />
@@ -149,6 +275,7 @@ export default function TripDetailScreen() {
         <BottomSheetScrollView contentContainerStyle={styles.sheet}>
           <Text variant="ribbon" soft style={styles.ribbon}>
             {ribbon}
+            {trip.edited ? '  ·  EDITED' : ''}
           </Text>
           <Text variant="display" style={styles.headline}>
             {startLabel} to {endLabel}
@@ -165,6 +292,7 @@ export default function TripDetailScreen() {
               endTimeMs={trip.endTimeMs}
               sections={trip.sections}
               breaks={trip.breaks}
+              onSectionPress={onSectionPress}
             />
           </View>
 
@@ -175,6 +303,26 @@ export default function TripDetailScreen() {
           </View>
         </BottomSheetScrollView>
       </BottomSheet>
+      <ModePickerSheet
+        visible={modePickerSection !== null}
+        onPick={onPickMode}
+        onClose={() => setModePickerSection(null)}
+      />
+      <SplitPickerSheet
+        visible={splitTarget !== null}
+        title={
+          splitTarget?.kind === 'trip'
+            ? 'Where did this trip split?'
+            : 'Where does this leg change?'
+        }
+        geojsons={
+          splitTarget?.kind === 'leg'
+            ? [splitTarget.section.geojson]
+            : trip.sections.map((s: Section) => s.geojson)
+        }
+        onConfirm={onSplitConfirm}
+        onClose={() => setSplitTarget(null)}
+      />
     </View>
   );
 }

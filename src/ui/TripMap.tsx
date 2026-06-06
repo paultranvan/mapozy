@@ -9,6 +9,7 @@ import MapLibreGL, {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import { colors as themeColors, MODE_COLORS } from '../theme/tokens';
+import { effectiveMode } from '../pipeline/effectiveMode';
 import {
   trimLineFromStart,
   trimLineFromEnd,
@@ -175,7 +176,7 @@ export function TripMap({ trip }: { trip: Trip }) {
             <LineLayer
               id={`line-${i}`}
               style={{
-                lineColor: MODE_COLORS[s.mode],
+                lineColor: MODE_COLORS[effectiveMode(s)],
                 lineWidth: 5,
                 lineCap: 'round',
                 lineJoin: 'round',
