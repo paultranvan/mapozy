@@ -17,6 +17,8 @@ interface Row {
   manual_purpose: string | null;
   draft: number;
   draft_reason: string | null;
+  edited: number;
+  locked: number;
   created_at_ms: number;
 }
 
@@ -35,6 +37,8 @@ function rowToTrip(r: Row): Trip {
     manualPurpose: r.manual_purpose,
     draft: r.draft === 1,
     draftReason: (r.draft_reason as Trip['draftReason']) ?? null,
+    edited: r.edited === 1,
+    locked: r.locked === 1,
     createdAtMs: r.created_at_ms,
     sections: [],
     breaks: [],
@@ -48,8 +52,8 @@ export async function insertTripWithSections(db: Db, trip: Trip): Promise<number
       `INSERT INTO trips
          (start_time_ms, end_time_ms, start_place_id, end_place_id,
           distance_m, duration_s, dominant_mode, co2_g, geojson, manual_purpose,
-          draft, draft_reason, created_at_ms)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          draft, draft_reason, edited, locked, created_at_ms)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       trip.startTimeMs,
       trip.endTimeMs,
       trip.startPlaceId,
@@ -62,6 +66,8 @@ export async function insertTripWithSections(db: Db, trip: Trip): Promise<number
       trip.manualPurpose,
       trip.draft ? 1 : 0,
       trip.draftReason,
+      trip.edited ? 1 : 0,
+      trip.locked ? 1 : 0,
       trip.createdAtMs
     );
     tripId = r.lastInsertRowId;

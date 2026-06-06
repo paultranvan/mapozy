@@ -28,6 +28,8 @@ function mkTrip(startMs: number, endMs: number): Trip {
     manualPurpose: null,
     draft: false,
     draftReason: null,
+    edited: false,
+    locked: false,
     createdAtMs: startMs,
     sections: [
       {
@@ -72,6 +74,16 @@ describe('deleteTrips', () => {
     await deleteTrips(db, []);
     expect(await listTrips(db, 100, 0)).toHaveLength(1);
     expect(a).toBeGreaterThan(0);
+  });
+
+  it('round-trips edited/locked flags', async () => {
+    const t = mkTrip(1000, 2000);
+    t.edited = true;
+    t.locked = true;
+    const id = await insertTripWithSections(db, t);
+    const got = (await getTripsByIds(db, [id]))[0]!;
+    expect(got.edited).toBe(true);
+    expect(got.locked).toBe(true);
   });
 });
 

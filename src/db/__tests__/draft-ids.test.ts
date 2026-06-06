@@ -17,6 +17,8 @@ function trip(draft: boolean, start: number): Trip {
     manualPurpose: null,
     draft,
     draftReason: draft ? 'offline' : null,
+    edited: false,
+    locked: false,
     createdAtMs: 0,
     sections: [],
     breaks: [],

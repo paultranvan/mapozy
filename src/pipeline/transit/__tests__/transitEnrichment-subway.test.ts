@@ -38,6 +38,8 @@ function subwayGapTrip(): Trip {
     manualPurpose: null,
     draft: false,
     draftReason: null,
+    edited: false,
+    locked: false,
     createdAtMs: 0,
     sections: [mk(0, walkA), mk(1, walkB)],
     // gap break between the two walks (10 min underground)

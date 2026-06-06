@@ -16,6 +16,7 @@ interface Row {
   geojson: string;
   mode_source: string | null;
   mode_confidence: number | null;
+  user_mode: string | null;
 }
 
 function rowToSection(r: Row): Section {
@@ -35,6 +36,7 @@ function rowToSection(r: Row): Section {
   };
   if (r.mode_source != null) s.modeSource = r.mode_source as Section['modeSource'];
   if (r.mode_confidence != null) s.modeConfidence = r.mode_confidence;
+  if (r.user_mode != null) s.userMode = r.user_mode as Mode;
   return s;
 }
 
@@ -42,8 +44,8 @@ export async function insertSection(db: Db, tripId: number, s: Section): Promise
   const r = await db.runAsync(
     `INSERT INTO sections
        (trip_id, ordering, start_time_ms, end_time_ms, mode, distance_m, duration_s,
-        avg_speed_mps, max_speed_mps, co2_g, geojson, mode_source, mode_confidence)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        avg_speed_mps, max_speed_mps, co2_g, geojson, mode_source, mode_confidence, user_mode)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     tripId,
     s.ordering,
     s.startTimeMs,
@@ -56,7 +58,8 @@ export async function insertSection(db: Db, tripId: number, s: Section): Promise
     s.co2G,
     s.geojson,
     s.modeSource ?? null,
-    s.modeConfidence ?? null
+    s.modeConfidence ?? null,
+    s.userMode ?? null
   );
   return r.lastInsertRowId;
 }

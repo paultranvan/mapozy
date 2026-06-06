@@ -104,6 +104,8 @@ export function assemble(input: AssembleInput): Trip {
     manualPurpose: null,
     draft: false,
     draftReason: null,
+    edited: false,
+    locked: false,
     createdAtMs: input.nowMs,
     sections,
     breaks,
