@@ -215,6 +215,20 @@ export async function updateTripAggregates(
   );
 }
 
+export async function setTripEditFlags(
+  db: Db,
+  tripId: number,
+  edited: boolean,
+  locked: boolean
+): Promise<void> {
+  await db.runAsync(
+    `UPDATE trips SET edited = ?, locked = ? WHERE id = ?`,
+    edited ? 1 : 0,
+    locked ? 1 : 0,
+    tripId
+  );
+}
+
 export async function replaceTripSectionsAndBreaks(
   db: Db,
   tripId: number,
