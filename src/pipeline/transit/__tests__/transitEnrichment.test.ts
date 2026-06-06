@@ -139,3 +139,31 @@ describe('enrichTripTransit', () => {
     expect(t!.sections[0]!.mode).toBe('train');
   });
 });
+
+describe('enrichTripTransit durability', () => {
+  it('skips locked trips entirely', async () => {
+    const deps = await depsWith(railFetch());
+    const id = await insertTripWithSections(deps.db, carTrip());
+    await deps.db.runAsync(`UPDATE trips SET locked = 1 WHERE id = ?`, id);
+
+    const res = await enrichTripTransit(deps, id);
+    expect(res.status).toBe('skipped');
+
+    const t = await getTripById(deps.db, id);
+    expect(t!.sections[0]!.mode).toBe('car'); // unchanged
+  });
+
+  it('does not overwrite a section that has user_mode set', async () => {
+    const deps = await depsWith(railFetch());
+    const id = await insertTripWithSections(deps.db, carTrip());
+    const secs = (await getTripById(deps.db, id))!.sections;
+    await deps.db.runAsync(`UPDATE sections SET user_mode = 'bus' WHERE id = ?`, secs[0]!.id!);
+
+    const res = await enrichTripTransit(deps, id);
+    expect(res.changed).toBe(0);
+
+    const t = await getTripById(deps.db, id);
+    expect(t!.sections[0]!.mode).toBe('car'); // auto mode untouched
+    expect(t!.sections[0]!.userMode).toBe('bus'); // override preserved
+  });
+});
