@@ -119,6 +119,50 @@ describe('groupIntoTrips', () => {
     expect(groups[0]!.endStay).toBeNull();
   });
 
+  it('merges consecutive short stays into one break (preserves breaks === legs - 1)', () => {
+    // Segmentation can emit two stays back-to-back (e.g. a regular stay then a
+    // gap stay) with no leg between them. They must collapse to a single break,
+    // otherwise assemble() throws "expected N breaks, got N+1".
+    const gapStay = (s: number, e: number): Segment => ({
+      ...(stay(s, e) as Extract<Segment, { kind: 'stay' }>),
+      gap: true,
+    });
+    const segs: Segment[] = [
+      stay(0, 60 * 60_000),
+      trip(60 * 60_000 + 1000, 70 * 60_000),     // leg 1
+      stay(70 * 60_000 + 1000, 74 * 60_000),     // 4 min — short
+      gapStay(74 * 60_000 + 1000, 78 * 60_000),  // 4 min gap — consecutive
+      trip(78 * 60_000 + 1000, 88 * 60_000),     // leg 2
+      stay(88 * 60_000 + 1000, 148 * 60_000),
+    ];
+    const groups = groupIntoTrips(segs);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.legs).toHaveLength(2);
+    expect(groups[0]!.breaks).toHaveLength(1);
+    const b = groups[0]!.breaks[0]!;
+    // Merged span runs from the first stay's start to the last stay's end…
+    expect(b.startMs).toBe(70 * 60_000 + 1000);
+    expect(b.endMs).toBe(78 * 60_000);
+    // …and keeps the gap flag so subway-gap detection still fires.
+    expect(b.gap).toBe(true);
+  });
+
+  it('drops a short stay sitting directly before a closing long stay', () => {
+    // long-stay → trip → short-stay → long-stay: the short stay has no closing
+    // leg, so it must not become a dangling trailing break.
+    const segs: Segment[] = [
+      stay(0, 60 * 60_000),
+      trip(60 * 60_000 + 1000, 70 * 60_000),
+      stay(70 * 60_000 + 1000, 76 * 60_000),   // 6 min — short, no closing leg
+      stay(76 * 60_000 + 1000, 136 * 60_000),  // 60 min — long, closes group
+    ];
+    const groups = groupIntoTrips(segs);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.legs).toHaveLength(1);
+    expect(groups[0]!.breaks).toEqual([]);
+    expect(groups[0]!.endStay).not.toBeNull();
+  });
+
   it('leading short stay anchors the next group as startStay', () => {
     const segs: Segment[] = [
       stay(0, 6 * 60_000, 45.1, 5.1),                     // 6 min leading

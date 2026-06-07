@@ -32,6 +32,14 @@ export function groupIntoTrips(segments: Segment[]): TripLegGroup[] {
   const out: TripLegGroup[] = [];
   let current: TripLegGroup | null = null;
   let previousStay: TripStayBoundary | null = null;
+  // A short stay only becomes a committed break once a *following* leg
+  // arrives — a break is meaningful only between two legs. Segmentation can
+  // emit consecutive stays (e.g. a regular stay immediately followed by a gap
+  // stay), which would otherwise yield more breaks than leg-gaps and break the
+  // `breaks === legs - 1` invariant in assemble(). Consecutive stays merge
+  // into this single pending break; it is dropped if the group closes (long
+  // stay or end-of-stream) before another leg appears.
+  let pendingBreak: RawBreak | null = null;
 
   for (const seg of segments) {
     if (seg.kind === 'trip') {
@@ -44,8 +52,10 @@ export function groupIntoTrips(segments: Segment[]): TripLegGroup[] {
         };
         previousStay = null;
       } else {
+        if (pendingBreak !== null) current.breaks.push(pendingBreak);
         current.legs.push(seg.points);
       }
+      pendingBreak = null;
     } else {
       const duration = seg.endMs - seg.startMs;
       const stayBoundary: TripStayBoundary = {
@@ -55,20 +65,30 @@ export function groupIntoTrips(segments: Segment[]): TripLegGroup[] {
       };
 
       if (duration < maxBreakMs) {
-        // Short stay: tentative break if we have an open group; always
-        // anchor previousStay so the next group still uses it.
+        // Short stay: hold as a pending break until a closing leg appears.
+        // Always anchor previousStay so the next group still uses it.
         if (current !== null) {
-          current.breaks.push({
-            startMs: seg.startMs,
-            endMs: seg.endMs,
-            centerLat: seg.centerLat,
-            centerLon: seg.centerLon,
-            gap: seg.gap,
-          });
+          if (pendingBreak === null) {
+            pendingBreak = {
+              startMs: seg.startMs,
+              endMs: seg.endMs,
+              centerLat: seg.centerLat,
+              centerLon: seg.centerLon,
+              gap: seg.gap,
+            };
+          } else {
+            // Consecutive stays with no intervening leg: extend the span and
+            // keep the gap flag if any component was a GPS dropout (so subway
+            // gap detection still fires).
+            pendingBreak.endMs = seg.endMs;
+            pendingBreak.gap = pendingBreak.gap || seg.gap;
+          }
         }
         previousStay = stayBoundary;
       } else {
-        // Long stay: close any open group, then anchor previousStay.
+        // Long stay: close any open group, then anchor previousStay. A
+        // pending break with no closing leg is dropped.
+        pendingBreak = null;
         if (current !== null) {
           current.endStay = stayBoundary;
           out.push(current);
@@ -80,12 +100,8 @@ export function groupIntoTrips(segments: Segment[]): TripLegGroup[] {
   }
 
   if (current !== null) {
-    // Open-tail: if the last segment was a tentative trailing break, drop
-    // it — we have no closing leg to attach it to, and the next pipeline
-    // run will reprocess these points.
-    if (current.breaks.length === current.legs.length) {
-      current.breaks.pop();
-    }
+    // Open-tail: a trailing pending break never got a closing leg, so it was
+    // never committed — the next pipeline run reprocesses these points.
     out.push(current);
   }
 
