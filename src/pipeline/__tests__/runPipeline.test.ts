@@ -80,6 +80,49 @@ describe('runPipeline end-to-end', () => {
     expect(trip.endPlaceId).not.toBeNull();
   });
 
+  it('detects a flight hop as a plane section (airplane-mode gap)', async () => {
+    resetIds();
+    const t0 = 1_700_000_000_000;
+    const points: RawPoint[] = [];
+    const activities: RawActivity[] = [];
+    const lon = 5.0;
+
+    // Drive to airport near lat 45 (slow, in_vehicle).
+    for (let i = 0; i <= 3; i++) {
+      points.push(mkPoint(t0 + i * 60_000, 45.0 + 0.002 * i, lon));
+      activities.push(mkActivity(t0 + i * 60_000, 'in_vehicle'));
+    }
+    // Airborne gap: ~888 km north in 2 h ≈ 123 m/s. Kept continuous by
+    // RULE_GAP_PLAUSIBILITY, then carved out by flightSplit.
+    const arriveMs = t0 + 180_000 + 7_200_000;
+    points.push(mkPoint(arriveMs, 53.0, lon));
+    // Drive from arrival airport (slow, in_vehicle).
+    for (let i = 1; i <= 3; i++) {
+      points.push(mkPoint(arriveMs + i * 60_000, 53.0 + 0.002 * i, lon));
+      activities.push(mkActivity(arriveMs + i * 60_000, 'in_vehicle'));
+    }
+    // Long stay to end the trip.
+    const stayStart = arriveMs + 3 * 60_000 + 1000;
+    for (let i = 0; i <= 35; i++) {
+      points.push(mkPoint(stayStart + i * 60_000, 53.006, lon));
+    }
+    activities.push(mkActivity(stayStart + 30_000, 'still'));
+
+    for (const p of points) await insertRawPoint(db, p);
+    for (const a of activities) await insertRawActivity(db, a);
+
+    const upToMs = points[points.length - 1]!.timestampMs + 1000;
+    const result = await runPipeline(db, { upToMs, nowMs: upToMs });
+    expect(result.tripsInserted).toBe(1);
+
+    const trips = await listTrips(db, 10, 0);
+    const trip = (await getTripById(db, trips[0]!.id!))!;
+    const planeSections = trip.sections.filter((s) => s.mode === 'plane');
+    expect(planeSections).toHaveLength(1);
+    // The flight dominates distance, so the trip reads as a plane.
+    expect(trip.dominantMode).toBe('plane');
+  });
+
   it('serializes concurrent invocations so a trip is not duplicated', async () => {
     // Reproduces the duplicate-trip bug: the app fires runPipeline from several
     // uncoordinated triggers. Two overlapping runs read the same unconsumed

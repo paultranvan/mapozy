@@ -3,7 +3,7 @@
 //   RULE_MIN_SECTION_DURATION        — merge sub-threshold sections into the previous one
 //   RULE_SECTION_ACTIVITY_WINDOW     — time window around the trip for considering activities
 //   RULE_WALK_SPEED_BOUNDARY         — move fast tail fixes off a walk section into the next faster one
-import type { RawPoint, RawActivity, ActivityType } from '../types';
+import type { RawPoint, RawActivity, ActivityType, Mode } from '../types';
 import { haversineMeters } from '../lib/distance';
 import { RULES } from './rules';
 
@@ -61,6 +61,10 @@ export interface RawSection {
   points: RawPoint[];
   startMs: number;
   endMs: number;
+  // Pre-set mode that bypasses speed/activity inference in assemble(). Set by
+  // flightSplit for flight sections, whose airport-endpoint ground speeds would
+  // otherwise misclassify them.
+  mode?: Mode;
 }
 
 /**

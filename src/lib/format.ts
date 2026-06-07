@@ -13,10 +13,12 @@ export function formatDuration(seconds: number): string {
   return rest === 0 ? `${h} h` : `${h} h ${rest} min`;
 }
 
+// CO₂e (CO₂-equivalent): all factors are CO₂-equivalent, and flights add a
+// radiative-forcing component, so the label reflects total warming impact.
 export function formatCo2(grams: number): string {
-  if (grams < 1000) return `${Math.round(grams)} g CO₂`;
+  if (grams < 1000) return `${Math.round(grams)} g CO₂e`;
   const kg = grams / 1000;
-  return `${kg.toFixed(kg < 10 ? 2 : 1)} kg CO₂`;
+  return `${kg.toFixed(kg < 10 ? 2 : 1)} kg CO₂e`;
 }
 
 export function formatSpeed(mps: number): string {

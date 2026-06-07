@@ -6,7 +6,16 @@ export type ActivityType =
   | 'in_vehicle'
   | 'unknown';
 
-export type Mode = 'car' | 'bike' | 'walk' | 'run' | 'bus' | 'train' | 'tram' | 'subway';
+export type Mode =
+  | 'car'
+  | 'bike'
+  | 'walk'
+  | 'run'
+  | 'bus'
+  | 'train'
+  | 'tram'
+  | 'subway'
+  | 'plane';
 export type DominantMode = Mode | 'mixed';
 
 // Why a section received its mode — for UI badges, debugging, and so a

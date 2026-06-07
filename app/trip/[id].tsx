@@ -278,7 +278,7 @@ export default function TripDetailScreen() {
 
           <View style={styles.footer}>
             <Text variant="meta" soft>
-              CO₂ {formatCo2(trip.co2G)}
+              {formatCo2(trip.co2G)}
             </Text>
           </View>
         </BottomSheetScrollView>

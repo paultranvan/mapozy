@@ -8,7 +8,7 @@ import { effectiveMode } from '@/pipeline/effectiveMode';
 import { formatDistance, formatDuration, formatSpeed, formatTime } from '@/lib/format';
 import type { Mode, Section, TripBreak } from '@/types';
 
-const MODES: Mode[] = ['walk', 'run', 'bike', 'car', 'bus', 'tram', 'subway', 'train'];
+const MODES: Mode[] = ['walk', 'run', 'bike', 'car', 'bus', 'tram', 'subway', 'train', 'plane'];
 
 interface Props {
   startLabel: string;

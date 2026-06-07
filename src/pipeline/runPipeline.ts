@@ -18,6 +18,7 @@ import { segmentation } from './segmentation';
 import { smoothing } from './smoothing';
 import { resample } from './resample';
 import { sectionSegmentation } from './sectionSegmentation';
+import { splitFlightRuns, buildFlightSection } from './flightSplit';
 import { assemble } from './assemble';
 import { groupIntoTrips, type TripLegGroup } from './tripGrouping';
 import { RULES } from './rules';
@@ -219,8 +220,14 @@ async function assembleAndPersist(
 ): Promise<number | null> {
   const legs = group.legs.map((rawPts) => {
     const smoothed = smoothing(rawPts);
-    const resampled = resample(smoothed);
-    const rawSections = sectionSegmentation(resampled, activities);
+    // Carve flights out BEFORE resample: resample would interpolate the
+    // multi-hour airborne gap into thousands of fake slow points. Ground runs
+    // resample + segment normally; flight runs become a plane section directly.
+    const rawSections = splitFlightRuns(smoothed).flatMap((run) =>
+      run.isFlight
+        ? [buildFlightSection(run.points)]
+        : sectionSegmentation(resample(run.points), activities)
+    );
     return { rawSections };
   });
 
