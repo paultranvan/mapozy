@@ -30,6 +30,28 @@ describe('assemble', () => {
     expect(trip.endPlaceId).toBe(2);
   });
 
+  it('respects a pre-set section mode instead of inferring from speed/activity', () => {
+    // Slow, short, "walking" points — speed/activity inference would say walk,
+    // but a pre-set mode (as flightSplit produces) must win.
+    const rawSections: RawSection[] = [
+      {
+        activity: 'walking',
+        points: [mkPoint(0, 0, 0), mkPoint(60_000, 0, 0.00127)],
+        startMs: 0,
+        endMs: 60_000,
+        mode: 'plane',
+      },
+    ];
+    const trip = assemble({
+      legs: [{ rawSections }],
+      breaks: [],
+      startPlaceId: null,
+      endPlaceId: null,
+      nowMs: 100,
+    });
+    expect(trip.sections[0]!.mode).toBe('plane');
+  });
+
   it('marks mode "mixed" when no single mode is >= 70% of distance', () => {
     const sectionA: RawSection = {
       activity: 'walking',

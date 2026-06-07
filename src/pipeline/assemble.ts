@@ -40,7 +40,7 @@ export function assemble(input: AssembleInput): Trip {
       throw new Error(`assemble: leg ${li} has zero sections`);
     }
     for (const rs of leg.rawSections) {
-      const mode = modeForSection(rs);
+      const mode = rs.mode ?? modeForSection(rs);
       const coords = rs.points.map(
         (p) => [p.longitude, p.latitude] as [number, number]
       );

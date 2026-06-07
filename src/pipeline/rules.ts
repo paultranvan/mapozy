@@ -191,6 +191,18 @@ export const RULES = {
     { minMinutes: 2, maxMinutes: 40, minDistanceM: 200 }
   ),
 
+  FLIGHT: rule(
+    'RULE_FLIGHT',
+    'A run of consecutive GPS steps whose great-circle implied speed exceeds ' +
+      'flightSpeedMps (above the fastest rail, below any cruise) is a flight, ' +
+      'as long as the run\'s net first→last displacement exceeds ' +
+      'minFlightDistanceM. Detected on raw per-leg points BEFORE resample (which ' +
+      'would interpolate the multi-hour airborne gap into thousands of fake ' +
+      'slow points). Covers both in-flight fixes (a multi-step run) and the ' +
+      'usual airplane-mode case (one giant point-to-point hop).',
+    { flightSpeedMps: 110, minFlightDistanceM: 100_000 }
+  ),
+
   SUBWAY_STATION_RADIUS: rule(
     'RULE_SUBWAY_STATION_RADIUS',
     'Radius for matching a subway-gap endpoint to a metro station. Wider than ' +
