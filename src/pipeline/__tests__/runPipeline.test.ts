@@ -80,6 +80,28 @@ describe('runPipeline end-to-end', () => {
     expect(trip.endPlaceId).not.toBeNull();
   });
 
+  it('serializes concurrent invocations so a trip is not duplicated', async () => {
+    // Reproduces the duplicate-trip bug: the app fires runPipeline from several
+    // uncoordinated triggers. Two overlapping runs read the same unconsumed
+    // points and each insert the same trip. The per-db serialization guard must
+    // make the second run wait until the first has marked its points consumed,
+    // so it sees nothing left to do.
+    const { points, activities } = syntheticTrip();
+    for (const p of points) await insertRawPoint(db, p);
+    for (const a of activities) await insertRawActivity(db, a);
+
+    const upToMs = points[points.length - 1]!.timestampMs + 1000;
+    const [r1, r2] = await Promise.all([
+      runPipeline(db, { upToMs, nowMs: upToMs }),
+      runPipeline(db, { upToMs, nowMs: upToMs }),
+    ]);
+
+    const trips = await listTrips(db, 50, 0);
+    expect(trips).toHaveLength(1);
+    // Exactly one of the two runs did the insert; the other found no work.
+    expect(r1.tripsInserted + r2.tripsInserted).toBe(1);
+  });
+
   it('handles empty buffer gracefully', async () => {
     const result = await runPipeline(db, { upToMs: Date.now(), nowMs: Date.now() });
     expect(result.tripsInserted).toBe(0);
