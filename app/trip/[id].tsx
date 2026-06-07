@@ -19,7 +19,8 @@ import {
 } from '@/db/tripEdits';
 import { locateSplitPoint } from '@/pipeline/edits/locateSplitPoint';
 import { makeOverpassDeps } from '@/tracking/overpassDeps';
-import { geocodePlaceLazy, fallbackPlaceLabel } from '@/pipeline/geocoding';
+import { geocodePlaceLazy } from '@/pipeline/geocoding';
+import { placeLabels } from '@/lib/placeLabel';
 import { TripMap } from '@/ui/TripMap';
 import { Text } from '@/ui/Text';
 import { Timeline } from '@/ui/Timeline';
@@ -204,24 +205,8 @@ export default function TripDetailScreen() {
     setMenuOpen(true);
   }
 
-  const startLabel =
-    startPlaceQ.data?.label === 'home'
-      ? 'Home'
-      : startPlaceQ.data?.label === 'work'
-      ? 'Work'
-      : startPlaceQ.data?.displayName ??
-        (startPlaceQ.data
-          ? fallbackPlaceLabel(startPlaceQ.data.latitude, startPlaceQ.data.longitude)
-          : 'Start');
-  const endLabel =
-    endPlaceQ.data?.label === 'home'
-      ? 'Home'
-      : endPlaceQ.data?.label === 'work'
-      ? 'Work'
-      : endPlaceQ.data?.displayName ??
-        (endPlaceQ.data
-          ? fallbackPlaceLabel(endPlaceQ.data.latitude, endPlaceQ.data.longitude)
-          : 'End');
+  const startLabels = placeLabels(startPlaceQ.data, 'Start');
+  const endLabels = placeLabels(endPlaceQ.data, 'End');
 
   const start = new Date(trip.startTimeMs);
   const ribbon = `${WEEKDAY_UPPER[start.getDay()]} · ${formatTime(
@@ -265,17 +250,20 @@ export default function TripDetailScreen() {
             </Text>
             {trip.edited ? <EditedPill /> : null}
           </View>
-          <Text variant="display" style={styles.headline}>
-            {startLabel} to {endLabel}
+          <Text variant="label" soft numberOfLines={1} style={styles.fromCaption}>
+            from {startLabels.full}
           </Text>
-          <Text variant="display" soft style={styles.subheadline}>
-            in {headlineDuration}, {headlineDistance}
+          <Text variant="display" numberOfLines={1} style={styles.destination}>
+            {endLabels.short}
+          </Text>
+          <Text variant="meta" soft style={styles.stats}>
+            {headlineDuration} · {headlineDistance}
           </Text>
 
           <View style={styles.timelineWrap}>
             <Timeline
-              startLabel={startLabel}
-              endLabel={endLabel}
+              startLabel={startLabels.full}
+              endLabel={endLabels.full}
               startTimeMs={trip.startTimeMs}
               endTimeMs={trip.endTimeMs}
               sections={trip.sections}
@@ -401,10 +389,13 @@ const styles = StyleSheet.create({
     gap: space[2],
     marginBottom: space[1],
   },
-  headline: {
-    marginBottom: 0,
+  fromCaption: {
+    marginBottom: space[1],
   },
-  subheadline: {
+  destination: {
+    marginBottom: space[1],
+  },
+  stats: {
     marginBottom: space[3],
   },
   timelineWrap: {
