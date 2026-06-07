@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, space, radii } from '@/theme/tokens';
 import { Text } from './Text';
 import { ModeIcon } from './ModeIcon';
@@ -180,9 +181,12 @@ function Leg({
               </Text>
             ) : null}
             {editable ? (
-              <Text variant="title" soft style={styles.chevron}>
-                {open ? '⌃' : '⌄'}
-              </Text>
+              <MaterialCommunityIcons
+                name={open ? 'chevron-up' : 'pencil-outline'}
+                size={18}
+                color={colors.inkSoft}
+                style={styles.chevron}
+              />
             ) : null}
           </View>
           <Text variant="ribbon" soft style={styles.mono}>
