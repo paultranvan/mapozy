@@ -36,7 +36,37 @@ export interface RunPipelineResult {
   activitiesConsumed: number;
 }
 
-export async function runPipeline(
+// Serialize pipeline runs per-db. The app fires runPipeline from three
+// uncoordinated triggers (native MOVING→STATIONARY, app foreground/cold-start,
+// and the manual "Force pipeline" button), all fire-and-forget. Without this,
+// two overlapping runs each read the same unconsumed points and insert the
+// same trip before either marks them consumed — producing byte-identical
+// duplicate trip rows. Chaining makes every call wait for the in-flight run to
+// finish (and mark its points consumed) before reading.
+const pipelineChains = new WeakMap<Db, Promise<unknown>>();
+
+export function runPipeline(
+  db: Db,
+  opts: RunPipelineOpts = {}
+): Promise<RunPipelineResult> {
+  const prev = pipelineChains.get(db) ?? Promise.resolve();
+  const run = prev.then(
+    () => runPipelineLocked(db, opts),
+    () => runPipelineLocked(db, opts)
+  );
+  // Keep the chain alive even if this run rejects, so a failure doesn't wedge
+  // every subsequent run. Callers still observe the rejection via `run`.
+  pipelineChains.set(
+    db,
+    run.then(
+      () => undefined,
+      () => undefined
+    )
+  );
+  return run;
+}
+
+async function runPipelineLocked(
   db: Db,
   opts: RunPipelineOpts = {}
 ): Promise<RunPipelineResult> {
@@ -68,6 +98,7 @@ export async function runPipeline(
   let tripsInserted = 0;
   let previousStayPlaceId: number | null = await readValidSeedPlaceId(db);
   let openTail: TripLegGroup | null = null;
+  const enrichTargets: number[] = [];
 
   for (const group of groups) {
     if (group.endStay === null) {
@@ -92,26 +123,24 @@ export async function runPipeline(
       group.endStay.endMs
     );
 
+    // When transit enrichment is requested, persist the trip as a draft up
+    // front. Enrichment runs *after* points are marked consumed (below), so if
+    // the process is killed during the slow Overpass calls the trip survives as
+    // a draft and `refreshDraftTrips` re-enriches it — instead of leaving an
+    // un-classified `car` trip whose points stay unconsumed and get re-inserted
+    // as a duplicate on the next run.
     const tripId = await assembleAndPersist(
       db,
       group,
       activities,
       startPlaceId,
       endPlaceId,
-      now
+      now,
+      opts.transit != null
     );
     if (tripId !== null) {
       tripsInserted++;
-      if (opts.transit) {
-        try {
-          await enrichTripTransit(opts.transit, tripId);
-        } catch (err) {
-          // Enrichment is best-effort: the trip is already persisted and can be
-          // re-enriched later (draft refresh). A failure here must NOT abort the
-          // run and lose point-consumption tracking.
-          console.warn('[runPipeline] transit enrichment failed', err);
-        }
-      }
+      if (opts.transit) enrichTargets.push(tripId);
     }
     previousStayPlaceId = endPlaceId;
   }
@@ -140,6 +169,20 @@ export async function runPipeline(
       SETTING_KEYS.LAST_KNOWN_PLACE_ID,
       String(previousStayPlaceId)
     );
+  }
+
+  // Transit enrichment runs only now that points are consumed and the run is
+  // otherwise complete. It is best-effort and network-bound: a thrown error
+  // (or the process dying mid-call) leaves the trip as a draft for
+  // `refreshDraftTrips`, and can never cost us point-consumption tracking.
+  if (opts.transit) {
+    for (const tripId of enrichTargets) {
+      try {
+        await enrichTripTransit(opts.transit, tripId);
+      } catch (err) {
+        console.warn('[runPipeline] transit enrichment failed', err);
+      }
+    }
   }
 
   return {
@@ -171,7 +214,8 @@ async function assembleAndPersist(
   activities: RawActivity[],
   startPlaceId: number | null,
   endPlaceId: number | null,
-  nowMs: number
+  nowMs: number,
+  pendingTransit: boolean
 ): Promise<number | null> {
   const legs = group.legs.map((rawPts) => {
     const smoothed = smoothing(rawPts);
@@ -192,6 +236,13 @@ async function assembleAndPersist(
   // RULE_MIN_TRIP_DISTANCE — threshold applies to the trip total.
   if (trip.distanceM < RULES.MIN_TRIP_DISTANCE.defaults.minTripDistanceM) {
     return null;
+  }
+  // Mark as a pending draft so a transit enrichment that never completes
+  // (process killed mid-call) is retried by `refreshDraftTrips`. Successful
+  // enrichment clears the draft.
+  if (pendingTransit) {
+    trip.draft = true;
+    trip.draftReason = null;
   }
   return await insertTripWithSections(db, trip);
 }
