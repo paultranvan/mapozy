@@ -1,0 +1,103 @@
+name: Distribute to Firebase App Distribution
+
+# Cuts a signed release APK and pushes it to the "testers" group, which is
+# delivered through the Firebase App Tester app on testers' phones.
+#
+# Triggers:
+#   - pushing a tag like v0.3.1  (the usual release path)
+#   - manual run from the Actions tab (optionally with custom release notes)
+#
+# Required repo secrets (see docs/RELEASE.md):
+#   ANDROID_KEYSTORE_BASE64   base64 of android/app/mapozy-release.keystore
+#   ANDROID_KEYSTORE_PASSWORD store password
+#   ANDROID_KEY_ALIAS         key alias
+#   ANDROID_KEY_PASSWORD      key password
+#   FIREBASE_TOKEN            from `firebase login:ci`
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: 'Release notes (defaults to the latest commit subject)'
+        required: false
+
+concurrency:
+  group: distribute-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FIREBASE_APP_ID: '1:736958471752:android:dd125d6adef895b482c27d'
+  TESTER_GROUP: testers
+
+jobs:
+  build-distribute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Generate native Android project
+        run: npx expo prebuild --platform android --no-install
+        env:
+          CI: '1'
+
+      - name: Restore keystore and signing properties
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/mapozy-release.keystore
+          cat > android/keystore.properties <<EOF
+          storeFile=mapozy-release.keystore
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
+
+      - name: Build signed release APK
+        run: ./gradlew assembleRelease --no-daemon
+        working-directory: android
+
+      - name: Verify APK is release-signed (not debug)
+        run: |
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          test -f "$APK" || { echo "APK not found at $APK"; exit 1; }
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
+          echo "Using $APKSIGNER"
+          SIGNER=$("$APKSIGNER" verify --print-certs "$APK" | grep -m1 "Signer #1 certificate DN" || true)
+          echo "$SIGNER"
+          if echo "$SIGNER" | grep -qi "androiddebugkey"; then
+            echo "ERROR: APK is debug-signed — release keystore was not applied"; exit 1
+          fi
+
+      - name: Distribute to Firebase App Distribution
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: |
+          NOTES="${{ github.event.inputs.notes }}"
+          if [ -z "$NOTES" ]; then NOTES="$(git log -1 --pretty=%s)"; fi
+          echo "Release notes: $NOTES"
+          npx -y firebase-tools appdistribution:distribute \
+            android/app/build/outputs/apk/release/app-release.apk \
+            --app "$FIREBASE_APP_ID" \
+            --groups "$TESTER_GROUP" \
+            --release-notes "$NOTES" \
+            --token "$FIREBASE_TOKEN"
