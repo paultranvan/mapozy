@@ -5,16 +5,25 @@ A signed release APK is built and distributed automatically by GitHub Actions.
 
 ## How a release works
 
-1. Bump the version in **`app.json`**:
-   - `expo.version` (e.g. `0.3.1`) — the human-facing version name.
-   - `expo.android.versionCode` (integer, **must increase** every release).
-2. Commit, then tag and push:
-   ```bash
-   git commit -am "release: 0.3.1"
-   git tag v0.3.1
-   git push && git push --tags
-   ```
-3. The **Distribute to Firebase App Distribution** workflow runs: it regenerates
+Use the release script — it bumps `app.json` (`version` + `versionCode`),
+commits, tags, and pushes in one shot:
+
+```bash
+npm run release           # patch bump: 0.3.0 -> 0.3.1
+npm run release -- minor  # 0.3.0 -> 0.4.0
+npm run release -- major  # 0.3.0 -> 1.0.0
+npm run release -- 0.5.2  # explicit version
+npm run release -- patch -y   # skip the confirmation prompt
+```
+
+The script refuses to run unless the tree is clean and `main` is up to date
+with origin, and it auto-increments `versionCode` so you can never ship a
+duplicate. Pushing the `vX.Y.Z` tag triggers CI.
+
+> Doing it by hand instead? Bump `expo.version` **and** `expo.android.versionCode`
+> (must increase) in `app.json`, then `git commit`, `git tag vX.Y.Z`, `git push --tags`.
+
+Once the tag lands, the **Distribute to Firebase App Distribution** workflow runs: it regenerates
    the native project (`expo prebuild`), restores the signing keystore from
    secrets, builds `assembleRelease`, and uploads the APK to the `testers` group.
    Testers get a notification in the App Tester app.
