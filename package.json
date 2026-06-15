@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "ios": "expo run:ios",
     "load-backup": "bash scripts/load-backup.sh",
-    "start-with-backup": "bash scripts/start-with-backup.sh"
+    "start-with-backup": "bash scripts/start-with-backup.sh",
+    "release": "bash scripts/release.sh"
   },
   "dependencies": {
     "@expo-google-fonts/fraunces": "^0.4.1",
