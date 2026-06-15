@@ -13,6 +13,8 @@ name: Distribute to Firebase App Distribution
 #   ANDROID_KEY_ALIAS         key alias
 #   ANDROID_KEY_PASSWORD      key password
 #   FIREBASE_TOKEN            from `firebase login:ci`
+#   EXPO_PUBLIC_DEBUG_EMAIL   recipient for Settings → "Send data to Paul"
+#                             (inlined into the JS bundle at build time)
 
 on:
   push:
@@ -75,6 +77,12 @@ jobs:
       - name: Build signed release APK
         run: ./gradlew assembleRelease --no-daemon
         working-directory: android
+        env:
+          # EXPO_PUBLIC_* vars are read from process.env and inlined into the JS
+          # bundle by Metro during assembleRelease. Without this, the gitignored
+          # .env is absent in CI and the value bakes in as undefined, breaking
+          # Settings → "Send data to Paul".
+          EXPO_PUBLIC_DEBUG_EMAIL: ${{ secrets.EXPO_PUBLIC_DEBUG_EMAIL }}
 
       - name: Verify APK is release-signed (not debug)
         run: |
