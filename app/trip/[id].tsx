@@ -8,7 +8,12 @@ import { ActivityIndicator } from 'react-native-paper';
 import { useTrip, usePlace } from '@/queries/useTrips';
 import { useDb } from '@/db/DbContext';
 import { useQueryClient } from '@tanstack/react-query';
-import { deleteTrip, getTripBefore, getTripAfter } from '@/db/trips';
+import {
+  deleteTrip,
+  getTripBefore,
+  getTripAfter,
+  getTripContainingTime,
+} from '@/db/trips';
 import {
   setSectionMode,
   mergeAdjacentSections,
@@ -160,8 +165,11 @@ export default function TripDetailScreen() {
     }
     if (prev?.id != null) {
       acts.push({
+        // The trip list is ordered newest-first, so the chronologically
+        // *previous* (earlier) trip sits visually *below* this one — hence the
+        // down arrow. (Was arrow-up, which read backwards to testers.)
         label: 'Merge with previous trip',
-        icon: 'arrow-up',
+        icon: 'arrow-down',
         onPress: async () => {
           const prevId = prev.id!;
           await mergeTrips(db, prevId, id);
@@ -172,8 +180,10 @@ export default function TripDetailScreen() {
     }
     if (next?.id != null) {
       acts.push({
+        // Newest-first list: the chronologically *next* (later) trip sits
+        // visually *above* this one — hence the up arrow.
         label: 'Merge with next trip',
-        icon: 'arrow-down',
+        icon: 'arrow-up',
         onPress: async () => {
           await mergeTrips(db, id, next.id!);
           await refresh();
@@ -185,9 +195,20 @@ export default function TripDetailScreen() {
         label: 'Reset to auto-detected',
         icon: 'backup-restore',
         onPress: async () => {
+          const origStartMs = trip.startTimeMs;
           await resetTripToAuto(db, id, Date.now(), makeOverpassDeps(db));
           await refresh();
-          router.back();
+          // Reset deletes & rebuilds the trip with a fresh id, so the current
+          // /trip/{id} route is now stale. Re-locate the rebuilt trip covering
+          // the original start and stay on it instead of bouncing to the list.
+          const rebuilt =
+            (await getTripContainingTime(db, origStartMs)) ??
+            (await getTripAfter(db, origStartMs));
+          if (rebuilt?.id != null) {
+            router.replace(`/trip/${rebuilt.id}`);
+          } else {
+            router.back();
+          }
         },
       });
     }
