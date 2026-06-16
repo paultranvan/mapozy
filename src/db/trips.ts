@@ -218,6 +218,21 @@ export async function getTripsInRange(
   return rows.map(rowToTrip);
 }
 
+// Like getTripsInRange but hydrates each trip's sections (rowToTrip leaves them
+// empty — only getTripById fills them). The day map and its trip rows need the
+// per-section geometry + modes, so load them here.
+export async function getTripsInRangeWithSections(
+  db: Db,
+  startMs: number,
+  endMs: number
+): Promise<Trip[]> {
+  const trips = await getTripsInRange(db, startMs, endMs);
+  for (const t of trips) {
+    if (t.id != null) t.sections = await getSectionsForTrip(db, t.id);
+  }
+  return trips;
+}
+
 export async function setTripDraft(
   db: Db,
   tripId: number,

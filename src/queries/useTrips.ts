@@ -1,18 +1,37 @@
 import { useQuery } from '@tanstack/react-query';
 import { useDb } from '../db/DbContext';
-import { listTrips, getTripById, countTrips } from '../db/trips';
+import {
+  listTrips,
+  getTripById,
+  countTrips,
+  getTripsInRangeWithSections,
+} from '../db/trips';
 import { getAllPlaces, getPlaceById } from '../db/places';
 import { periodKpi, dailyDistances } from '../stats/periodStats';
 import { modeBreakdown } from '../stats/modeBreakdown';
 import { records } from '../stats/records';
 import type { PeriodKey } from '../lib/time';
-import { periodToRange } from '../lib/time';
+import { periodToRange, rangeForDayKey } from '../lib/time';
 
 export function useTripsList(limit = 200) {
   const db = useDb();
   return useQuery({
     queryKey: ['trips', 'list', limit],
     queryFn: () => listTrips(db, limit, 0),
+  });
+}
+
+// Trips that started on a given `YYYY-MM-DD` (matches the Trips list's
+// group-by-start-day), oldest-first for chronological reading on the day map.
+export function useDayTrips(dayKey: string) {
+  const db = useDb();
+  return useQuery({
+    queryKey: ['trips', 'day', dayKey],
+    queryFn: () => {
+      const [start, end] = rangeForDayKey(dayKey);
+      return getTripsInRangeWithSections(db, start, end);
+    },
+    enabled: !!dayKey,
   });
 }
 
