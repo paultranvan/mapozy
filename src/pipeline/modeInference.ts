@@ -8,10 +8,16 @@ import { RULES } from './rules';
 
 // RULE_MODE_SPEED_FALLBACK
 function classifyBySpeed(s: RawSection): Mode {
-  const { carThresholdMps, bikeThresholdMps } = RULES.MODE_SPEED_FALLBACK.defaults;
+  const { carThresholdMps, bikeThresholdMps, bikeMaxP95Mps } =
+    RULES.MODE_SPEED_FALLBACK.defaults;
   const v = classifyingSpeedMps(s);
   if (v > carThresholdMps) return 'car';
-  if (v > bikeThresholdMps) return 'bike';
+  if (v > bikeThresholdMps) {
+    // A congested-city car reads slow at p75 (stop-and-go) but still sustains
+    // ~50 km/h on open stretches. p95 captures that without being fooled by a
+    // single GPS spike — if it's implausible for a bike, it's a car.
+    return percentileSpeedMps(s, 0.95) > bikeMaxP95Mps ? 'car' : 'bike';
+  }
   return 'walk';
 }
 
@@ -61,12 +67,23 @@ export function modeForSection(s: RawSection): Mode {
  * needs.
  */
 export function classifyingSpeedMps(s: RawSection): number {
+  return percentileSpeedMps(s, 0.75);
+}
+
+/**
+ * The `p`-th percentile of a section's speed, preferring device-reported
+ * `speed_mps` (Doppler) and falling back to haversine-between-fixes when the
+ * GPS chip didn't report speed — same source preference as
+ * {@link classifyingSpeedMps}. Used at p75 for the mode threshold and at p95
+ * for the bike sanity ceiling (RULE_MODE_SPEED_FALLBACK.bikeMaxP95Mps).
+ */
+export function percentileSpeedMps(s: RawSection, p: number): number {
   const reported = s.points
-    .map((p) => p.speedMps)
+    .map((pt) => pt.speedMps)
     .filter((v): v is number => v != null);
   if (reported.length >= 2) {
     reported.sort((a, b) => a - b);
-    return reported[Math.floor(0.75 * reported.length)]!;
+    return reported[Math.floor(p * reported.length)]!;
   }
   const segs: number[] = [];
   for (let i = 1; i < s.points.length; i++) {
@@ -79,7 +96,7 @@ export function classifyingSpeedMps(s: RawSection): number {
   }
   if (segs.length === 0) return 0;
   segs.sort((x, y) => x - y);
-  return segs[Math.floor(0.75 * segs.length)]!;
+  return segs[Math.floor(p * segs.length)]!;
 }
 
 export function maxSpeedMps(s: RawSection): number {

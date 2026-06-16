@@ -102,6 +102,27 @@ describe('modeInference', () => {
       expect(modeForSection(mkSection('unknown', pts))).toBe('bike');
     });
 
+    it('congested car: low p75 but sustained ~48 km/h bursts → car (not bike)', () => {
+      // Alex's trip 23 reproducer: a city drive that crawls in traffic (p75
+      // lands in the bike band) yet repeatedly hits ~48 km/h on open stretches.
+      // p95 ≈ 13 m/s exceeds bikeMaxP95Mps (9.7) → reclassified as car.
+      const slow = Array.from({ length: 20 }, () => 1.5); // stop-and-go
+      const mid = [4.0, 4.5, 5.0, 5.5, 6.0, 6.2]; // keeps p75 in bike band
+      const fast = [13.0, 13.3, 13.4, 13.2, 13.1, 13.5]; // ~48 km/h cruising
+      const speeds = [...slow, ...mid, ...fast];
+      const pts = speeds.map((mps, i) => withSpeed(i * 30_000, mps));
+      expect(modeForSection(mkSection('unknown', pts))).toBe('car');
+    });
+
+    it('downhill bike: brief spike to 40 km/h but p95 stays bike → bike', () => {
+      // A single fast descent must NOT flip a real bike ride to car: only ~1
+      // sample is fast, so p95 stays well under the ceiling.
+      const ride = Array.from({ length: 30 }, (_, i) => 4.5 + (i % 3) * 0.5);
+      const spike = [11.0]; // ~40 km/h, one brief burst
+      const pts = [...ride, ...spike].map((mps, i) => withSpeed(i * 30_000, mps));
+      expect(modeForSection(mkSection('unknown', pts))).toBe('bike');
+    });
+
     it('single reported speed falls back to haversine', () => {
       // < 2 reported values can't form a meaningful p75; fall through to
       // haversine of segments instead.

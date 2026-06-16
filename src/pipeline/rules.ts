@@ -112,8 +112,13 @@ export const RULES = {
       'direct velocity reading, not an averaged displacement). Falls back to ' +
       'p75 of haversine-between-consecutive-points when reported speed is missing. ' +
       'p75 (not median) so stop-and-go segments at red lights don\'t pull ' +
-      'city driving into the bike range.',
-    { carThresholdMps: 6.94, bikeThresholdMps: 3.33 }
+      'city driving into the bike range. ' +
+      'bikeMaxP95Mps is a sanity ceiling: a section whose p75 lands in the bike ' +
+      'band but whose p95 (sustained top speed, robust to single-fix GPS spikes) ' +
+      'exceeds it is reclassified as car. A congested city drive reads slow at ' +
+      'p75 yet still hits ~50 km/h on the open stretches — a bike never sustains ' +
+      'that. 9.7 m/s ≈ 35 km/h, above an elite cyclist / e-bike top speed.',
+    { carThresholdMps: 6.94, bikeThresholdMps: 3.33, bikeMaxP95Mps: 9.7 }
   ),
 
   VEHICLE_SPEED_SANITY: rule(
