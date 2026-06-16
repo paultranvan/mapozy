@@ -1,7 +1,15 @@
-import { useEffect, useState } from 'react';
-import { ScrollView, View, StyleSheet, Alert, Switch, Pressable } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  ScrollView,
+  View,
+  StyleSheet,
+  Alert,
+  Switch,
+  Pressable,
+  ActivityIndicator,
+} from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useDb } from '@/db/DbContext';
@@ -40,13 +48,19 @@ export default function SettingsScreen() {
   const [rawCount, setRawCount] = useState(0);
   const [batteryUnrestricted, setBatteryUnrestricted] = useState(false);
   const [interruptions, setInterruptions] = useState<Interruption[] | null>(null);
+  const [pipelineBusy, setPipelineBusy] = useState(false);
+  const [homeWorkBusy, setHomeWorkBusy] = useState(false);
   const health = useTrackingHealth();
+
+  const refreshCounts = useCallback(async () => {
+    setTripCount(await countTrips(db));
+    setRawCount(await countUnconsumedPoints(db));
+  }, [db]);
 
   useEffect(() => {
     (async () => {
       setTrackingOn(await isTracking());
-      setTripCount(await countTrips(db));
-      setRawCount(await countUnconsumedPoints(db));
+      await refreshCounts();
       setBatteryUnrestricted(await MapozyTracker.isIgnoringBatteryOptimizations());
       const now = Date.now();
       const result = await getInterruptions(db, {
@@ -56,7 +70,17 @@ export default function SettingsScreen() {
       });
       setInterruptions(result);
     })();
-  }, [db]);
+  }, [db, refreshCounts]);
+
+  // The native tracker keeps inserting points while this screen is open, so a
+  // count fetched only on mount goes stale (and then appears to "jump up" after
+  // Force pipeline). Re-read it whenever the tab regains focus so the number
+  // the user sees is current.
+  useFocusEffect(
+    useCallback(() => {
+      void refreshCounts();
+    }, [refreshCounts])
+  );
 
   async function requestBatteryExemption() {
     await MapozyTracker.requestIgnoreBatteryOptimizations();
@@ -80,23 +104,32 @@ export default function SettingsScreen() {
   }
 
   async function runPipeline() {
+    if (pipelineBusy) return;
+    setPipelineBusy(true);
     try {
       await runPipelineAndInvalidate(db, qc);
-      setTripCount(await countTrips(db));
-      setRawCount(await countUnconsumedPoints(db));
+      await refreshCounts();
       Alert.alert('Pipeline complete', 'Trips have been refreshed.');
     } catch (e) {
       Alert.alert('Pipeline failed', String(e));
+    } finally {
+      setPipelineBusy(false);
     }
   }
 
   async function runHomeWork() {
-    const r = await detectHomeAndWork(db);
-    await qc.invalidateQueries({ queryKey: ['places'] });
-    Alert.alert(
-      'Home/work detection',
-      `Home place: ${r.homeId ?? 'none'}\nWork place: ${r.workId ?? 'none'}`
-    );
+    if (homeWorkBusy) return;
+    setHomeWorkBusy(true);
+    try {
+      const r = await detectHomeAndWork(db);
+      await qc.invalidateQueries({ queryKey: ['places'] });
+      Alert.alert(
+        'Home/work detection',
+        `Home place: ${r.homeId ?? 'none'}\nWork place: ${r.workId ?? 'none'}`
+      );
+    } finally {
+      setHomeWorkBusy(false);
+    }
   }
 
   async function onSendDataToPaul() {
@@ -306,13 +339,27 @@ export default function SettingsScreen() {
                 {tripCount} {tripCount === 1 ? 'trip' : 'trips'} stored
               </Text>
               <Text variant="meta" soft>
-                {rawCount} unprocessed points
+                {rawCount} unprocessed {rawCount === 1 ? 'point' : 'points'}
               </Text>
+              {rawCount > 0 ? (
+                <Text variant="meta" soft style={styles.unprocessedHint}>
+                  Points from a trip in progress stay here until you arrive
+                  somewhere — the count drops once the trip closes.
+                </Text>
+              ) : null}
             </View>
           </View>
           <View style={styles.buttonRow}>
-            <SecondaryButton onPress={runPipeline} label="Force pipeline" />
-            <SecondaryButton onPress={runHomeWork} label="Detect home/work" />
+            <SecondaryButton
+              onPress={runPipeline}
+              label="Force pipeline"
+              busy={pipelineBusy}
+            />
+            <SecondaryButton
+              onPress={runHomeWork}
+              label="Detect home/work"
+              busy={homeWorkBusy}
+            />
           </View>
           <View style={styles.divider} />
           <Pressable style={styles.actionRow} onPress={onShareDb}>
@@ -400,16 +447,28 @@ export default function SettingsScreen() {
   );
 }
 
-function SecondaryButton({ label, onPress }: { label: string; onPress: () => void }) {
+function SecondaryButton({
+  label,
+  onPress,
+  busy = false,
+}: {
+  label: string;
+  onPress: () => void;
+  busy?: boolean;
+}) {
   return (
     <Pressable
       onPress={onPress}
+      disabled={busy}
       style={({ pressed }) => [
         styles.secondaryBtn,
+        styles.secondaryBtnRow,
+        busy && { opacity: 0.6 },
         pressed && { backgroundColor: colors.surfaceMuted },
       ]}
     >
-      <Text variant="label">{label}</Text>
+      {busy ? <ActivityIndicator size="small" color={colors.ink} /> : null}
+      <Text variant="label">{busy ? 'Working…' : label}</Text>
     </Pressable>
   );
 }
@@ -479,6 +538,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  unprocessedHint: {
+    marginTop: space[1],
+    opacity: 0.8,
+  },
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -495,6 +558,11 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.divider,
+  },
+  secondaryBtnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
   },
   dangerBtn: {
     paddingHorizontal: space[4],
