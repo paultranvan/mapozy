@@ -15,6 +15,14 @@ interface Props {
   endPlace: Place | null | undefined;
   selectMode?: boolean;
   selected?: boolean;
+  // 1-based ordinal shown as a leading badge, matching the numbered markers on
+  // the day map so a trip in the list can be tied to its trace.
+  index?: number;
+  // When set, overrides the default "navigate to detail" body tap (used by the
+  // day view to highlight the trip on the map instead). `onOpen`, when set,
+  // shows a chevron that still opens the trip detail.
+  onPress?: () => void;
+  onOpen?: () => void;
   onLongPress?: (id: number) => void;
   onToggle?: (id: number) => void;
 }
@@ -46,6 +54,9 @@ export function TripListItem({
   endPlace,
   selectMode = false,
   selected = false,
+  index,
+  onPress,
+  onOpen,
   onLongPress,
   onToggle,
 }: Props) {
@@ -58,6 +69,8 @@ export function TripListItem({
   const handlePress = () => {
     if (selectMode) {
       if (trip.id != null) onToggle?.(trip.id);
+    } else if (onPress) {
+      onPress();
     } else {
       router.push(`/trip/${trip.id}`);
     }
@@ -90,6 +103,13 @@ export function TripListItem({
                 size={24}
                 color={selected ? colors.accent : colors.inkOnGroundSoft}
               />
+            ) : null}
+            {index != null && !selectMode ? (
+              <View style={styles.indexBadge}>
+                <Text variant="meta" style={styles.indexText}>
+                  {index}
+                </Text>
+              </View>
             ) : null}
             <ModeChip mode={trip.dominantMode} />
             <View style={styles.body}>
@@ -125,6 +145,15 @@ export function TripListItem({
                 {distUnit}
               </Text>
             </View>
+            {onOpen ? (
+              <Pressable onPress={onOpen} hitSlop={8} style={styles.openBtn}>
+                <MaterialCommunityIcons
+                  name="chevron-right"
+                  size={22}
+                  color={colors.inkSoft}
+                />
+              </Pressable>
+            ) : null}
           </View>
         </Card>
       )}
@@ -153,6 +182,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[3],
+  },
+  indexBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.deep,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  openBtn: {
+    marginLeft: space[1],
+    marginRight: -space[1],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  indexText: {
+    color: colors.surface,
+    fontWeight: '700',
   },
   body: {
     flex: 1,

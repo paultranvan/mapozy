@@ -6,8 +6,10 @@ import {
   RefreshControl,
   ActivityIndicator,
   Alert,
+  Pressable,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTripsList, usePlaces } from '@/queries/useTrips';
 import { useDb } from '@/db/DbContext';
@@ -28,6 +30,7 @@ import type { Trip, Place } from '@/types';
 
 interface Section {
   title: string;
+  dateKey: string;
   data: Trip[];
 }
 
@@ -60,12 +63,13 @@ function groupByDay(trips: Trip[]): Section[] {
   }
   return Array.from(map.entries())
     .sort((a, b) => (a[0] < b[0] ? 1 : -1))
-    .map(([k, data]) => ({ title: dayHeader(k), data }));
+    .map(([k, data]) => ({ title: dayHeader(k), dateKey: k, data }));
 }
 
 export default function TripsScreen() {
   const db = useDb();
   const qc = useQueryClient();
+  const router = useRouter();
   const tripsQ = useTripsList(500);
   const placesQ = usePlaces();
   const recording = useRecordingStatus();
@@ -252,9 +256,19 @@ export default function TripsScreen() {
           stickySectionHeadersEnabled={false}
           contentContainerStyle={styles.list}
           renderSectionHeader={({ section }) => (
-            <Text variant="dayHeader" onGround style={styles.sectionHeader}>
-              {section.title}
-            </Text>
+            <Pressable
+              onPress={() => router.push(`/day/${section.dateKey}`)}
+              style={({ pressed }) => [styles.sectionHeader, pressed && styles.sectionHeaderPressed]}
+            >
+              <Text variant="dayHeader" onGround>
+                {section.title}
+              </Text>
+              <MaterialCommunityIcons
+                name="map-outline"
+                size={18}
+                color={colors.inkOnGroundSoft}
+              />
+            </Pressable>
           )}
           renderItem={({ item }) => (
             <TripListItem
@@ -302,8 +316,14 @@ const styles = StyleSheet.create({
     paddingBottom: space[5],
   },
   sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: space[4],
     paddingTop: space[4],
     paddingBottom: space[2],
+  },
+  sectionHeaderPressed: {
+    opacity: 0.6,
   },
 });
