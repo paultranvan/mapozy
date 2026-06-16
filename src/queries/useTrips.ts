@@ -1,17 +1,18 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { useDb } from '../db/DbContext';
 import {
   listTrips,
   getTripById,
   countTrips,
   getTripsInRangeWithSections,
+  getTripStartTimesInRange,
 } from '../db/trips';
 import { getAllPlaces, getPlaceById } from '../db/places';
 import { periodKpi, dailyDistances } from '../stats/periodStats';
 import { modeBreakdown } from '../stats/modeBreakdown';
 import { records } from '../stats/records';
 import type { PeriodKey } from '../lib/time';
-import { periodToRange, rangeForDayKey } from '../lib/time';
+import { periodToRange, rangeForDayKey, dayKey } from '../lib/time';
 
 export function useTripsList(limit = 200) {
   const db = useDb();
@@ -32,6 +33,23 @@ export function useDayTrips(dayKey: string) {
       return getTripsInRangeWithSections(db, start, end);
     },
     enabled: !!dayKey,
+    // Keep the previous day's data on screen while the next loads, so switching
+    // days updates the map in place instead of flashing a spinner.
+    placeholderData: keepPreviousData,
+  });
+}
+
+// Set of `YYYY-MM-DD` keys that have at least one trip in [startMs, endMs] —
+// drives the week strip's "has trips" dots.
+export function useTripDaysWithTrips(startMs: number, endMs: number) {
+  const db = useDb();
+  return useQuery({
+    queryKey: ['trips', 'days', startMs, endMs],
+    queryFn: async () => {
+      const times = await getTripStartTimesInRange(db, startMs, endMs);
+      return new Set(times.map((t) => dayKey(t)));
+    },
+    placeholderData: keepPreviousData,
   });
 }
 

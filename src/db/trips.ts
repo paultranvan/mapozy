@@ -218,6 +218,21 @@ export async function getTripsInRange(
   return rows.map(rowToTrip);
 }
 
+// Just the start times of trips in a range — cheap signal for "which days have
+// trips" (the week strip's dots) without loading geometry.
+export async function getTripStartTimesInRange(
+  db: Db,
+  startMs: number,
+  endMs: number
+): Promise<number[]> {
+  const rows = await db.getAllAsync<{ start_time_ms: number }>(
+    `SELECT start_time_ms FROM trips WHERE start_time_ms BETWEEN ? AND ?`,
+    startMs,
+    endMs
+  );
+  return rows.map((r) => r.start_time_ms);
+}
+
 // Like getTripsInRange but hydrates each trip's sections (rowToTrip leaves them
 // empty — only getTripById fills them). The day map and its trip rows need the
 // per-section geometry + modes, so load them here.
@@ -227,9 +242,11 @@ export async function getTripsInRangeWithSections(
   endMs: number
 ): Promise<Trip[]> {
   const trips = await getTripsInRange(db, startMs, endMs);
-  for (const t of trips) {
-    if (t.id != null) t.sections = await getSectionsForTrip(db, t.id);
-  }
+  await Promise.all(
+    trips.map(async (t) => {
+      if (t.id != null) t.sections = await getSectionsForTrip(db, t.id);
+    })
+  );
   return trips;
 }
 

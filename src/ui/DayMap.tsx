@@ -1,40 +1,41 @@
 import { useMemo } from 'react';
-import { View, StyleSheet, Text, useWindowDimensions } from 'react-native';
+import { View, StyleSheet, Text } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import MapLibreGL, {
   MapView,
   ShapeSource,
   LineLayer,
-  PointAnnotation,
+  CircleLayer,
+  MarkerView,
   Camera,
 } from '@maplibre/maplibre-react-native';
 import { colors as themeColors, MODE_COLORS } from '../theme/tokens';
 import { effectiveMode } from '../pipeline/effectiveMode';
+import { OSM_STYLE } from './mapStyle';
 import type { Trip } from '../types';
 
 MapLibreGL.setAccessToken(null);
 
-// Shared OSM raster style (same source as TripMap).
-const OSM_STYLE = {
-  version: 8,
-  sources: {
-    'osm-raster': {
-      type: 'raster',
-      tiles: [
-        'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      ],
-      tileSize: 256,
-      attribution: '© OpenStreetMap contributors',
-      maxzoom: 19,
-    },
-  },
-  layers: [{ id: 'osm', type: 'raster', source: 'osm-raster' }],
+// Numbered markers are MarkerView overlays (React views), so there's no glyph
+// font dependency and no PointAnnotation flicker. Lines are a single
+// data-driven source so switching days swaps source data (a smooth diff).
+
+// bottom clears the fixed ~46%-height detail panel; top clears the back button.
+const PAD = { left: 36, right: 36, top: 70, bottom: 400 };
+// MarkerView anchors: trip pins float just above their point; place pins
+// higher so they clear a coincident numbered pin.
+const TRIP_ANCHOR = { x: 0.5, y: 1.35 };
+const PLACE_ANCHOR = { x: 0.5, y: 1.7 };
+// Day's last-point marker — fully static.
+const END_CIRCLE = {
+  circleColor: themeColors.end,
+  circleRadius: 6,
+  circleStrokeColor: themeColors.surface,
+  circleStrokeWidth: 3,
 };
 
-// Leave room for the bottom sheet (≈ 42% of the screen) so the day's traces
-// sit in the visible upper portion of the map.
-const PAD = { left: 36, right: 36, top: 70, bottom: 360 };
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type FC = any;
 
 function sectionCoords(geojson: string): Array<[number, number]> {
   try {
@@ -45,24 +46,20 @@ function sectionCoords(geojson: string): Array<[number, number]> {
   }
 }
 
-/**
- * Renders every trip of a day on one map: each section as a mode-coloured
- * line, with a dot at each trip's start and a flag at the day's last point.
- * Camera fits all traces, padded so they clear the bottom sheet.
- */
 export function DayMap({
   trips,
   selectedTripId = null,
+  placeMarkers = [],
 }: {
   trips: Trip[];
   selectedTripId?: number | null;
+  placeMarkers?: { kind: 'home' | 'work'; coord: [number, number] }[];
 }) {
-  const { width: winW, height: winH } = useWindowDimensions();
   const dim = selectedTripId != null;
 
-  const { lines, starts, lastPoint, bounds } = useMemo(() => {
-    const lines: Array<{ id: string; tripId: number; coords: Array<[number, number]>; color: string }> = [];
-    const starts: Array<{ id: string; tripId: number; coord: [number, number]; label: string }> = [];
+  const { lineFC, endFC, starts, bounds } = useMemo(() => {
+    const lineFeatures: FC[] = [];
+    const starts: Array<{ tripId: number; coord: [number, number]; label: string }> = [];
     let lastPoint: [number, number] | null = null;
     let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
 
@@ -74,46 +71,45 @@ export function DayMap({
         if (lat > maxLat) maxLat = lat;
       }
     };
+    const lineFeat = (coords: Array<[number, number]>, tripId: number, color: string) => ({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: coords },
+      properties: { tripId, color },
+    });
 
     trips.forEach((t, tripIndex) => {
       const tripId = t.id ?? -1;
       let tripFirst: [number, number] | null = null;
-      // Per-section lines (coloured by mode) when sections are loaded.
-      for (let i = 0; i < t.sections.length; i++) {
-        const s = t.sections[i]!;
+      for (const s of t.sections) {
         const coords = sectionCoords(s.geojson);
         if (coords.length < 2) continue;
-        lines.push({ id: `t${tripId}-s${i}`, tripId, coords, color: MODE_COLORS[effectiveMode(s)] });
+        lineFeatures.push(lineFeat(coords, tripId, MODE_COLORS[effectiveMode(s)]));
         if (!tripFirst) tripFirst = coords[0]!;
         lastPoint = coords[coords.length - 1]!;
         extend(coords);
       }
-      // Fallback: a trip without hydrated sections still has its full-trip
-      // LineString — draw it in the dominant-mode colour so the map is never blank.
       if (!tripFirst) {
         const coords = sectionCoords(t.geojson);
         if (coords.length >= 2) {
-          lines.push({ id: `t${tripId}-full`, tripId, coords, color: MODE_COLORS[t.dominantMode] });
+          lineFeatures.push(lineFeat(coords, tripId, MODE_COLORS[t.dominantMode]));
           tripFirst = coords[0]!;
           lastPoint = coords[coords.length - 1]!;
           extend(coords);
         }
       }
-      if (tripFirst) {
-        starts.push({
-          id: `t${tripId}-start`,
-          tripId,
-          coord: tripFirst,
-          label: String(tripIndex + 1),
-        });
-      }
+      if (tripFirst) starts.push({ tripId, coord: tripFirst, label: String(tripIndex + 1) });
     });
 
     const hasData = Number.isFinite(minLon);
     return {
-      lines,
+      lineFC: { type: 'FeatureCollection', features: lineFeatures } as FC,
+      endFC: {
+        type: 'FeatureCollection',
+        features: lastPoint
+          ? [{ type: 'Feature', geometry: { type: 'Point', coordinates: lastPoint }, properties: {} }]
+          : [],
+      } as FC,
       starts,
-      lastPoint,
       bounds: hasData
         ? {
             sw: [minLon, minLat] as [number, number],
@@ -127,6 +123,18 @@ export function DayMap({
     };
   }, [trips]);
 
+  const lineStyle = useMemo(() => {
+    const match = ['==', ['get', 'tripId'], selectedTripId];
+    return {
+      lineColor: ['get', 'color'],
+      lineWidth: dim ? ['case', match, 6, 5] : 5,
+      lineOpacity: dim ? ['case', match, 1, 0.12] : 0.9,
+      lineCap: 'round',
+      lineJoin: 'round',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any;
+  }, [selectedTripId, dim]);
+
   if (!bounds) {
     return (
       <View style={[styles.container, styles.empty]}>
@@ -135,65 +143,50 @@ export function DayMap({
     );
   }
 
-  // When a trip is selected, draw the dimmed lines first and the selected
-  // trip's lines last so the highlight always sits on top.
-  const orderedLines = dim
-    ? [...lines].sort(
-        (a, b) =>
-          (a.tripId === selectedTripId ? 1 : 0) - (b.tripId === selectedTripId ? 1 : 0)
-      )
-    : lines;
-
   return (
     <MapView style={styles.container} mapStyle={OSM_STYLE as unknown as string}>
-      <Camera bounds={bounds} animationMode="moveTo" animationDuration={0} />
-      {orderedLines.map((l) => {
-        const isSel = l.tripId === selectedTripId;
-        return (
-          <ShapeSource
-            key={l.id}
-            id={l.id}
-            shape={{
-              type: 'Feature',
-              geometry: { type: 'LineString', coordinates: l.coords },
-              properties: {},
-            }}
-          >
-            <LineLayer
-              id={`line-${l.id}`}
-              style={{
-                lineColor: l.color,
-                lineWidth: dim && isSel ? 6 : 5,
-                lineCap: 'round',
-                lineJoin: 'round',
-                lineOpacity: dim ? (isSel ? 1 : 0.15) : 0.9,
-              }}
-            />
-          </ShapeSource>
-        );
-      })}
+      <Camera bounds={bounds} animationMode="easeTo" animationDuration={300} />
+      <ShapeSource id="day-lines" shape={lineFC}>
+        <LineLayer id="day-lines-l" style={lineStyle} />
+      </ShapeSource>
+      <ShapeSource id="day-end" shape={endFC}>
+        <CircleLayer id="day-end-l" style={END_CIRCLE} />
+      </ShapeSource>
       {starts.map((s) => (
-        // Anchor at the pin tip (bottom-centre) so the numbered head floats
-        // ABOVE the start point — lines converge at the tip, clear of the digit.
-        <PointAnnotation key={s.id} id={s.id} coordinate={s.coord} anchor={{ x: 0.5, y: 1 }}>
+        <MarkerView
+          key={`${s.tripId}-${s.label}`}
+          coordinate={s.coord}
+          anchor={TRIP_ANCHOR}
+          allowOverlap
+        >
           <View
             style={[
-              styles.pin,
+              styles.numBadge,
               dim && s.tripId !== selectedTripId && styles.markerDim,
             ]}
           >
-            <View style={styles.numBadge}>
-              <Text style={styles.numText}>{s.label}</Text>
-            </View>
-            <View style={styles.pinTail} />
+            <Text style={styles.numText}>{s.label}</Text>
           </View>
-        </PointAnnotation>
+        </MarkerView>
       ))}
-      {lastPoint ? (
-        <PointAnnotation id="day-end" coordinate={lastPoint} anchor={{ x: 0.5, y: 0.5 }}>
-          <View style={styles.endDot} />
-        </PointAnnotation>
-      ) : null}
+      {placeMarkers.map((p, i) => (
+        // Anchored higher (y > 1) so the home/work pin floats clear above any
+        // numbered trip marker sharing the same place.
+        <MarkerView
+          key={`place-${p.kind}-${i}`}
+          coordinate={p.coord}
+          anchor={PLACE_ANCHOR}
+          allowOverlap
+        >
+          <View style={styles.placePin}>
+            <MaterialCommunityIcons
+              name={p.kind === 'home' ? 'home' : 'briefcase'}
+              size={16}
+              color={themeColors.surface}
+            />
+          </View>
+        </MarkerView>
+      ))}
     </MapView>
   );
 }
@@ -201,23 +194,11 @@ export function DayMap({
 const styles = StyleSheet.create({
   container: { flex: 1 },
   empty: { alignItems: 'center', justifyContent: 'center' },
-  pin: { alignItems: 'center' },
-  pinTail: {
-    width: 0,
-    height: 0,
-    marginTop: -2,
-    borderLeftWidth: 5,
-    borderRightWidth: 5,
-    borderTopWidth: 8,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-    borderTopColor: themeColors.deep,
-  },
+  markerDim: { opacity: 0.3 },
   numBadge: {
-    minWidth: 22,
-    height: 22,
-    paddingHorizontal: 4,
-    borderRadius: 11,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     borderWidth: 2,
     borderColor: themeColors.surface,
     backgroundColor: themeColors.deep,
@@ -230,13 +211,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 14,
   },
-  markerDim: { opacity: 0.3 },
-  endDot: {
-    width: 15,
-    height: 15,
-    borderRadius: 8,
-    borderWidth: 3,
+  placePin: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 2,
     borderColor: themeColors.surface,
-    backgroundColor: themeColors.end,
+    backgroundColor: themeColors.deep,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

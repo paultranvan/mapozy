@@ -1,21 +1,61 @@
 import { useEffect, useMemo, useState } from 'react';
-import { View, StyleSheet, Pressable } from 'react-native';
+import { View, StyleSheet, Pressable, ScrollView, useWindowDimensions } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ActivityIndicator } from 'react-native-paper';
-import { useDayTrips, usePlaces } from '@/queries/useTrips';
+import { useDayTrips, usePlaces, useTripDaysWithTrips } from '@/queries/useTrips';
 import { DayMap } from '@/ui/DayMap';
 import { TripListItem } from '@/ui/TripListItem';
+import { WeekStrip, type WeekDay } from '@/ui/WeekStrip';
+import { ModeBar } from '@/ui/ModeBar';
 import { Text } from '@/ui/Text';
+import { effectiveMode } from '@/pipeline/effectiveMode';
 import { colors, radii, space } from '@/theme/tokens';
-import { formatDistance, formatDuration, formatCo2, formatTime } from '@/lib/format';
-import { dayKey, dayKeyToMs, shiftDayKey } from '@/lib/time';
-import type { Trip, Place } from '@/types';
+import {
+  formatDistance,
+  formatDuration,
+  formatCo2,
+  formatTime,
+  capitalize,
+  WEEKDAYS,
+  WEEKDAYS_SHORT,
+  MONTHS_SHORT,
+} from '@/lib/format';
+import {
+  dayKey,
+  dayKeyToMs,
+  shiftDayKey,
+  startOfDayMs,
+  endOfDayMs,
+} from '@/lib/time';
+import type { Trip, Place, Mode, DominantMode } from '@/types';
 
-const WEEKDAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// Stable empty references so memo deps don't change while a query is pending.
+const NO_TRIPS: Trip[] = [];
+const NO_DAYS = new Set<string>();
+
+const DAY_MS = 86_400_000;
+
+// The Mon→Sun week containing `key`, plus the range covering it.
+function weekFor(key: string): { days: WeekDay[]; startMs: number; endMs: number } {
+  const base = dayKeyToMs(key);
+  const dow = new Date(base).getDay(); // 0 = Sunday
+  const mondayMs = base + (dow === 0 ? -6 : 1 - dow) * DAY_MS;
+  const days: WeekDay[] = [];
+  for (let i = 0; i < 7; i++) {
+    const ms = mondayMs + i * DAY_MS;
+    const d = new Date(ms);
+    days.push({ key: dayKey(ms), label: WEEKDAYS_SHORT[d.getDay()]!, dayNum: d.getDate() });
+  }
+  return { days, startMs: startOfDayMs(mondayMs), endMs: endOfDayMs(mondayMs + 6 * DAY_MS) };
+}
 
 function dayLabel(key: string): string {
   if (key === dayKey(Date.now())) return 'Today';
@@ -23,23 +63,59 @@ function dayLabel(key: string): string {
   const d = new Date(dayKeyToMs(key));
   const sameYear = d.getFullYear() === new Date().getFullYear();
   return sameYear
-    ? `${WEEKDAY[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]}`
-    : `${WEEKDAY[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+    ? `${WEEKDAYS[d.getDay()]}, ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`
+    : `${WEEKDAYS[d.getDay()]}, ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 export default function DayScreen() {
   const params = useLocalSearchParams<{ date: string }>();
-  const date = params.date;
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
+  // The visible day is local state seeded from the route param. Switching days
+  // updates this state in place — NO navigation — so React just re-renders the
+  // content (map source data + sheet) instead of a screen transition that
+  // flashes the whole screen.
+  const [date, setDate] = useState(params.date);
+
   const tripsQ = useDayTrips(date);
   const placesQ = usePlaces();
-  const snapPoints = useMemo(() => ['42%', '88%'], []);
   const [selectedTripId, setSelectedTripId] = useState<number | null>(null);
 
-  // Drop any highlight when navigating to another day.
+  // Draggable bottom panel. The header (handle + day nav) is the drag zone via
+  // a gesture-handler Pan that only activates past 8px of vertical movement
+  // (activeOffsetY) — so taps on the chevrons still fire, while a drag resizes
+  // the panel. The inner ScrollView scrolls independently of the panel.
+  const { height: winH } = useWindowDimensions();
+  const MIN_H = Math.round(winH * 0.44);
+  const MAX_H = Math.round(winH * 0.9);
+  const height = useSharedValue(MIN_H);
+  const startHeight = useSharedValue(MIN_H);
+  const dragGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY([-8, 8])
+        .onBegin(() => {
+          startHeight.value = height.value;
+        })
+        .onUpdate((e) => {
+          const h = startHeight.value - e.translationY;
+          height.value = h < MIN_H ? MIN_H : h > MAX_H ? MAX_H : h;
+        })
+        .onEnd(() => {
+          const snap = height.value > (MIN_H + MAX_H) / 2 ? MAX_H : MIN_H;
+          height.value = withSpring(snap, { damping: 22, stiffness: 200 });
+        }),
+    [MIN_H, MAX_H, height, startHeight]
+  );
+  const panelStyle = useAnimatedStyle(() => ({ height: height.value }));
+
+  // Drop any highlight when switching day.
   useEffect(() => setSelectedTripId(null), [date]);
+
+  const week = useMemo(() => weekFor(date), [date]);
+  const weekDaysQ = useTripDaysWithTrips(week.startMs, week.endMs);
+  const daysWithTrips = weekDaysQ.data ?? NO_DAYS;
 
   const placeById = useMemo(() => {
     const m = new Map<number, Place>();
@@ -47,7 +123,25 @@ export default function DayScreen() {
     return m;
   }, [placesQ.data]);
 
-  const trips: Trip[] = tripsQ.data ?? [];
+  const trips: Trip[] = tripsQ.data ?? NO_TRIPS;
+
+  // Home/work places that are endpoints of the day's trips → shown as pins.
+  const placeMarkers = useMemo(() => {
+    const ids = new Set<number>();
+    for (const t of trips) {
+      if (t.startPlaceId != null) ids.add(t.startPlaceId);
+      if (t.endPlaceId != null) ids.add(t.endPlaceId);
+    }
+    const out: { kind: 'home' | 'work'; coord: [number, number] }[] = [];
+    for (const id of ids) {
+      const p = placeById.get(id);
+      if (p && (p.label === 'home' || p.label === 'work')) {
+        out.push({ kind: p.label, coord: [p.longitude, p.latitude] });
+      }
+    }
+    return out;
+  }, [trips, placeById]);
+
   const summary = useMemo(() => {
     let distanceM = 0, durationS = 0, co2G = 0;
     let firstMs = Infinity, lastMs = -Infinity;
@@ -61,7 +155,30 @@ export default function DayScreen() {
     return { distanceM, durationS, co2G, count: trips.length, firstMs, lastMs };
   }, [trips]);
 
-  const goDay = (delta: number) => router.replace(`/day/${shiftDayKey(date, delta)}`);
+  // Distance per mode across the day (effectiveMode → respects user edits).
+  const modeBreakdown = useMemo(() => {
+    const byMode = new Map<Mode, number>();
+    for (const t of trips) {
+      for (const s of t.sections) {
+        const m = effectiveMode(s);
+        byMode.set(m, (byMode.get(m) ?? 0) + s.distanceM);
+      }
+    }
+    const total = [...byMode.values()].reduce((a, b) => a + b, 0);
+    const rows = [...byMode.entries()]
+      .map(([mode, distanceM]) => ({
+        mode,
+        distanceM,
+        pct: total > 0 ? Math.round((100 * distanceM) / total) : 0,
+      }))
+      .sort((a, b) => b.distanceM - a.distanceM);
+    return {
+      rows,
+      segments: rows.map((r) => ({ mode: r.mode as DominantMode, distanceM: r.distanceM })),
+    };
+  }, [trips]);
+
+  const goDay = (delta: number) => setDate((d) => shiftDayKey(d, delta));
 
   return (
     <View style={styles.root}>
@@ -72,43 +189,59 @@ export default function DayScreen() {
             <ActivityIndicator color={colors.inkOnGround} />
           </View>
         ) : (
-          <DayMap trips={trips} selectedTripId={selectedTripId} />
+          <DayMap
+            trips={trips}
+            selectedTripId={selectedTripId}
+            placeMarkers={placeMarkers}
+          />
         )}
       </View>
 
-      <FloatingIconButton
-        icon="chevron-left"
+      <Pressable
         onPress={() => router.back()}
-        style={[styles.fabLeft, { top: insets.top + space[2] }]}
-        size={26}
-      />
-
-      <BottomSheet
-        index={0}
-        snapPoints={snapPoints}
-        backgroundStyle={styles.sheetBg}
-        handleIndicatorStyle={styles.handle}
+        hitSlop={8}
+        style={({ pressed }) => [
+          styles.fab,
+          styles.fabLeft,
+          { top: insets.top + space[2] },
+          pressed && styles.fabPressed,
+        ]}
       >
-        <BottomSheetScrollView contentContainerStyle={styles.sheet}>
-          <View style={styles.dayNav}>
-            <Pressable onPress={() => goDay(-1)} hitSlop={10} style={styles.navBtn}>
-              <MaterialCommunityIcons name="chevron-left" size={24} color={colors.ink} />
-            </Pressable>
-            <View style={styles.dayTitleWrap}>
-              <Text variant="display" numberOfLines={1}>
-                {dayLabel(date)}
-              </Text>
-              {summary.count > 0 ? (
-                <Text variant="ribbon" soft>
-                  {formatTime(summary.firstMs)} – {formatTime(summary.lastMs)}
-                </Text>
-              ) : null}
-            </View>
-            <Pressable onPress={() => goDay(1)} hitSlop={10} style={styles.navBtn}>
-              <MaterialCommunityIcons name="chevron-right" size={24} color={colors.ink} />
-            </Pressable>
-          </View>
+        <MaterialCommunityIcons name="chevron-left" size={26} color={colors.inkOnGround} />
+      </Pressable>
 
+      <Animated.View style={[styles.panel, panelStyle]}>
+        {/* Whole header is the drag zone (handle + day nav + week strip). The
+            Pan gesture only activates past 8px of vertical movement, so taps on
+            the chevrons and week days still work. Pinned above the content. */}
+        <GestureDetector gesture={dragGesture}>
+          <View style={styles.dragHeader}>
+            <View style={styles.handle} />
+            <View style={styles.dayNav}>
+              <Pressable onPress={() => goDay(-1)} hitSlop={10} style={styles.navBtn}>
+                <MaterialCommunityIcons name="chevron-left" size={24} color={colors.ink} />
+              </Pressable>
+              <View style={styles.dayTitleWrap}>
+                <Text variant="display" numberOfLines={1}>
+                  {dayLabel(date)}
+                </Text>
+                {summary.count > 0 ? (
+                  <Text variant="ribbon" soft>
+                    {formatTime(summary.firstMs)} – {formatTime(summary.lastMs)}
+                  </Text>
+                ) : null}
+              </View>
+              <Pressable onPress={() => goDay(1)} hitSlop={10} style={styles.navBtn}>
+                <MaterialCommunityIcons name="chevron-right" size={24} color={colors.ink} />
+              </Pressable>
+            </View>
+          </View>
+        </GestureDetector>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.sheet}
+          showsVerticalScrollIndicator={false}
+        >
           {summary.count === 0 ? (
             <View style={styles.emptyDay}>
               <Text variant="body" soft align="center">
@@ -117,29 +250,7 @@ export default function DayScreen() {
             </View>
           ) : (
             <>
-              <View style={styles.summary}>
-                <Text variant="display" style={styles.summaryBig}>
-                  {formatDistance(summary.distanceM)}
-                </Text>
-                <Text variant="meta" soft style={styles.summaryMeta}>
-                  {formatDuration(summary.durationS)} · {summary.count} trip
-                  {summary.count > 1 ? 's' : ''} · {formatCo2(summary.co2G)}
-                </Text>
-              </View>
-
-              {selectedTripId != null ? (
-                <Pressable
-                  onPress={() => setSelectedTripId(null)}
-                  style={styles.showAll}
-                  hitSlop={8}
-                >
-                  <MaterialCommunityIcons name="close" size={15} color={colors.accent} />
-                  <Text variant="meta" style={styles.showAllText}>
-                    Show all trips
-                  </Text>
-                </Pressable>
-              ) : null}
-
+              {/* 1. Trips */}
               <View style={styles.list}>
                 {trips.map((t, i) => (
                   <TripListItem
@@ -156,33 +267,55 @@ export default function DayScreen() {
                   />
                 ))}
               </View>
+
+              {/* 2. One-line summary */}
+              <View style={styles.summaryRow}>
+                <Text variant="title">{formatDistance(summary.distanceM)}</Text>
+                <Text variant="meta" soft>
+                  {formatDuration(summary.durationS)} · {formatCo2(summary.co2G)}
+                </Text>
+              </View>
+
+              {/* 3. By mode */}
+              {modeBreakdown.rows.length > 0 ? (
+                <View style={styles.breakdown}>
+                  <Text variant="ribbon" soft style={styles.breakdownLabel}>
+                    By mode
+                  </Text>
+                  <ModeBar segments={modeBreakdown.segments} height={8} radius={4} gap={2} />
+                  <View style={styles.legend}>
+                    {modeBreakdown.rows.map((r) => (
+                      <View key={r.mode} style={styles.legendItem}>
+                        <View
+                          style={[
+                            styles.legendDot,
+                            { backgroundColor: colors.mode[r.mode] ?? colors.mode.mixed },
+                          ]}
+                        />
+                        <Text variant="meta">{capitalize(r.mode)}</Text>
+                        <Text variant="meta" soft>
+                          {formatDistance(r.distanceM)} · {r.pct}%
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
             </>
           )}
-        </BottomSheetScrollView>
-      </BottomSheet>
-    </View>
-  );
-}
 
-function FloatingIconButton({
-  icon,
-  onPress,
-  style,
-  size,
-}: {
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  onPress: () => void;
-  style: object | object[];
-  size: number;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      hitSlop={8}
-      style={({ pressed }) => [styles.fab, style, pressed && styles.fabPressed]}
-    >
-      <MaterialCommunityIcons name={icon} size={size} color={colors.inkOnGround} />
-    </Pressable>
+          {/* 4. Calendar (week strip) */}
+          <View style={styles.calendarWrap}>
+            <WeekStrip
+              days={week.days}
+              selectedKey={date}
+              daysWithTrips={daysWithTrips}
+              onSelect={(key) => setDate(key)}
+            />
+          </View>
+        </ScrollView>
+      </Animated.View>
+    </View>
   );
 }
 
@@ -205,13 +338,32 @@ const styles = StyleSheet.create({
   },
   fabPressed: { backgroundColor: colors.surfaceMuted },
   fabLeft: { left: space[3] },
-  sheetBg: {
+  panel: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: colors.surface,
     borderTopLeftRadius: radii.sheet,
     borderTopRightRadius: radii.sheet,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.14,
+    shadowOffset: { width: 0, height: -3 },
+    shadowRadius: 8,
+    elevation: 12,
   },
-  handle: { backgroundColor: colors.divider, width: 36, height: 4 },
-  sheet: { paddingBottom: space[6] },
+  dragHeader: { paddingTop: space[2] },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.divider,
+    alignSelf: 'center',
+    marginBottom: space[2],
+  },
+  scroll: { flex: 1 },
+  sheet: { paddingBottom: space[5] },
   dayNav: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -225,22 +377,46 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   dayTitleWrap: { flex: 1, alignItems: 'center' },
-  summary: {
-    paddingHorizontal: space[4],
-    paddingBottom: space[3],
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.divider,
+  summaryRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'center',
+    gap: space[2],
+    marginHorizontal: space[4],
+    paddingVertical: space[3],
+    marginTop: space[2],
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.divider,
   },
-  summaryBig: {},
-  summaryMeta: { marginTop: space[1] },
-  list: { paddingTop: space[2] },
-  showAll: {
+  breakdown: {
+    marginHorizontal: space[4],
+    paddingTop: space[3],
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.divider,
+  },
+  calendarWrap: {
+    marginTop: space[3],
+    paddingTop: space[3],
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.divider,
+  },
+  breakdownLabel: { marginBottom: space[2] },
+  legend: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space[3],
+    marginTop: space[2],
+  },
+  legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space[1],
-    alignSelf: 'center',
-    paddingVertical: space[2],
+    gap: 5,
   },
-  showAllText: { color: colors.accent },
+  legendDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+  },
+  list: { paddingTop: space[2] },
   emptyDay: { paddingVertical: space[6], paddingHorizontal: space[4] },
 });
