@@ -9,6 +9,7 @@ import MapLibreGL, {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import { colors as themeColors, MODE_COLORS } from '../theme/tokens';
+import { OSM_STYLE } from './mapStyle';
 import { effectiveMode } from '../pipeline/effectiveMode';
 import {
   trimLineFromStart,
@@ -64,24 +65,6 @@ function estimateFitZoom(
 }
 
 MapLibreGL.setAccessToken(null);
-
-const OSM_STYLE = {
-  version: 8,
-  sources: {
-    'osm-raster': {
-      type: 'raster',
-      tiles: [
-        'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      ],
-      tileSize: 256,
-      attribution: '© OpenStreetMap contributors',
-      maxzoom: 19,
-    },
-  },
-  layers: [{ id: 'osm', type: 'raster', source: 'osm-raster' }],
-};
 
 export function TripMap({ trip }: { trip: Trip }) {
   const allCoords = useMemo<Array<[number, number]>>(() => {

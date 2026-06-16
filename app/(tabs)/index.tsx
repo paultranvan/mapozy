@@ -26,6 +26,7 @@ import { planRecompute, recomputeForTrips } from '@/pipeline/recomputeRange';
 import { makeOverpassDeps } from '@/tracking/overpassDeps';
 import { colors, space } from '@/theme/tokens';
 import { dayKey } from '@/lib/time';
+import { WEEKDAYS, MONTHS_SHORT } from '@/lib/format';
 import type { Trip, Place } from '@/types';
 
 interface Section {
@@ -33,9 +34,6 @@ interface Section {
   dateKey: string;
   data: Trip[];
 }
-
-const WEEKDAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function dayHeader(k: string): string {
   const todayKey = dayKey(Date.now());
@@ -48,10 +46,10 @@ function dayHeader(k: string): string {
   const d = parts[2]!;
   const date = new Date(y, m - 1, d);
   const sameYear = date.getFullYear() === new Date().getFullYear();
-  const weekday = WEEKDAY[date.getDay()];
+  const weekday = WEEKDAYS[date.getDay()];
   return sameYear
-    ? `${weekday}, ${d} ${MONTHS[m - 1]}`
-    : `${weekday}, ${d} ${MONTHS[m - 1]} ${y}`;
+    ? `${weekday}, ${d} ${MONTHS_SHORT[m - 1]}`
+    : `${weekday}, ${d} ${MONTHS_SHORT[m - 1]} ${y}`;
 }
 
 function groupByDay(trips: Trip[]): Section[] {

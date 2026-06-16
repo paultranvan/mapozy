@@ -5,7 +5,7 @@ import { colors, space, radii } from '@/theme/tokens';
 import { Text } from './Text';
 import { ModeIcon } from './ModeIcon';
 import { effectiveMode } from '@/pipeline/effectiveMode';
-import { formatDistance, formatDuration, formatSpeed, formatTime } from '@/lib/format';
+import { formatDistance, formatDuration, formatSpeed, formatTime, capitalize } from '@/lib/format';
 import type { Mode, Section, TripBreak } from '@/types';
 
 const MODES: Mode[] = ['walk', 'run', 'bike', 'car', 'bus', 'tram', 'subway', 'train', 'plane'];
@@ -329,10 +329,6 @@ function MidRow({
       </View>
     </View>
   );
-}
-
-function capitalize(s: string): string {
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 }
 
 const RAIL_W = 30;
