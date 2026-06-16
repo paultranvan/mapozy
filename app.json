@@ -48,7 +48,8 @@
         }
       ],
       "expo-font",
-      "./plugins/withReleaseSigningConfig"
+      "./plugins/withReleaseSigningConfig",
+      "./plugins/withAppJsonVersion"
     ],
     "experiments": {
       "typedRoutes": true
