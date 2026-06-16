@@ -189,6 +189,22 @@ export async function getTripAfter(db: Db, ms: number): Promise<Trip | null> {
   return row ? rowToTrip(row) : null;
 }
 
+// The trip whose [start,end] span contains `ms`. Used after a reset/recompute
+// (which deletes and re-creates trips with fresh ids) to re-locate the trip the
+// user was looking at and keep them on its page.
+export async function getTripContainingTime(
+  db: Db,
+  ms: number
+): Promise<Trip | null> {
+  const row = await db.getFirstAsync<Row>(
+    `SELECT * FROM trips WHERE start_time_ms <= ? AND end_time_ms >= ?
+     ORDER BY start_time_ms DESC LIMIT 1`,
+    ms,
+    ms
+  );
+  return row ? rowToTrip(row) : null;
+}
+
 export async function getTripsInRange(
   db: Db,
   startMs: number,
