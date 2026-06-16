@@ -21,6 +21,13 @@ export function ModeBar({
   const total = segments.reduce((a, s) => a + s.distanceM, 0);
   if (total <= 0 || segments.length === 0) return null;
 
+  // Distance-weighting alone hides a short leg behind a long one: a 137 m walk
+  // to the car next to a 22 km drive renders as a 0.6% sliver — invisible, so
+  // the trip reads as car-only. Floor each segment at a fraction of the total
+  // so every distinct mode stays visible (a balanced bus+subway trip is
+  // unaffected — its legs already clear the floor).
+  const floor = total * MIN_VISIBLE_FRACTION;
+
   return (
     <View style={[styles.bar, { height, borderRadius: radius, gap }]}>
       {segments.map((s, i) => {
@@ -29,7 +36,7 @@ export function ModeBar({
           <View
             key={i}
             style={{
-              flex: Math.max(s.distanceM, 1),
+              flex: Math.max(s.distanceM, floor),
               backgroundColor: color,
               height: '100%',
             }}
@@ -39,6 +46,8 @@ export function ModeBar({
     </View>
   );
 }
+
+const MIN_VISIBLE_FRACTION = 0.05;
 
 const styles = StyleSheet.create({
   bar: {
