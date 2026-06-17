@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, TextInput, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { View, TextInput, Pressable, ScrollView, StyleSheet, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import MapLibreGL, {
   MapView,
@@ -86,16 +86,23 @@ export default function PlaceEditor() {
       longitude: coord[0],
       radiusM: Math.round(radius),
     };
-    if (isNew) await create.mutateAsync(input);
-    else if (editId !== null) await update.mutateAsync({ id: editId, input });
-    router.back();
+    try {
+      if (isNew) await create.mutateAsync(input);
+      else if (editId !== null) await update.mutateAsync({ id: editId, input });
+      router.back();
+    } catch {
+      Alert.alert('Erreur', "Impossible d'enregistrer le lieu.");
+    }
   };
 
   const onDelete = async () => {
-    if (editId !== null) {
+    if (editId === null) return;
+    try {
       await remove.mutateAsync(editId);
+      router.back();
+    } catch {
+      Alert.alert('Erreur', "Impossible de supprimer le lieu.");
     }
-    router.back();
   };
 
   return (
