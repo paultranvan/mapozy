@@ -66,23 +66,20 @@ function estimateFitZoom(
 
 MapLibreGL.setAccessToken(null);
 
-export function TripMap({ trip }: { trip: Trip }) {
-  const allCoords = useMemo<Array<[number, number]>>(() => {
-    try {
-      const g = JSON.parse(trip.geojson);
-      return Array.isArray(g.coordinates) ? g.coordinates : [];
-    } catch {
-      return [];
-    }
-  }, [trip.geojson]);
-
-  if (allCoords.length === 0) {
-    return (
-      <View style={[styles.container, styles.empty]}>
-        <Text>No GPS trace available for this trip</Text>
-      </View>
-    );
+function parseLineCoords(geojson: string): Array<[number, number]> {
+  try {
+    const g = JSON.parse(geojson);
+    return Array.isArray(g.coordinates) ? g.coordinates : [];
+  } catch {
+    return [];
   }
+}
+
+export function TripMap({ trip }: { trip: Trip }) {
+  const allCoords = useMemo<Array<[number, number]>>(
+    () => parseLineCoords(trip.geojson),
+    [trip.geojson]
+  );
 
   const { width: winW, height: winH } = useWindowDimensions();
 
@@ -111,11 +108,40 @@ export function TripMap({ trip }: { trip: Trip }) {
     };
   }, [allCoords, winW, winH]);
 
+  // Dashed connectors across data gaps. A break with `ordering === k` and
+  // `gap` set sits between sections[k] and sections[k+1] (see assemble.ts);
+  // the GPS was suspended/lost, so we bridge the last point of the preceding
+  // section to the first point of the following one with a dashed line — the
+  // trace reads as continuous instead of silently broken.
+  const gapConnectors = useMemo<Array<[[number, number], [number, number]]>>(() => {
+    const out: Array<[[number, number], [number, number]]> = [];
+    for (const b of trip.breaks) {
+      if (!b.gap) continue;
+      const prev = trip.sections.find((s) => s.ordering === b.ordering);
+      const next = trip.sections.find((s) => s.ordering === b.ordering + 1);
+      if (!prev || !next) continue;
+      const pc = parseLineCoords(prev.geojson);
+      const nc = parseLineCoords(next.geojson);
+      if (pc.length === 0 || nc.length === 0) continue;
+      out.push([pc[pc.length - 1]!, nc[0]!]);
+    }
+    return out;
+  }, [trip.breaks, trip.sections]);
+
   // Seed the zoom from the fit estimate so the very first render already
   // computes the right trim — avoids the visible "trace snaps to edge" once
   // onRegionDidChange fires with the post-fitBounds zoom.
   const [zoom, setZoom] = useState<number>(initialZoom);
   const trimM = TARGET_GAP_PX * metersPerPixel(zoom, refLat);
+
+  // Early return AFTER all hooks so hook order stays stable across renders.
+  if (allCoords.length === 0) {
+    return (
+      <View style={[styles.container, styles.empty]}>
+        <Text>No GPS trace available for this trip</Text>
+      </View>
+    );
+  }
 
   return (
     <MapView
@@ -129,13 +155,9 @@ export function TripMap({ trip }: { trip: Trip }) {
         animationDuration={0}
       />
       {trip.sections.map((s, i) => {
-        let coords: Array<[number, number]> = [];
-        try {
-          const g = JSON.parse(s.geojson);
-          if (Array.isArray(g.coordinates)) coords = g.coordinates;
-        } catch {
-          // ignore
-        }
+        // Prefer the road-snapped geometry when map-matching produced one;
+        // fall back to the raw trace otherwise.
+        let coords = parseLineCoords(s.matchedGeojson ?? s.geojson);
         if (coords.length < 2) return null;
         const isFirst = i === 0;
         const isLast = i === trip.sections.length - 1;
@@ -169,6 +191,28 @@ export function TripMap({ trip }: { trip: Trip }) {
           </ShapeSource>
         );
       })}
+      {gapConnectors.map(([from, to], i) => (
+        <ShapeSource
+          key={`gap-${i}`}
+          id={`gap-${i}`}
+          shape={{
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: [from, to] },
+            properties: {},
+          }}
+        >
+          <LineLayer
+            id={`gap-line-${i}`}
+            style={{
+              lineColor: themeColors.inkSoft,
+              lineWidth: 3,
+              lineCap: 'round',
+              lineDasharray: [1.5, 2.5],
+              lineOpacity: 0.55,
+            }}
+          />
+        </ShapeSource>
+      ))}
       <PointAnnotation id="start" coordinate={allCoords[0]!} anchor={{ x: 0.5, y: 0.5 }}>
         <View style={[styles.marker, styles.startMarker]}>
           <MaterialCommunityIcons name="play" size={18} color={themeColors.surface} />

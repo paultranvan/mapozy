@@ -16,8 +16,11 @@ export interface RefreshDraftsResult {
  */
 export async function refreshDraftTrips(
   db: Db,
-  deps: OverpassDeps = makeOverpassDeps(db)
+  deps: OverpassDeps | undefined = makeOverpassDeps(db)
 ): Promise<RefreshDraftsResult> {
+  // External calls disabled → nothing to refresh; leave existing drafts as-is
+  // until the user re-enables network access.
+  if (!deps) return { enriched: 0, rateLimited: false };
   const ids = await listDraftTripIds(db);
   let enriched = 0;
   let rateLimited = false;

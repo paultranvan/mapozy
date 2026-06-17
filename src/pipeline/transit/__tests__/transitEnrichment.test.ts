@@ -167,3 +167,87 @@ describe('enrichTripTransit durability', () => {
     expect(t!.sections[0]!.userMode).toBe('bus'); // override preserved
   });
 });
+
+function encodePolyline(coords: Array<[number, number]>, precision = 6): string {
+  const factor = Math.pow(10, precision);
+  let lastLat = 0;
+  let lastLng = 0;
+  let out = '';
+  const enc = (v: number) => {
+    let val = v < 0 ? ~(v << 1) : v << 1;
+    let s = '';
+    while (val >= 0x20) {
+      s += String.fromCharCode((0x20 | (val & 0x1f)) + 63);
+      val >>= 5;
+    }
+    return s + String.fromCharCode(val + 63);
+  };
+  for (const [lon, lat] of coords) {
+    const latE = Math.round(lat * factor);
+    const lngE = Math.round(lon * factor);
+    out += enc(latE - lastLat) + enc(lngE - lastLng);
+    lastLat = latE;
+    lastLng = lngE;
+  }
+  return out;
+}
+
+function walkTrip(): Trip {
+  const coords = driveCoords();
+  const geojson = JSON.stringify({ type: 'LineString', coordinates: coords });
+  return {
+    ...carTrip(),
+    dominantMode: 'walk',
+    geojson,
+    sections: [{ ...carTrip().sections[0]!, mode: 'walk', geojson }],
+  };
+}
+
+// fetch mock: snapped shape for the Valhalla endpoint, empty for Overpass.
+function valhallaFetch(
+  snapped: Array<[number, number]>,
+  confidence: number
+): OverpassDeps['fetchFn'] {
+  return async (url) => {
+    if (String(url).includes('trace_attributes')) {
+      return fakeResponse({
+        shape: encodePolyline(snapped),
+        confidence_score: confidence,
+      });
+    }
+    return fakeResponse({ elements: [] });
+  };
+}
+
+describe('enrichTripTransit — map-matching (Pass 3)', () => {
+  const snapped: Array<[number, number]> = [
+    [lon0 + 0.0001, lat0],
+    [lon0 + 0.0001, lat0 + 0.0045],
+  ];
+
+  it('stores snapped geometry on a walk section when confidence is high', async () => {
+    const deps = await depsWith(valhallaFetch(snapped, 0.9));
+    const id = await insertTripWithSections(deps.db, walkTrip());
+
+    const res = await enrichTripTransit(deps, id);
+    expect(res.status).toBe('enriched');
+
+    const t = await getTripById(deps.db, id);
+    const matched = t!.sections[0]!.matchedGeojson;
+    expect(matched).toBeTruthy();
+    const parsed = JSON.parse(matched!);
+    expect(parsed.type).toBe('LineString');
+    expect(parsed.coordinates[0][0]).toBeCloseTo(snapped[0]![0], 5);
+  });
+
+  it('keeps the raw trace (no match) when confidence is below threshold', async () => {
+    const deps = await depsWith(valhallaFetch(snapped, 0.2));
+    const id = await insertTripWithSections(deps.db, walkTrip());
+
+    await enrichTripTransit(deps, id);
+
+    const t = await getTripById(deps.db, id);
+    expect(t!.sections[0]!.matchedGeojson ?? null).toBeNull();
+    expect(t!.draft).toBe(false); // map-matching failure never drafts
+  });
+});

@@ -153,6 +153,15 @@ ALTER TABLE trips ADD COLUMN edited INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE trips ADD COLUMN locked INTEGER NOT NULL DEFAULT 0;
 `;
 
+// Map-matching (Valhalla): a section can carry a road-snapped geometry computed
+// online, stored ALONGSIDE the raw `geojson` so the map can draw the snapped
+// line while the raw trace stays the source of truth for distances/aggregates.
+// NULL = not matched (offline, low confidence, or non-snappable mode) → the UI
+// falls back to the raw geojson.
+const MIGRATION_007 = `
+ALTER TABLE sections ADD COLUMN matched_geojson TEXT;
+`;
+
 export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 1, sql: MIGRATION_001 },
   { version: 2, sql: MIGRATION_002 },
@@ -160,6 +169,7 @@ export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 4, sql: MIGRATION_004 },
   { version: 5, sql: MIGRATION_005 },
   { version: 6, sql: MIGRATION_006 },
+  { version: 7, sql: MIGRATION_007 },
 ];
 
 export async function getSchemaVersion(db: Db): Promise<number> {

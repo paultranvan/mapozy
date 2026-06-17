@@ -1,5 +1,6 @@
 import type { Db } from '../db/client';
 import { getPlaceById, setPlaceDisplayName } from '../db/places';
+import { externalApiAllowed, externalFetch } from '../lib/net';
 
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/reverse';
 const USER_AGENT = 'mapozy/0.1.0 (personal use)';
@@ -43,11 +44,13 @@ export async function geocodePlaceLazy(db: Db, placeId: number): Promise<string 
   const p = await getPlaceById(db, placeId);
   if (!p) return null;
   if (p.displayName) return p.displayName;
+  // External API disabled: skip the network call, caller falls back to coords.
+  if (!externalApiAllowed()) return null;
 
   await rateLimit();
   const url = `${NOMINATIM_URL}?lat=${p.latitude}&lon=${p.longitude}&format=json&zoom=18&addressdetails=1`;
   try {
-    const resp = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
+    const resp = await externalFetch(url, { headers: { 'User-Agent': USER_AGENT } });
     if (!resp.ok) return null;
     const data = (await resp.json()) as NominatimResponse;
     const name = formatDisplayName(data);

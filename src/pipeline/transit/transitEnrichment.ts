@@ -7,11 +7,18 @@ import {
   replaceTripSectionsAndBreaks,
   updateTripTotals,
 } from '../../db/trips';
-import { updateSectionClassification } from '../../db/sections';
+import {
+  updateSectionClassification,
+  updateSectionMatchedGeometry,
+  getSectionsForTrip,
+} from '../../db/sections';
 import { getPointsInRange } from '../../db/rawPoints';
 import { co2GramsForSection } from '../../co2/compute';
 import { dominantModeFor } from '../dominantMode';
+import { effectiveMode } from '../effectiveMode';
+import { mapMatch, type Costing } from '../../lib/valhalla';
 import { RULES } from '../rules';
+import type { Mode } from '../../types';
 import { classifySection } from './classifySection';
 import {
   isMetroStation,
@@ -173,6 +180,61 @@ export async function enrichTripTransit(
     const co2Total = trip.sections.reduce((a, s) => a + s.co2G, 0);
     await updateTripAggregates(db, trip.id, dom, co2Total);
   }
+
+  // Pass 3: road-snap non-transit sections via Valhalla. Runs AFTER any subway
+  // restructure (which re-inserts sections) so matched geometry isn't clobbered,
+  // and is fully best-effort: a Valhalla outage leaves the raw trace and never
+  // drafts the trip (unlike the Overpass passes above).
+  await mapMatchTripSections(deps, trip.id);
+
   await setTripDraft(db, trip.id, false, null);
   return { status: 'enriched', changed };
+}
+
+const COSTING_FOR_MODE: Partial<Record<Mode, Costing>> = {
+  walk: 'pedestrian',
+  run: 'pedestrian',
+  car: 'auto',
+  bike: 'bicycle',
+};
+
+/**
+ * Snap each walk/run/car/bike section onto the road network and persist the
+ * result as the section's matched geometry. Re-reads sections from the DB so it
+ * sees post-restructure state. Best-effort per section: any failure (or a
+ * sub-threshold confidence) clears the match so the UI falls back to raw.
+ */
+async function mapMatchTripSections(
+  deps: OverpassDeps,
+  tripId: number
+): Promise<void> {
+  const maxAccM = RULES.ACCURACY_FILTER.defaults.maxAccuracyM;
+  const { minConfidence, maxPoints } = RULES.MAP_MATCH.defaults;
+  const sections = await getSectionsForTrip(deps.db, tripId);
+  for (const sec of sections) {
+    if (sec.id == null) continue;
+    const costing = COSTING_FOR_MODE[effectiveMode(sec)];
+    if (!costing) continue;
+    // Match on raw fixes, not the resampled trace (same rationale as Pass 1).
+    const rawFixes = (await getPointsInRange(deps.db, sec.startTimeMs, sec.endTimeMs))
+      .filter((p) => p.accuracyMeters <= maxAccM)
+      .map((p) => [p.longitude, p.latitude] as [number, number]);
+    const coords = rawFixes.length >= 2 ? rawFixes : coordsOf(sec.geojson);
+    if (coords.length < 2) continue;
+    const res = await mapMatch(
+      { fetchFn: deps.fetchFn, minIntervalMs: deps.minIntervalMs },
+      coords,
+      costing,
+      maxPoints
+    );
+    const ok =
+      res != null &&
+      res.coords.length >= 2 &&
+      (res.confidence == null || res.confidence >= minConfidence);
+    await updateSectionMatchedGeometry(
+      deps.db,
+      sec.id,
+      ok ? JSON.stringify({ type: 'LineString', coordinates: res!.coords }) : null
+    );
+  }
 }

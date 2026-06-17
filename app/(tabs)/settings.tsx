@@ -7,13 +7,15 @@ import {
   Switch,
   Pressable,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect, useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useDb } from '@/db/DbContext';
-import { setSetting, SETTING_KEYS } from '@/db/settings';
+import { getSetting, setSetting, SETTING_KEYS } from '@/db/settings';
+import { setExternalApiAllowed } from '@/lib/net';
 import { countTrips, deleteAllTrips } from '@/db/trips';
 import { countUnconsumedPoints } from '@/db/rawPoints';
 import {
@@ -51,6 +53,8 @@ export default function SettingsScreen() {
   const [interruptions, setInterruptions] = useState<Interruption[] | null>(null);
   const [pipelineBusy, setPipelineBusy] = useState(false);
   const [homeWorkBusy, setHomeWorkBusy] = useState(false);
+  const [allowExternalApi, setAllowExternalApi] = useState(true);
+  const [networkInfoVisible, setNetworkInfoVisible] = useState(false);
   const health = useTrackingHealth();
 
   const refreshCounts = useCallback(async () => {
@@ -62,6 +66,9 @@ export default function SettingsScreen() {
     (async () => {
       setTrackingOn(await isTracking());
       await refreshCounts();
+      setAllowExternalApi(
+        (await getSetting(db, SETTING_KEYS.ALLOW_EXTERNAL_API)) !== '0'
+      );
       setBatteryUnrestricted(await MapozyTracker.isIgnoringBatteryOptimizations());
       const now = Date.now();
       const result = await getInterruptions(db, {
@@ -102,6 +109,11 @@ export default function SettingsScreen() {
     } catch (e) {
       Alert.alert('Error', String(e));
     }
+  }
+
+  async function toggleAllowExternalApi(value: boolean) {
+    await setExternalApiAllowed(db, value);
+    setAllowExternalApi(value);
   }
 
   async function runPipeline() {
@@ -335,6 +347,40 @@ export default function SettingsScreen() {
         </Card>
 
         <Text variant="display" onGround style={styles.section}>
+          Network &amp; privacy
+        </Text>
+        <Card style={styles.card}>
+          <View style={styles.row}>
+            <View style={{ flex: 1, marginRight: space[2] }}>
+              <Text variant="title">Allow external API</Text>
+              <Text variant="meta" soft>
+                {allowExternalApi
+                  ? 'Trips are enriched via OpenStreetMap (transit, map-matching, place names).'
+                  : 'Off: no data leaves your device. Trips are processed locally.'}
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => setNetworkInfoVisible(true)}
+              hitSlop={10}
+              style={styles.infoBtn}
+              accessibilityLabel="What does the external API toggle affect?"
+            >
+              <MaterialCommunityIcons
+                name="information-outline"
+                size={22}
+                color={colors.inkSoft}
+              />
+            </Pressable>
+            <Switch
+              value={allowExternalApi}
+              onValueChange={toggleAllowExternalApi}
+              trackColor={{ true: colors.accentSoft, false: colors.divider }}
+              thumbColor={allowExternalApi ? colors.accent : colors.surface}
+            />
+          </View>
+        </Card>
+
+        <Text variant="display" onGround style={styles.section}>
           Data
         </Text>
         <Card style={styles.card}>
@@ -449,7 +495,94 @@ export default function SettingsScreen() {
           <DangerButton onPress={confirmClearAll} label="Clear all data" />
         </Card>
       </ScrollView>
+      <NetworkInfoModal
+        visible={networkInfoVisible}
+        onClose={() => setNetworkInfoVisible(false)}
+      />
     </View>
+  );
+}
+
+const NETWORK_SERVICES: Array<{
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  title: string;
+  what: string;
+  offConsequence: string;
+}> = [
+  {
+    icon: 'bus',
+    title: 'Transit detection',
+    what: 'Queries OpenStreetMap (Overpass) for nearby railways and stops to tell buses, trains, trams and subways apart from car trips.',
+    offConsequence: 'Motorized trips stay labelled “Car”.',
+  },
+  {
+    icon: 'vector-polyline',
+    title: 'Map-matching',
+    what: 'Sends a trip’s GPS trace to Valhalla (OpenStreetMap community server) to snap the route onto real streets and paths.',
+    offConsequence: 'The raw GPS trace is shown — lines may drift off the road.',
+  },
+  {
+    icon: 'map-marker-outline',
+    title: 'Place names',
+    what: 'Asks Nominatim (OpenStreetMap) for the street address at a trip’s start and end points.',
+    offConsequence: 'Places are shown as raw latitude/longitude coordinates.',
+  },
+];
+
+function NetworkInfoModal({
+  visible,
+  onClose,
+}: {
+  visible: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalCard}>
+          <ScrollView contentContainerStyle={styles.modalScroll}>
+            <Text variant="display">Allow external API</Text>
+            <Text variant="meta" soft style={styles.modalIntro}>
+              When on, Mapozy may contact the following OpenStreetMap services to
+              enrich your trips. Turn it off to keep everything on-device — no
+              network calls, no trip data ever leaves your phone:
+            </Text>
+            {NETWORK_SERVICES.map((s) => (
+              <View key={s.title} style={styles.modalServiceRow}>
+                <MaterialCommunityIcons
+                  name={s.icon}
+                  size={22}
+                  color={colors.accent}
+                  style={styles.modalServiceIcon}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text variant="title">{s.title}</Text>
+                  <Text variant="meta" soft style={styles.modalServiceText}>
+                    {s.what}
+                  </Text>
+                  <Text variant="meta" soft style={styles.modalConsequence}>
+                    Off: {s.offConsequence}
+                  </Text>
+                </View>
+              </View>
+            ))}
+            <Text variant="meta" soft style={styles.modalIntro}>
+              These are public OpenStreetMap community servers. No account is
+              used, but your trip’s coordinates do transit through them while
+              offline mode is off.
+            </Text>
+          </ScrollView>
+          <Pressable style={styles.modalCloseBtn} onPress={onClose}>
+            <Text variant="label">Got it</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -580,5 +713,55 @@ const styles = StyleSheet.create({
   divider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: colors.divider,
+  },
+  infoBtn: {
+    paddingHorizontal: space[2],
+    justifyContent: 'center',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radii.sheet,
+    borderTopRightRadius: radii.sheet,
+    paddingHorizontal: space[4],
+    paddingTop: space[4],
+    paddingBottom: space[5],
+    maxHeight: '85%',
+  },
+  modalScroll: {
+    gap: space[3],
+    paddingBottom: space[3],
+  },
+  modalIntro: {
+    lineHeight: 18,
+  },
+  modalServiceRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  modalServiceIcon: {
+    marginRight: space[3],
+    marginTop: space[1],
+  },
+  modalServiceText: {
+    marginTop: space[1],
+    lineHeight: 18,
+  },
+  modalConsequence: {
+    marginTop: space[1],
+    color: colors.inkSoft,
+    fontStyle: 'italic',
+  },
+  modalCloseBtn: {
+    marginTop: space[3],
+    paddingVertical: space[3],
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    alignItems: 'center',
   },
 });

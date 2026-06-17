@@ -208,6 +208,18 @@ export const RULES = {
     { flightSpeedMps: 110, minFlightDistanceM: 100_000 }
   ),
 
+  MAP_MATCH: rule(
+    'RULE_MAP_MATCH',
+    'Snap a non-transit section (walk/run → pedestrian, car → auto, bike → ' +
+      'bicycle) onto OSM roads/paths via Valhalla map-matching, storing the ' +
+      'result as the section\'s matched geometry for display. Cosmetic only — ' +
+      'distances/aggregates stay on the raw trace. The snapped shape is kept ' +
+      'only when Valhalla\'s confidence_score is at least minConfidence (low ' +
+      'confidence usually means an invented detour, e.g. cutting across a park), ' +
+      'and the input is downsampled to maxPoints to stay within Meili limits.',
+    { minConfidence: 0.5, maxPoints: 800 }
+  ),
+
   SUBWAY_STATION_RADIUS: rule(
     'RULE_SUBWAY_STATION_RADIUS',
     'Radius for matching a subway-gap endpoint to a metro station. Wider than ' +

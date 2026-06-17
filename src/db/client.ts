@@ -1,5 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import { runMigrations } from './migrations';
+import { loadExternalApiSetting } from '../lib/net';
 
 export type Db = SQLite.SQLiteDatabase;
 
@@ -13,6 +14,9 @@ export async function openDb(name = 'mapozy.db'): Promise<Db> {
   await db.execAsync('PRAGMA journal_mode = TRUNCATE;');
   await db.execAsync('PRAGMA foreign_keys = ON;');
   await runMigrations(db);
+  // Prime the external-API toggle cache from the persisted setting so every
+  // call site (Overpass/Nominatim/Valhalla) can read it synchronously.
+  await loadExternalApiSetting(db);
   return db;
 }
 

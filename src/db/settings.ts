@@ -34,4 +34,8 @@ export const SETTING_KEYS = {
   LAST_HOMEWORK_DETECTION_MS: 'last_homework_detection_ms',
   LAST_KNOWN_PLACE_ID: 'last_known_place_id',
   LAST_AUTO_RESTART_AT: 'last_auto_restart_at',
+  // When '1' (or unset = default), the app MAY make outbound calls — Overpass
+  // (transit), Nominatim (place names), Valhalla (map-matching). When '0', all
+  // are bypassed and trips fall back to local-only processing. See src/lib/net.ts.
+  ALLOW_EXTERNAL_API: 'allow_external_api',
 } as const;

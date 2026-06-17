@@ -83,6 +83,10 @@ export interface Section {
   maxSpeedMps: number;
   co2G: number;
   geojson: string;
+  // Road-snapped geometry from Valhalla map-matching (LineString). NULL/absent
+  // when not matched — the UI then renders `geojson`. Cosmetic only: distances
+  // and aggregates are always computed from the raw `geojson`.
+  matchedGeojson?: string | null;
   modeSource?: ModeSource;
   modeConfidence?: number;
   userMode?: Mode | null;

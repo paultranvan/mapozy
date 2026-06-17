@@ -14,6 +14,7 @@ interface Row {
   max_speed_mps: number;
   co2_g: number;
   geojson: string;
+  matched_geojson: string | null;
   mode_source: string | null;
   mode_confidence: number | null;
   user_mode: string | null;
@@ -34,6 +35,7 @@ function rowToSection(r: Row): Section {
     co2G: r.co2_g,
     geojson: r.geojson,
   };
+  if (r.matched_geojson != null) s.matchedGeojson = r.matched_geojson;
   if (r.mode_source != null) s.modeSource = r.mode_source as Section['modeSource'];
   if (r.mode_confidence != null) s.modeConfidence = r.mode_confidence;
   if (r.user_mode != null) s.userMode = r.user_mode as Mode;
@@ -44,8 +46,9 @@ export async function insertSection(db: Db, tripId: number, s: Section): Promise
   const r = await db.runAsync(
     `INSERT INTO sections
        (trip_id, ordering, start_time_ms, end_time_ms, mode, distance_m, duration_s,
-        avg_speed_mps, max_speed_mps, co2_g, geojson, mode_source, mode_confidence, user_mode)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        avg_speed_mps, max_speed_mps, co2_g, geojson, matched_geojson, mode_source,
+        mode_confidence, user_mode)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     tripId,
     s.ordering,
     s.startTimeMs,
@@ -57,6 +60,7 @@ export async function insertSection(db: Db, tripId: number, s: Section): Promise
     s.maxSpeedMps,
     s.co2G,
     s.geojson,
+    s.matchedGeojson ?? null,
     s.modeSource ?? null,
     s.modeConfidence ?? null,
     s.userMode ?? null
@@ -83,6 +87,22 @@ export async function setSectionUserMode(
     userMode,
     userMode ? 'manual' : null,
     co2G,
+    sectionId
+  );
+}
+
+/**
+ * Store (or clear) the road-snapped geometry for a section. Pass null to drop a
+ * stale match (e.g. a re-run that no longer meets the confidence threshold).
+ */
+export async function updateSectionMatchedGeometry(
+  db: Db,
+  sectionId: number,
+  matchedGeojson: string | null
+): Promise<void> {
+  await db.runAsync(
+    `UPDATE sections SET matched_geojson = ? WHERE id = ?`,
+    matchedGeojson,
     sectionId
   );
 }

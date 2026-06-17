@@ -57,6 +57,7 @@ async function main() {
   const [src, out] = argv.filter((a) => !a.startsWith('--'));
   if (!src || !out) {
     console.error('Usage: reprocess-db <source.db> <out.db> [--enrich]');
+    console.error('  --enrich: run online passes (Overpass transit + Valhalla map-matching)');
     process.exit(1);
   }
   fs.copyFileSync(src, out);
@@ -86,7 +87,12 @@ async function main() {
   const trips = raw.prepare('SELECT COUNT(*) c FROM trips').get() as any;
   const sections = raw.prepare('SELECT COUNT(*) c FROM sections').get() as any;
   const breaks = raw.prepare('SELECT COUNT(*) c FROM trip_breaks').get() as any;
-  console.log(`trips=${trips.c} sections=${sections.c} trip_breaks=${breaks.c}`);
+  const matched = raw
+    .prepare('SELECT COUNT(*) c FROM sections WHERE matched_geojson IS NOT NULL')
+    .get() as any;
+  console.log(
+    `trips=${trips.c} sections=${sections.c} trip_breaks=${breaks.c} map_matched=${matched.c}`
+  );
   raw.close();
   console.log(`Wrote ${out}`);
 }
