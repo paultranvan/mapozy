@@ -155,6 +155,14 @@ export async function getUserPlaces(db: Db): Promise<Place[]> {
   return rows.map(rowToPlace);
 }
 
+export async function getAutoPlaces(db: Db, limit: number): Promise<Place[]> {
+  const rows = await db.getAllAsync<Row>(
+    `SELECT * FROM places WHERE kind = 'auto' ORDER BY visit_count DESC LIMIT ?`,
+    limit
+  );
+  return rows.map(rowToPlace);
+}
+
 // Auto-places whose center lies within `radiusM` of the given coordinates, used
 // for both visit counts and "is this cluster already owned by a POI".
 async function autoPlacesInRadius(db: Db, lat: number, lon: number, radiusM: number): Promise<Place[]> {

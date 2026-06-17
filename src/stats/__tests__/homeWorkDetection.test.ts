@@ -1,19 +1,8 @@
 import { createMockDb } from '../../db/mockDb';
 import { runMigrations } from '../../db/migrations';
 import { findOrCreatePlace, createUserPlace } from '../../db/places';
-import { insertTripWithSections } from '../../db/trips';
 import { suggestHomeWork } from '../homeWorkDetection';
 import type { Db } from '../../db/client';
-
-async function tripAt(db: Db, startMs: number, placeId: number) {
-  await insertTripWithSections(db, {
-    startTimeMs: startMs, endTimeMs: startMs + 600_000,
-    startPlaceId: placeId, endPlaceId: placeId,
-    distanceM: 1000, durationS: 600, dominantMode: 'car', co2G: 0,
-    geojson: '{}', manualPurpose: null, draft: false, draftReason: null,
-    edited: false, locked: false, createdAtMs: startMs, sections: [], breaks: [],
-  } as any);
-}
 
 describe('suggestHomeWork', () => {
   let db: Db;

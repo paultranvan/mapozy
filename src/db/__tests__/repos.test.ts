@@ -97,8 +97,7 @@ describe('db repositories (in-memory via better-sqlite3)', () => {
       const id2 = await findOrCreatePlace(db, 45.004, 5.0, 2000);
       expect(id2).not.toBe(id1);
     });
-
-});
+  });
 
   describe('trips + sections', () => {
     it('inserts a trip with sections transactionally', async () => {

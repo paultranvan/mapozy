@@ -1,5 +1,5 @@
 import type { Db } from '../db/client';
-import { getUserPlaces } from '../db/places';
+import { getAutoPlaces, getUserPlaces } from '../db/places';
 import type { Place, PlaceCategory } from '../types';
 
 export interface HomeWorkSuggestion {
@@ -53,14 +53,7 @@ interface Candidate {
 export async function suggestHomeWork(
   db: Db
 ): Promise<{ home: HomeWorkSuggestion | null; work: HomeWorkSuggestion | null }> {
-  const autos = (await db.getAllAsync<any>(
-    `SELECT * FROM places WHERE kind = 'auto' ORDER BY visit_count DESC LIMIT 10`
-  )).map((r: any): Place => ({
-    id: r.id, kind: 'auto', name: null, category: null,
-    latitude: r.latitude, longitude: r.longitude, radiusM: r.radius_m,
-    displayName: r.display_name, visitCount: r.visit_count,
-    firstSeenMs: r.first_seen_ms, lastSeenMs: r.last_seen_ms,
-  }));
+  const autos = await getAutoPlaces(db, 10);
   if (autos.length === 0) return { home: null, work: null };
 
   const thirtyDaysAgoMs = Date.now() - 30 * 86_400_000;
