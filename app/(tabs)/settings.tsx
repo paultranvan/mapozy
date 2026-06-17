@@ -25,8 +25,7 @@ import {
   runPipelineAndInvalidate,
 } from '@/tracking/tracker';
 import { MapozyTracker } from 'mapozy-tracker';
-import { detectHomeAndWork } from '@/stats/homeWorkDetection';
-import { getPlaceById } from '@/db/places';
+import { suggestHomeWork } from '@/stats/homeWorkDetection';
 import { injectDemoTrip } from '@/lib/demoTrip';
 import { sendDbToPaul } from '@/lib/sendDbToPaul';
 import { shareDb } from '@/lib/shareDb';
@@ -134,16 +133,11 @@ export default function SettingsScreen() {
     if (homeWorkBusy) return;
     setHomeWorkBusy(true);
     try {
-      const r = await detectHomeAndWork(db);
+      const r = await suggestHomeWork(db);
       await qc.invalidateQueries({ queryKey: ['places'] });
-      const nameFor = async (id: number | null) => {
-        if (id == null) return 'not found';
-        const p = await getPlaceById(db, id);
-        return p?.displayName || `place #${id}`;
-      };
       Alert.alert(
         'Home/work detection',
-        `🏠 Home: ${await nameFor(r.homeId)}\n💼 Work: ${await nameFor(r.workId)}`
+        `🏠 Home: ${r.home?.displayName ?? '—'}\n💼 Work: ${r.work?.displayName ?? '—'}`
       );
     } finally {
       setHomeWorkBusy(false);

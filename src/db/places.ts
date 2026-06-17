@@ -118,14 +118,6 @@ export async function setPlaceDisplayName(
   await db.runAsync(`UPDATE places SET display_name = ? WHERE id = ?`, displayName, id);
 }
 
-export async function setPlaceLabel(
-  db: Db,
-  id: number,
-  label: 'home' | 'work' | null
-): Promise<void> {
-  await db.runAsync(`UPDATE places SET label = ? WHERE id = ?`, label, id);
-}
-
 export interface UserPlaceInput {
   name: string;
   category: Place['category'];

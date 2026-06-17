@@ -1,6 +1,13 @@
 import type { Db } from '../db/client';
-import { getAllPlaces, setPlaceLabel } from '../db/places';
-import type { Place } from '../types';
+import { getUserPlaces } from '../db/places';
+import type { Place, PlaceCategory } from '../types';
+
+export interface HomeWorkSuggestion {
+  latitude: number;
+  longitude: number;
+  displayName: string | null;
+  category: PlaceCategory;
+}
 
 interface PresenceRow {
   hour: number;
@@ -29,12 +36,10 @@ interface Candidate {
 }
 
 /**
- * Heuristic detection of home and work from when the user is *present* at each
- * place. Presence is sampled at both endpoints of every trip: a trip departing
+ * Heuristic suggestion of home and work from when the user is *present* at each
+ * auto-place. Presence is sampled at both endpoints of every trip: a trip departing
  * place P contributes its START time to P; a trip arriving at place P
- * contributes its END time to P. (The earlier version always used the trip's
- * start time, so an arrival's hour was wrong — a 9am arrival via a trip that
- * left home at 8am was logged as 8am, skewing both windows.)
+ * contributes its END time to P.
  *
  *  - Home: the place with the most overnight presence (21:00-08:00),
  *    requiring ≥ 40% of its visits fall in that window.
@@ -42,17 +47,26 @@ interface Candidate {
  *    requiring ≥ 50%.
  *
  * Conservative: ignores low-traffic candidates (< 5 visits).
+ * Read-only: never mutates the DB. Suppresses a category when the user already
+ * has a user POI with that category.
  */
-export async function detectHomeAndWork(
+export async function suggestHomeWork(
   db: Db
-): Promise<{ homeId: number | null; workId: number | null }> {
-  const places = (await getAllPlaces(db)).slice(0, 10);
-  if (places.length === 0) return { homeId: null, workId: null };
+): Promise<{ home: HomeWorkSuggestion | null; work: HomeWorkSuggestion | null }> {
+  const autos = (await db.getAllAsync<any>(
+    `SELECT * FROM places WHERE kind = 'auto' ORDER BY visit_count DESC LIMIT 10`
+  )).map((r: any): Place => ({
+    id: r.id, kind: 'auto', name: null, category: null,
+    latitude: r.latitude, longitude: r.longitude, radiusM: r.radius_m,
+    displayName: r.display_name, visitCount: r.visit_count,
+    firstSeenMs: r.first_seen_ms, lastSeenMs: r.last_seen_ms,
+  }));
+  if (autos.length === 0) return { home: null, work: null };
 
   const thirtyDaysAgoMs = Date.now() - 30 * 86_400_000;
 
   const candidates: Candidate[] = [];
-  for (const place of places) {
+  for (const place of autos) {
     // Departures (place is the trip's start) keyed by start time; arrivals
     // (place is the trip's end) keyed by end time. UNION ALL so both count.
     const rows = await db.getAllAsync<PresenceRow>(
@@ -101,14 +115,16 @@ export async function detectHomeAndWork(
       )
       .sort((a, b) => b.workCount - a.workCount)[0] ?? null;
 
-  for (const p of places) {
-    if (p.label) await setPlaceLabel(db, p.id, null);
-  }
-  if (home) await setPlaceLabel(db, home.place.id, 'home');
-  if (work) await setPlaceLabel(db, work.place.id, 'work');
+  const users = await getUserPlaces(db);
+  const hasCategory = (c: PlaceCategory) => users.some((u) => u.category === c);
+
+  const toSuggestion = (p: Place | undefined, category: PlaceCategory): HomeWorkSuggestion | null =>
+    p && !hasCategory(category)
+      ? { latitude: p.latitude, longitude: p.longitude, displayName: p.displayName, category }
+      : null;
 
   return {
-    homeId: home?.place.id ?? null,
-    workId: work?.place.id ?? null,
+    home: toSuggestion(home?.place, 'home'),
+    work: toSuggestion(work?.place, 'work'),
   };
 }

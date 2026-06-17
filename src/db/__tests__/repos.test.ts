@@ -2,7 +2,7 @@ import { createMockDb } from '../mockDb';
 import { runMigrations } from '../migrations';
 import { insertRawPoint, getUnconsumedPointsInRange, markPointsConsumed, countUnconsumedPoints } from '../rawPoints';
 import { insertRawActivity, getAllUnconsumedActivities, markActivitiesConsumed } from '../rawActivities';
-import { findOrCreatePlace, getPlaceById, setPlaceLabel } from '../places';
+import { findOrCreatePlace, getPlaceById } from '../places';
 import { insertTripWithSections, getTripById, listTrips, countTrips, deleteTrip } from '../trips';
 import { getSetting, setSetting } from '../settings';
 import {
@@ -98,16 +98,7 @@ describe('db repositories (in-memory via better-sqlite3)', () => {
       expect(id2).not.toBe(id1);
     });
 
-    it('setPlaceLabel persists the label column without surfacing it on Place', async () => {
-      const id = await findOrCreatePlace(db, 45.0, 5.0, 1000);
-      // setPlaceLabel writes the DB column (still used by homeWorkDetection);
-      // Place no longer exposes a label field — category is the new surface.
-      await expect(setPlaceLabel(db, id, 'home')).resolves.toBeUndefined();
-      await expect(setPlaceLabel(db, id, null)).resolves.toBeUndefined();
-      const p = await getPlaceById(db, id);
-      expect(p?.id).toBe(id); // place still readable after label ops
-    });
-  });
+});
 
   describe('trips + sections', () => {
     it('inserts a trip with sections transactionally', async () => {
