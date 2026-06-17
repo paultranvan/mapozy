@@ -11,8 +11,9 @@ import MapLibreGL, {
 } from '@maplibre/maplibre-react-native';
 import { colors as themeColors, MODE_COLORS } from '../theme/tokens';
 import { effectiveMode } from '../pipeline/effectiveMode';
+import { categoryMeta } from './placeCategories';
 import { OSM_STYLE } from './mapStyle';
-import type { Trip } from '../types';
+import type { Trip, PlaceCategory } from '../types';
 
 MapLibreGL.setAccessToken(null);
 
@@ -53,7 +54,7 @@ export function DayMap({
 }: {
   trips: Trip[];
   selectedTripId?: number | null;
-  placeMarkers?: { kind: 'home' | 'work'; coord: [number, number] }[];
+  placeMarkers?: { kind: PlaceCategory; coord: [number, number]; name: string | null }[];
 }) {
   const dim = selectedTripId != null;
 
@@ -169,24 +170,27 @@ export function DayMap({
           </View>
         </MarkerView>
       ))}
-      {placeMarkers.map((p, i) => (
-        // Anchored higher (y > 1) so the home/work pin floats clear above any
-        // numbered trip marker sharing the same place.
-        <MarkerView
-          key={`place-${p.kind}-${i}`}
-          coordinate={p.coord}
-          anchor={PLACE_ANCHOR}
-          allowOverlap
-        >
-          <View style={styles.placePin}>
-            <MaterialCommunityIcons
-              name={p.kind === 'home' ? 'home' : 'briefcase'}
-              size={16}
-              color={themeColors.surface}
-            />
-          </View>
-        </MarkerView>
-      ))}
+      {placeMarkers.map((p, i) => {
+        const meta = categoryMeta(p.kind);
+        return (
+          // Anchored higher (y > 1) so the place pin floats clear above any
+          // numbered trip marker sharing the same place.
+          <MarkerView
+            key={`place-${p.kind}-${i}`}
+            coordinate={p.coord}
+            anchor={PLACE_ANCHOR}
+            allowOverlap
+          >
+            <View style={[styles.placePin, { backgroundColor: meta.color }]}>
+              <MaterialCommunityIcons
+                name={meta.icon}
+                size={16}
+                color={themeColors.surface}
+              />
+            </View>
+          </MarkerView>
+        );
+      })}
     </MapView>
   );
 }

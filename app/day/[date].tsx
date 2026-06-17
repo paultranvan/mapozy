@@ -11,6 +11,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ActivityIndicator } from 'react-native-paper';
 import { useDayTrips, usePlaces, useTripDaysWithTrips } from '@/queries/useTrips';
+import { useUserPlaces } from '@/queries/usePlaces';
+import { nearestUserPoi } from '@/lib/poiResolve';
 import { DayMap } from '@/ui/DayMap';
 import { TripListItem } from '@/ui/TripListItem';
 import { WeekStrip, type WeekDay } from '@/ui/WeekStrip';
@@ -35,7 +37,7 @@ import {
   startOfDayMs,
   endOfDayMs,
 } from '@/lib/time';
-import type { Trip, Place, Mode, DominantMode } from '@/types';
+import type { Trip, Place, Mode, DominantMode, PlaceCategory } from '@/types';
 
 // Stable empty references so memo deps don't change while a query is pending.
 const NO_TRIPS: Trip[] = [];
@@ -80,6 +82,7 @@ export default function DayScreen() {
 
   const tripsQ = useDayTrips(date);
   const placesQ = usePlaces();
+  const userPlacesQ = useUserPlaces();
   const [selectedTripId, setSelectedTripId] = useState<number | null>(null);
 
   // Draggable bottom panel. The header (handle + day nav) is the drag zone via
@@ -125,22 +128,24 @@ export default function DayScreen() {
 
   const trips: Trip[] = tripsQ.data ?? NO_TRIPS;
 
-  // Home/work places that are endpoints of the day's trips → shown as pins.
+  // User POI places that are endpoints of the day's trips → shown as pins.
   const placeMarkers = useMemo(() => {
     const ids = new Set<number>();
     for (const t of trips) {
       if (t.startPlaceId != null) ids.add(t.startPlaceId);
       if (t.endPlaceId != null) ids.add(t.endPlaceId);
     }
-    const out: { kind: 'home' | 'work'; coord: [number, number] }[] = [];
+    const out: { kind: PlaceCategory; coord: [number, number]; name: string | null }[] = [];
     for (const id of ids) {
       const p = placeById.get(id);
-      if (p && (p.label === 'home' || p.label === 'work')) {
-        out.push({ kind: p.label, coord: [p.longitude, p.latitude] });
+      if (!p) continue;
+      const poi = nearestUserPoi(p.latitude, p.longitude, userPlacesQ.data ?? []);
+      if (poi) {
+        out.push({ kind: poi.category ?? 'other', coord: [p.longitude, p.latitude], name: poi.name });
       }
     }
     return out;
-  }, [trips, placeById]);
+  }, [trips, placeById, userPlacesQ.data]);
 
   const summary = useMemo(() => {
     let distanceM = 0, durationS = 0, co2G = 0;

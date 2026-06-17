@@ -6,9 +6,12 @@
  * `short` — primary locator only ("Rue de la République"). Used as a headline where the
  *           city is redundant with the map and the origin line.
  *
- * Saved places (home/work) collapse both forms to the saved name. A place that hasn't
- * been geocoded yet falls back to coordinates.
+ * When the endpoint resolves to a user POI (computed by the caller via nearestUserPoi),
+ * both forms collapse to the POI name. A place that hasn't been geocoded yet falls back
+ * to coordinates.
  */
+
+import type { Place } from '../types';
 
 export interface PlaceLabels {
   full: string;
@@ -16,12 +19,7 @@ export interface PlaceLabels {
 }
 
 type PlaceLike =
-  | {
-      label: string | null;
-      displayName: string | null;
-      latitude: number;
-      longitude: number;
-    }
+  | { displayName: string | null; latitude: number; longitude: number }
   | null
   | undefined;
 
@@ -32,16 +30,21 @@ function stripHouseNumber(segment: string): string {
   return segment.replace(LEADING_HOUSE_NUMBER, '').trim() || segment;
 }
 
-export function placeLabels(place: PlaceLike, fallback: string): PlaceLabels {
+/**
+ * Display labels for a trip endpoint. When the endpoint resolves to a user POI
+ * (computed by the caller via nearestUserPoi), both forms collapse to the POI
+ * name. Otherwise: geocoded street (+ city for `full`), else coordinates.
+ */
+export function placeLabels(
+  place: PlaceLike,
+  fallback: string,
+  userPoi?: Place | null
+): PlaceLabels {
+  if (userPoi?.name) return { full: userPoi.name, short: userPoi.name };
   if (!place) return { full: fallback, short: fallback };
-  if (place.label === 'home') return { full: 'Home', short: 'Home' };
-  if (place.label === 'work') return { full: 'Work', short: 'Work' };
 
   if (place.displayName) {
-    const segments = place.displayName
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const segments = place.displayName.split(',').map((s) => s.trim()).filter(Boolean);
     const [first, second] = segments;
     if (first) {
       const street = stripHouseNumber(first);

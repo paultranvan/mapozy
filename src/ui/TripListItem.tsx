@@ -7,6 +7,9 @@ import { ModeChip } from './ModeChip';
 import { ModeBar } from './ModeBar';
 import { colors, space } from '@/theme/tokens';
 import { formatDistance, formatDuration, formatTime } from '@/lib/format';
+import { placeLabels } from '@/lib/placeLabel';
+import { useUserPlaces } from '@/queries/usePlaces';
+import { nearestUserPoi } from '@/lib/poiResolve';
 import type { Trip, Place, DominantMode } from '@/types';
 
 interface Props {
@@ -27,12 +30,9 @@ interface Props {
   onToggle?: (id: number) => void;
 }
 
-function placeLabel(p: Place | null | undefined): string {
-  if (!p) return '?';
-  if (p.label === 'home') return 'Home';
-  if (p.label === 'work') return 'Work';
-  if (p.displayName) return p.displayName;
-  return `${p.latitude.toFixed(4)}, ${p.longitude.toFixed(4)}`;
+function labelFor(p: Place | null | undefined, poi: Place | null): string {
+  if (poi?.name) return poi.name;
+  return placeLabels(p, '—').short;
 }
 
 function summarizeModes(trip: Trip): string {
@@ -61,6 +61,13 @@ export function TripListItem({
   onToggle,
 }: Props) {
   const router = useRouter();
+  const userPlaces = useUserPlaces();
+  const startPoi = startPlace
+    ? nearestUserPoi(startPlace.latitude, startPlace.longitude, userPlaces.data ?? [])
+    : null;
+  const endPoi = endPlace
+    ? nearestUserPoi(endPlace.latitude, endPlace.longitude, userPlaces.data ?? [])
+    : null;
   const distance = formatDistance(trip.distanceM);
   const [distValue, distUnit] = distance.split(' ');
   const modeSummary = summarizeModes(trip);
@@ -114,7 +121,7 @@ export function TripListItem({
             <ModeChip mode={trip.dominantMode} />
             <View style={styles.body}>
               <Text variant="title" numberOfLines={1}>
-                {placeLabel(startPlace)} → {placeLabel(endPlace)}
+                {labelFor(startPlace, startPoi)} → {labelFor(endPlace, endPoi)}
               </Text>
               <Text variant="meta" soft>
                 {formatTime(trip.startTimeMs)} · {formatDuration(trip.durationS)}
