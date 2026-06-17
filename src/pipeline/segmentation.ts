@@ -65,6 +65,7 @@ export function segmentation(
     RULES.STATIONARY_BOUNDARY.defaults.maxDisplacementM;
   const stallCeilingMs =
     RULES.STALLED_VEHICLE_GUARD.defaults.maxStallMinutes * 60_000;
+  const stallMaxSpeedMps = RULES.STALLED_VEHICLE_GUARD.defaults.maxStallSpeedMps;
   if (points.length === 0) return [];
 
   type Window = {
@@ -144,7 +145,17 @@ export function segmentation(
     // urban canyon). A multi-hour gap whose endpoints barely moved is a genuine
     // stay; a lone in_vehicle event (often the next trip's departure bleeding
     // into the gap window, or a spurious parked reading) must not veto it.
-    if (gap < stallCeilingMs && isStalledVehicle(activities, t1, t2)) continue;
+    // The veto also requires a stall-like implied speed: a real transit hop
+    // (e.g. a sub-15-min metro ride that loses GPS underground and reports
+    // in_vehicle) covers km at speed and must survive as a gap stay so subway
+    // detection can fire — only a near-stationary crawl is a true stall.
+    const impliedSpeedMps = dist / (gap / 1000);
+    if (
+      gap < stallCeilingMs &&
+      impliedSpeedMps < stallMaxSpeedMps &&
+      isStalledVehicle(activities, t1, t2)
+    )
+      continue;
 
     // RULE_GAP_PLAUSIBILITY: in the soft-to-hard window, if endpoints could
     // plausibly be connected by continuous motion, treat as one trip rather

@@ -292,6 +292,57 @@ describe('segmentation', () => {
       expect(segs.filter((s) => s.kind === 'stay')).toHaveLength(1);
     });
 
+    it('creates a gap stay for a short transit gap that covered real distance despite in_vehicle (metro tunnel)', () => {
+      // A 13-min GPS blackout covering ~6.4 km with an in_vehicle event in the
+      // window — a metro hop, NOT a stalled car. It must become a gap stay so
+      // downstream subway detection can fire. Previously the stalled-vehicle
+      // guard (gap < 15 min + in_vehicle) swallowed it, leaving no gap, no line.
+      const mpdLat = 111_320;
+      const t0 = 1_700_000_000_000;
+      const lat0 = 48.0;
+      const lon0 = 2.0;
+      const pts: RawPoint[] = [];
+      // short moving approach (walk toward the station), no 5-min dwell
+      for (let i = 0; i < 4; i++) pts.push(mkPoint(t0 + i * 60_000, lat0 + (i * 50) / mpdLat, lon0));
+      const gapStartTs = t0 + 3 * 60_000; // last fix before going underground
+      const resumeTs = gapStartTs + 13 * 60_000; // 13-min gap
+      // resume ~6.4 km away, then keep moving
+      for (let i = 0; i <= 5; i++)
+        pts.push(mkPoint(resumeTs + i * 60_000, lat0 + (6400 + i * 100) / mpdLat, lon0));
+      const acts: RawActivity[] = [mkActivity(gapStartTs + 5 * 60_000, 'in_vehicle', 100)];
+
+      const segs = segmentation(pts, acts, {
+        dwellMinutes: 5,
+        dwellRadiusM: 100,
+        gapMinutes: 10,
+      });
+      const gapStay = segs.find((s) => s.kind === 'stay' && (s as { gap?: boolean }).gap);
+      expect(gapStay).toBeDefined();
+    });
+
+    it('still treats a short slow-crawl in_vehicle gap as continuous (traffic stall, not transit)', () => {
+      // 12-min gap covering only ~500 m (avg < 1 m/s) with in_vehicle — a vehicle
+      // crawling/stopped that briefly lost signal. Must NOT become a gap stay.
+      const mpdLat = 111_320;
+      const t0 = 1_700_000_000_000;
+      const lat0 = 48.0;
+      const lon0 = 2.0;
+      const pts: RawPoint[] = [];
+      for (let i = 0; i < 4; i++) pts.push(mkPoint(t0 + i * 60_000, lat0 + (i * 30) / mpdLat, lon0));
+      const gapStartTs = t0 + 3 * 60_000;
+      const resumeTs = gapStartTs + 12 * 60_000;
+      for (let i = 0; i <= 5; i++)
+        pts.push(mkPoint(resumeTs + i * 60_000, lat0 + (500 + i * 30) / mpdLat, lon0));
+      const acts: RawActivity[] = [mkActivity(gapStartTs + 5 * 60_000, 'in_vehicle', 100)];
+
+      const segs = segmentation(pts, acts, {
+        dwellMinutes: 5,
+        dwellRadiusM: 100,
+        gapMinutes: 10,
+      });
+      expect(segs.some((s) => s.kind === 'stay' && (s as { gap?: boolean }).gap)).toBe(false);
+    });
+
     it('a gap stay spans the gap duration instead of collapsing to zero', () => {
       const t0 = 1_700_000_000_000;
       const lat0 = 48.0;

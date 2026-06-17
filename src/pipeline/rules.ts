@@ -61,8 +61,8 @@ export const RULES = {
 
   STALLED_VEHICLE_GUARD: rule(
     'RULE_STALLED_VEHICLE_GUARD',
-    'A *short* dwell overlapping a confident in_vehicle activity is a stalled vehicle (traffic), not a stay. The guard only applies below maxStallMinutes: a traffic stall lasts minutes, so a longer stationary period is a genuine stay regardless of activity (which is often a spurious in_vehicle while parked, or an adjacent trip\'s departure event bleeding into the dwell window). This keeps GPS-based stationary detection authoritative over activity recognition for ending trips.',
-    { minConfidence: 60, maxStallMinutes: 15 }
+    'A *short* dwell overlapping a confident in_vehicle activity is a stalled vehicle (traffic), not a stay. The guard only applies below maxStallMinutes: a traffic stall lasts minutes, so a longer stationary period is a genuine stay regardless of activity (which is often a spurious in_vehicle while parked, or an adjacent trip\'s departure event bleeding into the dwell window). This keeps GPS-based stationary detection authoritative over activity recognition for ending trips. In the GAP path the same guard must NOT swallow a real transit hop (e.g. a <15-min metro ride that loses GPS underground and reports in_vehicle): it only vetoes when the gap\'s implied speed is below maxStallSpeedMps — a genuine stall barely moves, whereas a metro/train covers km. Without this, the gap is dropped entirely, so no line is drawn and subway-gap detection can never fire.',
+    { minConfidence: 60, maxStallMinutes: 15, maxStallSpeedMps: 2.8 }
   ),
 
   GAP_DWELL: rule(
