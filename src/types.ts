@@ -58,13 +58,20 @@ export interface RawActivity {
   consumed: boolean;
 }
 
+export type PlaceKind = 'auto' | 'user';
+export type PlaceCategory =
+  | 'home' | 'work' | 'sport' | 'shopping' | 'exercise'
+  | 'family' | 'entertainment' | 'travel' | 'other';
+
 export interface Place {
   id: number;
+  kind: PlaceKind;
+  name: string | null;
+  category: PlaceCategory | null;
   latitude: number;
   longitude: number;
   radiusM: number;
   displayName: string | null;
-  label: 'home' | 'work' | null;
   visitCount: number;
   firstSeenMs: number;
   lastSeenMs: number;
