@@ -9,12 +9,14 @@ import { Text } from './Text';
 const TAB_ICONS: Record<string, { active: keyof typeof MaterialCommunityIcons.glyphMap; inactive: keyof typeof MaterialCommunityIcons.glyphMap }> = {
   index: { active: 'map', inactive: 'map-outline' },
   stats: { active: 'chart-arc', inactive: 'chart-arc' },
+  places: { active: 'map-marker-multiple', inactive: 'map-marker-multiple-outline' },
   settings: { active: 'cog', inactive: 'cog-outline' },
 };
 
 const TAB_LABELS: Record<string, string> = {
   index: 'Trips',
   stats: 'Stats',
+  places: 'Lieux',
   settings: 'Settings',
 };
 
