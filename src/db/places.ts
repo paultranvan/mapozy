@@ -1,5 +1,6 @@
 import type { Db } from './client';
 import type { Place } from '../types';
+import { PLACE_CATEGORY_VALUES } from '../types';
 import { haversineMeters } from '../lib/distance';
 
 const MATCH_RADIUS_M = 100;
@@ -19,10 +20,10 @@ interface Row {
   last_seen_ms: number;
 }
 
-const CATEGORIES = new Set([
-  'home', 'work', 'sport', 'shopping', 'exercise',
-  'family', 'entertainment', 'travel', 'other',
-]);
+const CATEGORIES = new Set<string>(PLACE_CATEGORY_VALUES);
+
+// Cap the auto-place scan for the "frequent stop" picker; 200 busiest is plenty.
+const CLUSTER_SCAN_LIMIT = 200;
 
 function rowToPlace(r: Row): Place {
   return {
@@ -191,7 +192,7 @@ export async function getUserPoiVisitStats(
 // "from a frequent stop" picker. Busiest first.
 export async function getUnnamedClusters(db: Db, limit: number): Promise<Place[]> {
   const autos = (await db.getAllAsync<Row>(
-    `SELECT * FROM places WHERE kind = 'auto' ORDER BY visit_count DESC LIMIT 200`
+    `SELECT * FROM places WHERE kind = 'auto' ORDER BY visit_count DESC LIMIT ${CLUSTER_SCAN_LIMIT}`
   )).map(rowToPlace);
   const users = await getUserPlaces(db);
   const free = autos.filter(

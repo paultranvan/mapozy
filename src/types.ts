@@ -59,9 +59,11 @@ export interface RawActivity {
 }
 
 export type PlaceKind = 'auto' | 'user';
-export type PlaceCategory =
-  | 'home' | 'work' | 'sport' | 'shopping' | 'exercise'
-  | 'family' | 'entertainment' | 'travel' | 'other';
+export const PLACE_CATEGORY_VALUES = [
+  'home', 'work', 'sport', 'shopping', 'exercise',
+  'family', 'entertainment', 'travel', 'other',
+] as const;
+export type PlaceCategory = (typeof PLACE_CATEGORY_VALUES)[number];
 
 export interface Place {
   id: number;
