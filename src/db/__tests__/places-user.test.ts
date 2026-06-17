@@ -1,0 +1,65 @@
+import { createMockDb } from '../mockDb';
+import { runMigrations } from '../migrations';
+import {
+  findOrCreatePlace,
+  createUserPlace,
+  updateUserPlace,
+  deleteUserPlace,
+  getUserPlaces,
+  getUserPoiVisitStats,
+  getUnnamedClusters,
+} from '../places';
+import type { Db } from '../client';
+
+describe('user POIs', () => {
+  let db: Db;
+  beforeEach(async () => {
+    db = createMockDb();
+    await runMigrations(db);
+  });
+
+  it('creates, lists, updates and deletes a user POI', async () => {
+    const id = await createUserPlace(db, {
+      name: 'Maison', category: 'home', latitude: 45.75, longitude: 4.85, radiusM: 120,
+    });
+    let pois = await getUserPlaces(db);
+    expect(pois).toHaveLength(1);
+    expect(pois[0]).toMatchObject({ name: 'Maison', category: 'home', kind: 'user', radiusM: 120 });
+
+    await updateUserPlace(db, id, { name: 'Chez moi', category: 'home', latitude: 45.75, longitude: 4.85, radiusM: 80 });
+    pois = await getUserPlaces(db);
+    expect(pois[0]).toMatchObject({ name: 'Chez moi', radiusM: 80 });
+
+    await deleteUserPlace(db, id);
+    expect(await getUserPlaces(db)).toHaveLength(0);
+  });
+
+  it('does not list auto places as user POIs', async () => {
+    await findOrCreatePlace(db, 45.75, 4.85, 1000);
+    expect(await getUserPlaces(db)).toHaveLength(0);
+  });
+
+  it('visit stats sum auto-place visits within the POI radius', async () => {
+    await findOrCreatePlace(db, 45.7500, 4.8500, 1000); // visit 1
+    await findOrCreatePlace(db, 45.7500, 4.8500, 2000); // visit 2 (same cluster)
+    await findOrCreatePlace(db, 45.7503, 4.8500, 3000); // ~33m -> same 100m radius
+    await findOrCreatePlace(db, 45.8000, 4.9000, 4000); // far away
+    const id = await createUserPlace(db, {
+      name: 'Maison', category: 'home', latitude: 45.7500, longitude: 4.8500, radiusM: 100,
+    });
+    const poi = (await getUserPlaces(db)).find((p) => p.id === id)!;
+    const stats = await getUserPoiVisitStats(db, poi);
+    expect(stats.visitCount).toBe(3); // 2 + 1, far one excluded
+    expect(stats.lastSeenMs).toBe(3000);
+  });
+
+  it('lists unnamed clusters not already inside a user POI, busiest first', async () => {
+    await findOrCreatePlace(db, 45.7500, 4.8500, 1000);
+    await findOrCreatePlace(db, 45.7500, 4.8500, 2000); // cluster A: 2 visits
+    await findOrCreatePlace(db, 45.8000, 4.9000, 3000); // cluster B: 1 visit
+    await createUserPlace(db, { name: 'Maison', category: 'home', latitude: 45.7500, longitude: 4.8500, radiusM: 100 });
+    const clusters = await getUnnamedClusters(db, 10);
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0]).toMatchObject({ latitude: 45.8, longitude: 4.9 });
+  });
+});
