@@ -50,3 +50,24 @@ describe('migration 006: trip editing columns', () => {
     expect(tripCols).toEqual(expect.arrayContaining(['locked', 'edited']));
   });
 });
+
+describe('migration 008: places kind/name/category', () => {
+  it('adds kind/name/category to places, preserving rows', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    // insert a legacy-style auto place
+    await db.runAsync(
+      `INSERT INTO places (latitude, longitude, radius_m, visit_count, first_seen_ms, last_seen_ms)
+       VALUES (?, ?, 50, 3, 1, 2)`,
+      45.75, 4.85
+    );
+    const cols = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(places)`);
+    const names = cols.map((c) => c.name);
+    expect(names).toEqual(expect.arrayContaining(['kind', 'name', 'category']));
+    const row = await db.getFirstAsync<{ kind: string; visit_count: number }>(
+      `SELECT kind, visit_count FROM places LIMIT 1`
+    );
+    expect(row?.kind).toBe('auto');
+    expect(row?.visit_count).toBe(3);
+  });
+});

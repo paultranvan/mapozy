@@ -162,6 +162,17 @@ const MIGRATION_007 = `
 ALTER TABLE sections ADD COLUMN matched_geojson TEXT;
 `;
 
+// User POIs: places gain a `kind` discriminator ('auto' = clustering substrate,
+// 'user' = a place the user declared), plus a free `name` and a `category`
+// (home/work/sport/…). Existing rows stay 'auto'; the Places tab shows only
+// kind='user'. `label` is retired from display logic but kept for back-compat.
+const MIGRATION_008 = `
+ALTER TABLE places ADD COLUMN kind TEXT NOT NULL DEFAULT 'auto';
+ALTER TABLE places ADD COLUMN name TEXT;
+ALTER TABLE places ADD COLUMN category TEXT;
+CREATE INDEX IF NOT EXISTS idx_places_kind ON places(kind);
+`;
+
 export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 1, sql: MIGRATION_001 },
   { version: 2, sql: MIGRATION_002 },
@@ -170,6 +181,7 @@ export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 5, sql: MIGRATION_005 },
   { version: 6, sql: MIGRATION_006 },
   { version: 7, sql: MIGRATION_007 },
+  { version: 8, sql: MIGRATION_008 },
 ];
 
 export async function getSchemaVersion(db: Db): Promise<number> {
