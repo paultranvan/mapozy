@@ -20,7 +20,7 @@ export function useUserPlace(id: number | null) {
   });
 }
 
-export function useUserPoiVisits() {
+export function useUserPoiVisits(enabled = true) {
   const db = useDb();
   return useQuery({
     queryKey: ['userPlaceVisits'],
@@ -31,6 +31,7 @@ export function useUserPoiVisits() {
       );
       return new Map(entries);
     },
+    enabled,
   });
 }
 
