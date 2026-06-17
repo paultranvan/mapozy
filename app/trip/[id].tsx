@@ -235,6 +235,13 @@ export default function TripDetailScreen() {
   const endPoi = endPlaceQ.data
     ? nearestUserPoi(endPlaceQ.data.latitude, endPlaceQ.data.longitude, userPlaces.data ?? [])
     : null;
+
+  const nameThisPlace = (autoPlace: { latitude: number; longitude: number } | null | undefined) => {
+    if (!autoPlace) return;
+    router.push({ pathname: '/place/[id]', params: {
+      id: 'new', lat: String(autoPlace.latitude), lon: String(autoPlace.longitude),
+    } });
+  };
   const startLabels = placeLabels(startPlaceQ.data, 'Start', startPoi);
   const endLabels = placeLabels(endPlaceQ.data, 'End', endPoi);
 
@@ -283,9 +290,19 @@ export default function TripDetailScreen() {
           <Text variant="label" soft numberOfLines={1} style={styles.fromCaption}>
             from {startLabels.full}
           </Text>
+          {!startPoi && startPlaceQ.data && (
+            <Pressable onPress={() => nameThisPlace(startPlaceQ.data)} hitSlop={6} style={styles.namePlace}>
+              <Text variant="label" color={colors.accent}>＋ Nommer ce lieu</Text>
+            </Pressable>
+          )}
           <Text variant="display" numberOfLines={1} style={styles.destination}>
             {endLabels.short}
           </Text>
+          {!endPoi && endPlaceQ.data && (
+            <Pressable onPress={() => nameThisPlace(endPlaceQ.data)} hitSlop={6} style={styles.namePlace}>
+              <Text variant="label" color={colors.accent}>＋ Nommer ce lieu</Text>
+            </Pressable>
+          )}
           <Text variant="meta" soft style={styles.stats}>
             {headlineDuration} · {headlineDistance}
           </Text>
@@ -420,6 +437,9 @@ const styles = StyleSheet.create({
     marginBottom: space[1],
   },
   fromCaption: {
+    marginBottom: space[1],
+  },
+  namePlace: {
     marginBottom: space[1],
   },
   destination: {
