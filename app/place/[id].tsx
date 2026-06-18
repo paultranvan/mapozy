@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, TextInput, Pressable, ScrollView, StyleSheet, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import MapLibreGL, {
@@ -56,6 +56,8 @@ export default function PlaceEditor() {
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<AddressHit[]>([]);
   const [focused, setFocused] = useState(false);
+  const dragSeqRef = useRef(0);
+  const skipSearchRef = useRef(false);
 
   const clusters = useUnnamedClusters();
   const create = useCreateUserPlace();
@@ -73,6 +75,7 @@ export default function PlaceEditor() {
   }, [existing.data]);
 
   useEffect(() => {
+    if (skipSearchRef.current) { skipSearchRef.current = false; setHits([]); return; }
     if (!externalApiAllowed() || query.trim().length < 3) {
       setHits([]);
       return;
@@ -98,11 +101,16 @@ export default function PlaceEditor() {
   };
 
   const onDragEnd = async (e: GeoJSON.Feature<GeoJSON.Point>) => {
+    setFocused(false);
+    const seq = ++dragSeqRef.current;
     const lon = e.geometry.coordinates[0]!;
     const lat = e.geometry.coordinates[1]!;
     setCoord([lon, lat]);
     const addr = await reverseGeocode(lat, lon);
-    if (addr) setQuery(addr);
+    if (addr && seq === dragSeqRef.current) {
+      skipSearchRef.current = true;
+      setQuery(addr);
+    }
   };
 
   const onSave = async () => {
@@ -287,7 +295,7 @@ export default function PlaceEditor() {
 
       {!isNew && (
         <Pressable onPress={onDelete} style={styles.del}>
-          <Text variant="body" color="#b04632">
+          <Text variant="body" color={colors.danger}>
             Supprimer ce lieu
           </Text>
         </Pressable>
