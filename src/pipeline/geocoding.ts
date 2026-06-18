@@ -40,6 +40,20 @@ function formatDisplayName(data: NominatimResponse): string | null {
   return parts.length > 0 ? parts.join(', ') : data.display_name ?? null;
 }
 
+export async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
+  if (!externalApiAllowed()) return null;
+  await rateLimit();
+  const url = `${NOMINATIM_URL}?lat=${lat}&lon=${lon}&format=json&zoom=18&addressdetails=1`;
+  try {
+    const resp = await externalFetch(url, { headers: { 'User-Agent': USER_AGENT } });
+    if (!resp.ok) return null;
+    const data = (await resp.json()) as NominatimResponse;
+    return formatDisplayName(data);
+  } catch {
+    return null;
+  }
+}
+
 export async function geocodePlaceLazy(db: Db, placeId: number): Promise<string | null> {
   const p = await getPlaceById(db, placeId);
   if (!p) return null;
@@ -47,18 +61,9 @@ export async function geocodePlaceLazy(db: Db, placeId: number): Promise<string 
   // External API disabled: skip the network call, caller falls back to coords.
   if (!externalApiAllowed()) return null;
 
-  await rateLimit();
-  const url = `${NOMINATIM_URL}?lat=${p.latitude}&lon=${p.longitude}&format=json&zoom=18&addressdetails=1`;
-  try {
-    const resp = await externalFetch(url, { headers: { 'User-Agent': USER_AGENT } });
-    if (!resp.ok) return null;
-    const data = (await resp.json()) as NominatimResponse;
-    const name = formatDisplayName(data);
-    if (name) await setPlaceDisplayName(db, placeId, name);
-    return name;
-  } catch {
-    return null;
-  }
+  const name = await reverseGeocode(p.latitude, p.longitude);
+  if (name) await setPlaceDisplayName(db, placeId, name);
+  return name;
 }
 
 export function fallbackPlaceLabel(lat: number, lon: number): string {
