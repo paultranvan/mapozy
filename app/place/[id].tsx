@@ -1,18 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { View, TextInput, Pressable, ScrollView, StyleSheet, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import MapLibreGL, {
   MapView,
   Camera,
   PointAnnotation,
+  ShapeSource,
+  FillLayer,
+  LineLayer,
 } from '@maplibre/maplibre-react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, space } from '@/theme/tokens';
 import { OSM_STYLE } from '@/ui/mapStyle';
 import { Text } from '@/ui/Text';
 import { PlaceBadge } from '@/ui/PlaceBadge';
-import { PLACE_CATEGORIES } from '@/ui/placeCategories';
+import { PLACE_CATEGORIES, categoryMeta } from '@/ui/placeCategories';
+import { circlePolygon } from '@/lib/circle';
 import { externalApiAllowed } from '@/lib/net';
 import { searchAddress, type AddressHit } from '@/lib/geocodeSearch';
+import { reverseGeocode } from '@/pipeline/geocoding';
 import {
   useUserPlace,
   useCreateUserPlace,
@@ -23,7 +29,6 @@ import {
 import type { Place, PlaceCategory } from '@/types';
 
 MapLibreGL.setAccessToken(null);
-
 const DEFAULT_RADIUS = 100;
 
 export default function PlaceEditor() {
@@ -50,6 +55,7 @@ export default function PlaceEditor() {
   const [radius, setRadius] = useState(DEFAULT_RADIUS);
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<AddressHit[]>([]);
+  const [focused, setFocused] = useState(false);
 
   const clusters = useUnnamedClusters();
   const create = useCreateUserPlace();
@@ -62,6 +68,7 @@ export default function PlaceEditor() {
       setCategory(existing.data.category ?? 'home');
       setCoord([existing.data.longitude, existing.data.latitude]);
       setRadius(existing.data.radiusM);
+      if (existing.data.displayName) setQuery(existing.data.displayName);
     }
   }, [existing.data]);
 
@@ -77,6 +84,26 @@ export default function PlaceEditor() {
     const t = setTimeout(async () => setHits(await searchAddress(query)), 400);
     return () => clearTimeout(t);
   }, [query]);
+
+  const ring = useMemo(() => circlePolygon(coord[0], coord[1], radius), [coord, radius]);
+  const meta = categoryMeta(category);
+  const showFrequent = focused && query.trim().length < 3 && (clusters.data?.length ?? 0) > 0;
+  const showHits = focused && hits.length > 0;
+
+  const moveTo = (lon: number, lat: number, label: string) => {
+    setCoord([lon, lat]);
+    setQuery(label);
+    setHits([]);
+    setFocused(false);
+  };
+
+  const onDragEnd = async (e: GeoJSON.Feature<GeoJSON.Point>) => {
+    const lon = e.geometry.coordinates[0]!;
+    const lat = e.geometry.coordinates[1]!;
+    setCoord([lon, lat]);
+    const addr = await reverseGeocode(lat, lon);
+    if (addr) setQuery(addr);
+  };
 
   const onSave = async () => {
     const input = {
@@ -101,18 +128,25 @@ export default function PlaceEditor() {
       await remove.mutateAsync(editId);
       router.back();
     } catch {
-      Alert.alert('Erreur', "Impossible de supprimer le lieu.");
+      Alert.alert('Erreur', 'Impossible de supprimer le lieu.');
     }
   };
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={{ paddingBottom: space[6] }}>
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={{ paddingBottom: space[6] }}
+      keyboardShouldPersistTaps="handled"
+    >
       <View style={styles.bar}>
         <Pressable onPress={() => router.back()}>
           <Text variant="body" color={colors.inkSoft}>
             Annuler
           </Text>
         </Pressable>
+        <Text variant="body" color={colors.ink}>
+          {isNew ? 'Nouveau lieu' : 'Modifier'}
+        </Text>
         <Pressable onPress={onSave}>
           <Text variant="body" color={colors.accent}>
             Enregistrer
@@ -120,81 +154,86 @@ export default function PlaceEditor() {
         </Pressable>
       </View>
 
-      <Text variant="label" color={colors.inkSoft} style={styles.lbl}>
-        NOM
+      <Text variant="label" color={colors.inkSoft} style={styles.sec}>
+        EMPLACEMENT
       </Text>
-      <TextInput
-        value={name}
-        onChangeText={setName}
-        placeholder="ex. Basic-Fit"
-        style={styles.input}
-      />
 
-      <Text variant="label" color={colors.inkSoft} style={styles.lbl}>
-        CATÉGORIE
-      </Text>
-      <View style={styles.grid}>
-        {PLACE_CATEGORIES.map((c) => (
-          <Pressable
-            key={c.key}
-            onPress={() => setCategory(c.key)}
-            style={[styles.cell, category === c.key && styles.cellOn]}
-          >
-            <PlaceBadge category={c.key} size={36} />
-          </Pressable>
-        ))}
+      <View style={styles.searchBar}>
+        <MaterialCommunityIcons name="magnify" size={16} color={colors.inkSoft} />
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          onFocus={() => setFocused(true)}
+          placeholder="Rechercher une adresse"
+          placeholderTextColor={colors.inkSoft}
+          style={styles.searchInput}
+        />
       </View>
 
-      {externalApiAllowed() && (
-        <>
-          <Text variant="label" color={colors.inkSoft} style={styles.lbl}>
-            ADRESSE
-          </Text>
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Rechercher une adresse"
-            style={styles.input}
-          />
-          {hits.map((h, i) => (
-            <Pressable
-              key={i}
-              style={styles.hit}
-              onPress={() => {
-                setCoord([h.lon, h.lat]);
-                setQuery(h.label);
-                setHits([]);
-              }}
-            >
-              <Text variant="label" color={colors.ink} numberOfLines={1}>
-                {h.label}
-              </Text>
-            </Pressable>
-          ))}
-        </>
+      {(showHits || showFrequent) && (
+        <View style={styles.dropdown}>
+          {showHits
+            ? hits.map((h, i) => (
+                <Pressable
+                  key={i}
+                  style={styles.drow}
+                  onPress={() => moveTo(h.lon, h.lat, h.label)}
+                >
+                  <MaterialCommunityIcons
+                    name="map-marker-outline"
+                    size={14}
+                    color={colors.inkSoft}
+                  />
+                  <Text variant="label" color={colors.ink} numberOfLines={1}>
+                    {h.label}
+                  </Text>
+                </Pressable>
+              ))
+            : (clusters.data ?? []).map((c: Place) => {
+                const label =
+                  c.displayName ?? `${c.latitude.toFixed(4)}, ${c.longitude.toFixed(4)}`;
+                return (
+                  <Pressable
+                    key={c.id}
+                    style={styles.drow}
+                    onPress={() => moveTo(c.longitude, c.latitude, label)}
+                  >
+                    <MaterialCommunityIcons name="history" size={14} color={colors.inkSoft} />
+                    <Text variant="label" color={colors.ink} numberOfLines={1}>
+                      {label} · {c.visitCount}×
+                    </Text>
+                  </Pressable>
+                );
+              })}
+        </View>
       )}
 
-      <Text variant="label" color={colors.inkSoft} style={styles.lbl}>
-        POSITION &amp; RAYON
-      </Text>
       <View style={styles.mapBox}>
         <MapView style={{ flex: 1 }} mapStyle={OSM_STYLE as unknown as string}>
           <Camera centerCoordinate={coord} zoomLevel={15} animationDuration={0} />
+          <ShapeSource id="radiusRing" shape={ring}>
+            <FillLayer id="radiusFill" style={{ fillColor: meta.color, fillOpacity: 0.15 }} />
+            <LineLayer
+              id="radiusLine"
+              style={{ lineColor: meta.color, lineWidth: 2, lineOpacity: 0.85 }}
+            />
+          </ShapeSource>
           <PointAnnotation
             id="pin"
             coordinate={coord}
             draggable
-            onDragEnd={(e) => setCoord(e.geometry.coordinates as [number, number])}
+            onDragEnd={onDragEnd}
           >
             <PlaceBadge category={category} />
           </PointAnnotation>
         </MapView>
       </View>
-      <View style={styles.sliderRow}>
-        <Pressable
-          style={styles.step}
-          onPress={() => setRadius((r) => Math.max(30, r - 10))}
-        >
+
+      <View style={styles.radiusRow}>
+        <Text variant="label" color={colors.inkSoft} style={styles.radiusHint}>
+          Glisse l'épingle ou cherche une adresse
+        </Text>
+        <Pressable style={styles.step} onPress={() => setRadius((r) => Math.max(30, r - 10))}>
           <Text variant="body" color={colors.ink}>
             −
           </Text>
@@ -202,35 +241,49 @@ export default function PlaceEditor() {
         <Text variant="label" color={colors.accent} style={styles.radiusVal}>
           {Math.round(radius)} m
         </Text>
-        <Pressable
-          style={styles.step}
-          onPress={() => setRadius((r) => Math.min(500, r + 10))}
-        >
+        <Pressable style={styles.step} onPress={() => setRadius((r) => Math.min(500, r + 10))}>
           <Text variant="body" color={colors.ink}>
             ＋
           </Text>
         </Pressable>
       </View>
 
-      {clusters.data && clusters.data.length > 0 && (
-        <>
-          <Text variant="label" color={colors.inkSoft} style={styles.lbl}>
-            DEPUIS UN ARRÊT FRÉQUENT
-          </Text>
-          {clusters.data.map((c: Place) => (
+      <Text variant="label" color={colors.inkSoft} style={styles.sec}>
+        DÉTAILS
+      </Text>
+      <TextInput
+        value={name}
+        onChangeText={setName}
+        placeholder="Nom du lieu (ex. Basic-Fit)"
+        placeholderTextColor={colors.inkSoft}
+        style={styles.input}
+      />
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.chips}
+        keyboardShouldPersistTaps="handled"
+      >
+        {PLACE_CATEGORIES.map((c) => {
+          const on = category === c.key;
+          return (
             <Pressable
-              key={c.id}
-              style={styles.hit}
-              onPress={() => setCoord([c.longitude, c.latitude])}
+              key={c.key}
+              onPress={() => setCategory(c.key)}
+              style={[
+                styles.chip,
+                on ? { backgroundColor: c.color, borderColor: c.color } : null,
+              ]}
             >
-              <Text variant="label" color={colors.ink} numberOfLines={1}>
-                {c.displayName ?? `${c.latitude.toFixed(4)}, ${c.longitude.toFixed(4)}`} ·{' '}
-                {c.visitCount}×
+              <MaterialCommunityIcons name={c.icon} size={18} color={on ? '#fff' : c.color} />
+              <Text variant="label" color={on ? '#fff' : colors.ink}>
+                {c.labelFr}
               </Text>
             </Pressable>
-          ))}
-        </>
-      )}
+          );
+        })}
+      </ScrollView>
 
       {!isNew && (
         <Pressable onPress={onDelete} style={styles.del}>
@@ -248,57 +301,91 @@ const styles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     padding: space[3],
   },
-  lbl: {
+  sec: {
     marginTop: space[3],
     marginHorizontal: space[3],
     marginBottom: space[1],
+    letterSpacing: 0.5,
   },
-  input: {
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
     marginHorizontal: space[3],
     backgroundColor: colors.surface,
-    borderRadius: 8,
+    borderRadius: 10,
     paddingHorizontal: space[3],
     paddingVertical: space[2],
-    color: colors.ink,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.divider,
   },
-  grid: {
+  searchInput: { flex: 1, color: colors.ink, padding: 0 },
+  dropdown: {
+    marginHorizontal: space[3],
+    marginTop: 2,
+    backgroundColor: colors.surface,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.divider,
+    overflow: 'hidden',
+  },
+  drow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    alignItems: 'center',
     gap: space[2],
-    paddingHorizontal: space[3],
-  },
-  cell: { padding: 4, borderRadius: 12 },
-  cellOn: { backgroundColor: colors.accentSoft },
-  hit: {
     paddingVertical: space[2],
     paddingHorizontal: space[3],
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.divider,
   },
   mapBox: {
-    height: 200,
+    height: 220,
     marginHorizontal: space[3],
+    marginTop: space[2],
     borderRadius: 12,
     overflow: 'hidden',
   },
-  sliderRow: {
+  radiusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: space[4],
+    gap: space[2],
     paddingHorizontal: space[3],
     marginTop: space[2],
   },
+  radiusHint: { flex: 1 },
   step: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: colors.accentSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  radiusVal: { minWidth: 56, textAlign: 'center' },
+  radiusVal: { minWidth: 48, textAlign: 'center' },
+  input: {
+    marginHorizontal: space[3],
+    backgroundColor: colors.surface,
+    borderRadius: 10,
+    paddingHorizontal: space[3],
+    paddingVertical: space[2],
+    color: colors.ink,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.divider,
+  },
+  chips: { gap: space[2], paddingHorizontal: space[3], paddingVertical: space[2] },
+  chip: {
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: space[3],
+    paddingVertical: space[2],
+    borderRadius: 14,
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.divider,
+    minWidth: 64,
+  },
   del: { alignItems: 'center', marginTop: space[5] },
 });
