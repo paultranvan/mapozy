@@ -255,9 +255,12 @@ export default function PlaceEditor() {
           </Text>
         </Pressable>
       </View>
+      <Text variant="label" color={colors.inkSoft} style={styles.radiusCaption}>
+        Un trajet qui démarre ou se termine dans ce rayon est rattaché à ce lieu.
+      </Text>
 
       <Text variant="label" color={colors.inkSoft} style={styles.sec}>
-        DÉTAILS
+        NOM
       </Text>
       <TextInput
         value={name}
@@ -267,31 +270,20 @@ export default function PlaceEditor() {
         style={styles.input}
       />
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.chips}
-        keyboardShouldPersistTaps="handled"
-      >
+      <Text variant="label" color={colors.inkSoft} style={styles.sec}>
+        CATÉGORIE
+      </Text>
+      <View style={styles.grid}>
         {PLACE_CATEGORIES.map((c) => {
           const on = category === c.key;
           return (
-            <Pressable
-              key={c.key}
-              onPress={() => setCategory(c.key)}
-              style={[
-                styles.chip,
-                on ? { backgroundColor: c.color, borderColor: c.color } : null,
-              ]}
-            >
-              <MaterialCommunityIcons name={c.icon} size={18} color={on ? '#fff' : c.color} />
-              <Text variant="label" color={on ? '#fff' : colors.ink}>
-                {c.labelFr}
-              </Text>
+            <Pressable key={c.key} onPress={() => setCategory(c.key)} style={[styles.chip, on ? { backgroundColor: c.color, borderColor: c.color } : null]}>
+              <MaterialCommunityIcons name={c.icon} size={20} color={on ? '#fff' : c.color} />
+              <Text variant="label" color={on ? '#fff' : colors.ink}>{c.labelFr}</Text>
             </Pressable>
           );
         })}
-      </ScrollView>
+      </View>
 
       {!isNew && (
         <Pressable onPress={onDelete} style={styles.del}>
@@ -373,6 +365,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   radiusVal: { minWidth: 48, textAlign: 'center' },
+  radiusCaption: { marginHorizontal: space[3], marginTop: space[1] },
   input: {
     marginHorizontal: space[3],
     backgroundColor: colors.surface,
@@ -383,17 +376,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.divider,
   },
-  chips: { gap: space[2], paddingHorizontal: space[3], paddingVertical: space[2] },
-  chip: {
-    alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: space[3],
-    paddingVertical: space[2],
-    borderRadius: 14,
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.divider,
-    minWidth: 64,
-  },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2], paddingHorizontal: space[3], paddingTop: space[2] },
+  chip: { flexBasis: '22%', flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: 3, paddingVertical: space[2], paddingHorizontal: space[1], borderRadius: 14, backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.divider },
   del: { alignItems: 'center', marginTop: space[5] },
 });
