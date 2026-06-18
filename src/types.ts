@@ -60,7 +60,7 @@ export interface RawActivity {
 
 export type PlaceKind = 'auto' | 'user';
 export const PLACE_CATEGORY_VALUES = [
-  'home', 'work', 'sport', 'shopping', 'exercise',
+  'home', 'work', 'sport', 'shopping',
   'family', 'entertainment', 'travel', 'other',
 ] as const;
 export type PlaceCategory = (typeof PLACE_CATEGORY_VALUES)[number];

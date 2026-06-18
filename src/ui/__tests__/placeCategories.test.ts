@@ -2,7 +2,7 @@ import { PLACE_CATEGORIES, categoryMeta } from '../placeCategories';
 import { PLACE_CATEGORY_VALUES } from '../../types';
 
 it('has 9 distinct categories with color + icon', () => {
-  expect(PLACE_CATEGORIES).toHaveLength(9);
+  expect(PLACE_CATEGORIES).toHaveLength(8);
   for (const c of PLACE_CATEGORIES) {
     expect(c.color).toMatch(/^#[0-9A-Fa-f]{6}$/);
     expect(c.icon.length).toBeGreaterThan(0);
