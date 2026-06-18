@@ -10,7 +10,6 @@ import { Text } from '@/ui/Text';
 import { PlaceListItem } from '@/ui/PlaceListItem';
 import { PlaceBadge } from '@/ui/PlaceBadge';
 import { useUserPlaces, useUserPoiVisits, useHomeWorkSuggestion } from '@/queries/usePlaces';
-import { categoryMeta } from '@/ui/placeCategories';
 import type { HomeWorkSuggestion } from '@/stats/homeWorkDetection';
 import type { Place } from '@/types';
 
@@ -61,7 +60,7 @@ export default function PlacesScreen() {
           style={styles.banner}
           onPress={() => router.push({ pathname: '/place/[id]', params: {
             id: 'new', lat: String(s.latitude), lon: String(s.longitude),
-            category: s.category, name: categoryMeta(s.category).labelFr,
+            category: s.category,
           } })}
         >
           <Text variant="label" color={colors.ink}>

@@ -37,14 +37,13 @@ export default function PlaceEditor() {
     lat?: string;
     lon?: string;
     category?: string;
-    name?: string;
   }>();
   const router = useRouter();
   const isNew = params.id === 'new';
   const editId = isNew ? null : Number(params.id);
   const existing = useUserPlace(editId);
 
-  const [name, setName] = useState(params.name ?? '');
+  const [name, setName] = useState('');
   const [category, setCategory] = useState<PlaceCategory>(
     (params.category as PlaceCategory) ?? 'home',
   );
@@ -114,8 +113,13 @@ export default function PlaceEditor() {
   };
 
   const onSave = async () => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      Alert.alert('Nom requis', "Donne un nom à ce lieu avant d'enregistrer.");
+      return;
+    }
     const input = {
-      name: name.trim() || 'Sans nom',
+      name: trimmed,
       category,
       latitude: coord[1],
       longitude: coord[0],
@@ -156,11 +160,22 @@ export default function PlaceEditor() {
           {isNew ? 'Nouveau lieu' : 'Modifier'}
         </Text>
         <Pressable onPress={onSave}>
-          <Text variant="body" color={colors.accent}>
+          <Text variant="body" color={name.trim() ? colors.accent : colors.inkSoft}>
             Enregistrer
           </Text>
         </Pressable>
       </View>
+
+      <Text variant="label" color={colors.inkSoft} style={styles.sec}>
+        NOM
+      </Text>
+      <TextInput
+        value={name}
+        onChangeText={setName}
+        placeholder="Nom du lieu (ex. Basic-Fit)"
+        placeholderTextColor={colors.inkSoft}
+        style={styles.input}
+      />
 
       <Text variant="label" color={colors.inkSoft} style={styles.sec}>
         EMPLACEMENT
@@ -239,7 +254,7 @@ export default function PlaceEditor() {
 
       <View style={styles.radiusRow}>
         <Text variant="label" color={colors.inkSoft} style={styles.radiusHint}>
-          Glisse l'épingle ou cherche une adresse
+          Rayon
         </Text>
         <Pressable style={styles.step} onPress={() => setRadius((r) => Math.max(30, r - 10))}>
           <Text variant="body" color={colors.ink}>
@@ -258,17 +273,6 @@ export default function PlaceEditor() {
       <Text variant="label" color={colors.inkSoft} style={styles.radiusCaption}>
         Un trajet qui démarre ou se termine dans ce rayon est rattaché à ce lieu.
       </Text>
-
-      <Text variant="label" color={colors.inkSoft} style={styles.sec}>
-        NOM
-      </Text>
-      <TextInput
-        value={name}
-        onChangeText={setName}
-        placeholder="Nom du lieu (ex. Basic-Fit)"
-        placeholderTextColor={colors.inkSoft}
-        style={styles.input}
-      />
 
       <Text variant="label" color={colors.inkSoft} style={styles.sec}>
         CATÉGORIE
