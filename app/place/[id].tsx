@@ -26,7 +26,7 @@ import {
   useDeleteUserPlace,
   useUnnamedClusters,
 } from '@/queries/usePlaces';
-import type { Place, PlaceCategory } from '@/types';
+import type { Place } from '@/types';
 
 MapLibreGL.setAccessToken(null);
 const DEFAULT_RADIUS = 100;
@@ -45,8 +45,8 @@ export default function PlaceEditor() {
   const existing = useUserPlace(editId);
 
   const [name, setName] = useState(params.name ?? '');
-  const [category, setCategory] = useState<PlaceCategory>(
-    (params.category as PlaceCategory) ?? 'home',
+  const [category, setCategory] = useState<string>(
+    params.category ?? 'home',
   );
   const [coord, setCoord] = useState<[number, number]>([
     params.lon ? Number(params.lon) : 4.85,

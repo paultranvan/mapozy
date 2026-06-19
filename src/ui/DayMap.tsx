@@ -11,9 +11,10 @@ import MapLibreGL, {
 } from '@maplibre/maplibre-react-native';
 import { colors as themeColors, MODE_COLORS } from '../theme/tokens';
 import { effectiveMode } from '../pipeline/effectiveMode';
-import { categoryMeta } from './placeCategories';
+import { resolveCategory } from './placeCategories';
+import { useCategories } from '@/queries/useCategories';
 import { OSM_STYLE } from './mapStyle';
-import type { Trip, PlaceCategory } from '../types';
+import type { Trip } from '../types';
 
 MapLibreGL.setAccessToken(null);
 
@@ -54,9 +55,10 @@ export function DayMap({
 }: {
   trips: Trip[];
   selectedTripId?: number | null;
-  placeMarkers?: { kind: PlaceCategory; coord: [number, number]; name: string | null }[];
+  placeMarkers?: { kind: string; coord: [number, number]; name: string | null }[];
 }) {
   const dim = selectedTripId != null;
+  const categories = useCategories();
 
   const { lineFC, endFC, starts, bounds } = useMemo(() => {
     const lineFeatures: FC[] = [];
@@ -171,7 +173,7 @@ export function DayMap({
         </MarkerView>
       ))}
       {placeMarkers.map((p, i) => {
-        const meta = categoryMeta(p.kind);
+        const meta = resolveCategory(p.kind, categories);
         return (
           // Anchored higher (y > 1) so the place pin floats clear above any
           // numbered trip marker sharing the same place.

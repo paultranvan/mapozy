@@ -1,16 +1,17 @@
 import { View, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { categoryMeta } from './placeCategories';
-import type { PlaceCategory } from '../types';
+import { resolveCategory } from './placeCategories';
+import { useCategories } from '@/queries/useCategories';
 
 export function PlaceBadge({
   category,
   size = 32,
 }: {
-  category: PlaceCategory | null;
+  category: string | null;
   size?: number;
 }) {
-  const meta = categoryMeta(category);
+  const categories = useCategories();
+  const meta = resolveCategory(category, categories);
   return (
     <View
       style={[

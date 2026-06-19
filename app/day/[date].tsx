@@ -37,7 +37,7 @@ import {
   startOfDayMs,
   endOfDayMs,
 } from '@/lib/time';
-import type { Trip, Place, Mode, DominantMode, PlaceCategory } from '@/types';
+import type { Trip, Place, Mode, DominantMode } from '@/types';
 
 // Stable empty references so memo deps don't change while a query is pending.
 const NO_TRIPS: Trip[] = [];
@@ -135,7 +135,7 @@ export default function DayScreen() {
       if (t.startPlaceId != null) ids.add(t.startPlaceId);
       if (t.endPlaceId != null) ids.add(t.endPlaceId);
     }
-    const out: { kind: PlaceCategory; coord: [number, number]; name: string | null }[] = [];
+    const out: { kind: string; coord: [number, number]; name: string | null }[] = [];
     for (const id of ids) {
       const p = placeById.get(id);
       if (!p) continue;
