@@ -14,7 +14,7 @@ export const PLACE_CATEGORIES: CategoryMeta[] = [
   { key: 'home', labelFr: 'Maison', icon: 'home', color: '#C9883F' },
   { key: 'work', labelFr: 'Travail', icon: 'briefcase', color: '#8978FF' },
   { key: 'sport', labelFr: 'Sport', icon: 'dumbbell', color: '#B3BF26' },
-  { key: 'shopping', labelFr: 'Courses', icon: 'cart', color: '#FF7B5E' },
+  { key: 'shopping', labelFr: 'Achats', icon: 'cart', color: '#FF7B5E' },
   { key: 'family', labelFr: 'Proches', icon: 'account-group', color: '#1CAAE8' },
   { key: 'entertainment', labelFr: 'Loisirs', icon: 'glass-cocktail', color: '#F85AA8' },
   { key: 'travel', labelFr: 'Voyage', icon: 'image-filter-hdr', color: '#15CACD' },
