@@ -9,6 +9,7 @@ import { OSM_STYLE } from '@/ui/mapStyle';
 import { Text } from '@/ui/Text';
 import { PlaceListItem } from '@/ui/PlaceListItem';
 import { PlaceBadge } from '@/ui/PlaceBadge';
+import { categoryMeta } from '@/ui/placeCategories';
 import { useUserPlaces, useUserPoiVisits, useHomeWorkSuggestion } from '@/queries/usePlaces';
 import type { HomeWorkSuggestion } from '@/stats/homeWorkDetection';
 import type { Place } from '@/types';
@@ -60,7 +61,7 @@ export default function PlacesScreen() {
           style={styles.banner}
           onPress={() => router.push({ pathname: '/place/[id]', params: {
             id: 'new', lat: String(s.latitude), lon: String(s.longitude),
-            category: s.category,
+            category: s.category, name: categoryMeta(s.category).labelFr,
           } })}
         >
           <Text variant="label" color={colors.ink}>

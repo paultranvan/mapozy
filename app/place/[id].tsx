@@ -37,13 +37,14 @@ export default function PlaceEditor() {
     lat?: string;
     lon?: string;
     category?: string;
+    name?: string;
   }>();
   const router = useRouter();
   const isNew = params.id === 'new';
   const editId = isNew ? null : Number(params.id);
   const existing = useUserPlace(editId);
 
-  const [name, setName] = useState('');
+  const [name, setName] = useState(params.name ?? '');
   const [category, setCategory] = useState<PlaceCategory>(
     (params.category as PlaceCategory) ?? 'home',
   );
@@ -87,6 +88,19 @@ export default function PlaceEditor() {
     const t = setTimeout(async () => setHits(await searchAddress(query)), 400);
     return () => clearTimeout(t);
   }, [query]);
+
+  useEffect(() => {
+    if (!isNew || !params.lat || !params.lon) return;
+    let cancelled = false;
+    (async () => {
+      const addr = await reverseGeocode(Number(params.lat), Number(params.lon));
+      if (!cancelled && addr) {
+        skipSearchRef.current = true; // don't trigger autocomplete from this programmatic set
+        setQuery(addr);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isNew, params.lat, params.lon]);
 
   const ring = useMemo(() => circlePolygon(coord[0], coord[1], radius), [coord, radius]);
   const meta = categoryMeta(category);
