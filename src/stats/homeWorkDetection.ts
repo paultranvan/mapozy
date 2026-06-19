@@ -1,5 +1,6 @@
 import type { Db } from '../db/client';
 import { getAutoPlaces, getUserPlaces } from '../db/places';
+import { nearestUserPoi } from '../lib/poiResolve';
 import type { Place, PlaceCategory } from '../types';
 
 export interface HomeWorkSuggestion {
@@ -109,10 +110,10 @@ export async function suggestHomeWork(
       .sort((a, b) => b.workCount - a.workCount)[0] ?? null;
 
   const users = await getUserPlaces(db);
-  const hasCategory = (c: PlaceCategory) => users.some((u) => u.category === c);
+  const covered = (p: Place) => nearestUserPoi(p.latitude, p.longitude, users) !== null;
 
   const toSuggestion = (p: Place | undefined, category: PlaceCategory): HomeWorkSuggestion | null =>
-    p && !hasCategory(category)
+    p && !covered(p)
       ? { latitude: p.latitude, longitude: p.longitude, displayName: p.displayName, category }
       : null;
 
