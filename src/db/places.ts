@@ -124,23 +124,24 @@ export interface UserPlaceInput {
   latitude: number;
   longitude: number;
   radiusM: number;
+  displayName?: string | null;
 }
 
 export async function createUserPlace(db: Db, input: UserPlaceInput): Promise<number> {
   const now = Date.now();
   const res = await db.runAsync(
-    `INSERT INTO places (kind, name, category, latitude, longitude, radius_m, visit_count, first_seen_ms, last_seen_ms)
-     VALUES ('user', ?, ?, ?, ?, ?, 0, ?, ?)`,
-    input.name, input.category, input.latitude, input.longitude, input.radiusM, now, now
+    `INSERT INTO places (kind, name, category, latitude, longitude, radius_m, display_name, visit_count, first_seen_ms, last_seen_ms)
+     VALUES ('user', ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+    input.name, input.category, input.latitude, input.longitude, input.radiusM, input.displayName ?? null, now, now
   );
   return res.lastInsertRowId;
 }
 
 export async function updateUserPlace(db: Db, id: number, input: UserPlaceInput): Promise<void> {
   await db.runAsync(
-    `UPDATE places SET name = ?, category = ?, latitude = ?, longitude = ?, radius_m = ?
+    `UPDATE places SET name = ?, category = ?, latitude = ?, longitude = ?, radius_m = ?, display_name = ?
      WHERE id = ? AND kind = 'user'`,
-    input.name, input.category, input.latitude, input.longitude, input.radiusM, id
+    input.name, input.category, input.latitude, input.longitude, input.radiusM, input.displayName ?? null, id
   );
 }
 

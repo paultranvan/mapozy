@@ -14,9 +14,7 @@ export function PlaceListItem({
   visitCount: number;
   onPress: () => void;
 }) {
-  const address = place.displayName
-    ? placeLabels(place, '', null).full
-    : `${place.latitude.toFixed(4)}, ${place.longitude.toFixed(4)}`;
+  const address = place.displayName ? placeLabels(place, '', null).full : 'Adresse non renseignée';
   return (
     <Pressable onPress={onPress} style={styles.row}>
       <PlaceBadge category={place.category} />

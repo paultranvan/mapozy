@@ -139,6 +139,7 @@ export default function PlaceEditor() {
       latitude: coord[1],
       longitude: coord[0],
       radiusM: Math.round(radius),
+      displayName: query.trim() || null,
     };
     try {
       if (isNew) await create.mutateAsync(input);

@@ -53,6 +53,22 @@ describe('user POIs', () => {
     expect(stats.lastSeenMs).toBe(3000);
   });
 
+  it('persists and updates the display_name (address) of a user POI', async () => {
+    const id = await createUserPlace(db, {
+      name: 'Basic-Fit', category: 'sport', latitude: 45.75, longitude: 4.85, radiusM: 100,
+      displayName: '85 Av. Berthelot, Lyon',
+    });
+    let poi = (await getUserPlaces(db)).find((p) => p.id === id)!;
+    expect(poi.displayName).toBe('85 Av. Berthelot, Lyon');
+
+    await updateUserPlace(db, id, {
+      name: 'Basic-Fit', category: 'sport', latitude: 45.75, longitude: 4.85, radiusM: 100,
+      displayName: 'Avenue Jean Jaurès, Lyon',
+    });
+    poi = (await getUserPlaces(db)).find((p) => p.id === id)!;
+    expect(poi.displayName).toBe('Avenue Jean Jaurès, Lyon');
+  });
+
   it('lists unnamed clusters not already inside a user POI, busiest first', async () => {
     await findOrCreatePlace(db, 45.7500, 4.8500, 1000);
     await findOrCreatePlace(db, 45.7500, 4.8500, 2000); // cluster A: 2 visits
