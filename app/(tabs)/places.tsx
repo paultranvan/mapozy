@@ -12,8 +12,7 @@ import { PlaceBadge } from '@/ui/PlaceBadge';
 import { categoryMeta } from '@/ui/placeCategories';
 import { useUserPlaces, useUserPoiVisits, useHomeWorkSuggestion, useUnnamedClusters, useDismissSuggestion } from '@/queries/usePlaces';
 import { haversineMeters } from '@/lib/distance';
-import type { HomeWorkSuggestion } from '@/stats/homeWorkDetection';
-import type { Place } from '@/types';
+import type { Place, PlaceCategory } from '@/types';
 
 MapLibreGL.setAccessToken(null);
 
@@ -23,7 +22,6 @@ const styles = StyleSheet.create({
   toggle: { flexDirection: 'row', backgroundColor: colors.accentSoft, borderRadius: 18, padding: 2 },
   tg: { paddingHorizontal: space[3], paddingVertical: space[1], borderRadius: 16 },
   tgOn: { backgroundColor: colors.accent },
-  banner: { margin: space[3], padding: space[2], backgroundColor: colors.accentSoft, borderRadius: 10 },
   map: { flex: 1 },
   empty: { textAlign: 'center', marginTop: space[6], paddingHorizontal: space[4] },
   fab: { position: 'absolute', right: space[4], width: 56, height: 56, borderRadius: 28, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center', elevation: 4 },
@@ -41,7 +39,15 @@ function EmptyPlaces() {
   return <Text variant="body" color={colors.inkSoft} style={styles.empty}>Aucun lieu. Touchez ＋ pour en créer un.</Text>;
 }
 
-function GhostBadge() {
+function GhostBadge({ category = null }: { category?: PlaceCategory | null }) {
+  if (category) {
+    const m = categoryMeta(category);
+    return (
+      <View style={[styles.ghostBadge, { borderColor: m.color }]}>
+        <MaterialCommunityIcons name={m.icon as never} size={16} color={m.color} />
+      </View>
+    );
+  }
   return (
     <View style={styles.ghostBadge}>
       <MaterialCommunityIcons name="map-marker-plus-outline" size={18} color={colors.inkSoft} />
@@ -60,31 +66,44 @@ export default function PlacesScreen() {
   const clusters = useUnnamedClusters(20);
   const dismiss = useDismissSuggestion();
 
-  const suggestions = [suggestion.data?.home, suggestion.data?.work].filter(Boolean) as HomeWorkSuggestion[];
+  const homeC = suggestion.data?.home ?? null;
+  const workC = suggestion.data?.work ?? null;
+  const suggestedCategoryFor = (c: Place): PlaceCategory | null => {
+    if (homeC && haversineMeters(c.latitude, c.longitude, homeC.latitude, homeC.longitude) < 60) return 'home';
+    if (workC && haversineMeters(c.latitude, c.longitude, workC.latitude, workC.longitude) < 60) return 'work';
+    return null;
+  };
+  const annotated = (clusters.data ?? []).map((c: Place) => ({ cluster: c, cat: suggestedCategoryFor(c) }));
+  const sortedSuggestions = [...annotated].sort((a, b) => {
+    const ra = a.cat ? 0 : 1, rb = b.cat ? 0 : 1;
+    if (ra !== rb) return ra - rb;
+    return b.cluster.visitCount - a.cluster.visitCount;
+  });
+  const visibleSuggestions = showAllSuggestions ? sortedSuggestions : sortedSuggestions.slice(0, 3);
 
-  const hwCoords = [suggestion.data?.home, suggestion.data?.work]
-    .filter((h): h is HomeWorkSuggestion => h != null);
-  const freqSuggestions = (clusters.data ?? []).filter(
-    (c: Place) => !hwCoords.some((h) => haversineMeters(c.latitude, c.longitude, h.latitude, h.longitude) < 60)
-  );
-  const visibleSuggestions = showAllSuggestions ? freqSuggestions : freqSuggestions.slice(0, 3);
+  const openSuggestion = (c: Place, cat: PlaceCategory | null) =>
+    router.push({
+      pathname: '/place/[id]',
+      params: cat
+        ? { id: 'new', lat: String(c.latitude), lon: String(c.longitude), category: cat, name: categoryMeta(cat).labelFr }
+        : { id: 'new', lat: String(c.latitude), lon: String(c.longitude) },
+    });
 
-  const nameCluster = (c: { latitude: number; longitude: number }) =>
-    router.push({ pathname: '/place/[id]', params: { id: 'new', lat: String(c.latitude), lon: String(c.longitude) } });
-
-  const suggestionsBlock = freqSuggestions.length > 0 ? (
+  const suggestionsBlock = sortedSuggestions.length > 0 ? (
     <View>
       <Text variant="label" color={colors.inkSoft} style={styles.sugLabel}>💡 SUGGESTIONS</Text>
-      {visibleSuggestions.map((c: Place) => (
+      {visibleSuggestions.map(({ cluster: c, cat }) => (
         <View key={c.id} style={styles.sugRow}>
-          <Pressable style={styles.sugMain} onPress={() => nameCluster(c)}>
-            <GhostBadge />
+          <Pressable style={styles.sugMain} onPress={() => openSuggestion(c, cat)}>
+            <GhostBadge category={cat} />
             <View style={styles.sugInfo}>
-              <Text variant="body" color={colors.ink} numberOfLines={1}>{c.displayName ?? 'Lieu fréquent'}</Text>
+              <Text variant="body" color={colors.ink} numberOfLines={1}>
+                {cat ? `${categoryMeta(cat).labelFr} probable` : (c.displayName ?? 'Lieu fréquent')}
+              </Text>
               <Text variant="label" color={colors.inkSoft}>{c.visitCount} visites</Text>
             </View>
           </Pressable>
-          <Pressable onPress={() => nameCluster(c)} hitSlop={6} style={styles.sugAdd}>
+          <Pressable onPress={() => openSuggestion(c, cat)} hitSlop={6} style={styles.sugAdd}>
             <MaterialCommunityIcons name="plus" size={18} color={colors.accent} />
           </Pressable>
           <Pressable onPress={() => dismiss.mutate(c.id)} hitSlop={6} style={styles.sugDismiss}>
@@ -92,9 +111,9 @@ export default function PlacesScreen() {
           </Pressable>
         </View>
       ))}
-      {freqSuggestions.length > 3 && !showAllSuggestions && (
+      {sortedSuggestions.length > 3 && !showAllSuggestions && (
         <Pressable onPress={() => setShowAllSuggestions(true)} style={styles.sugMore}>
-          <Text variant="label" color={colors.accent}>Voir plus de suggestions ({freqSuggestions.length - 3})</Text>
+          <Text variant="label" color={colors.accent}>Voir plus de suggestions ({sortedSuggestions.length - 3})</Text>
         </Pressable>
       )}
       <Text variant="label" color={colors.inkSoft} style={styles.sugLabel}>MES LIEUX</Text>
@@ -113,21 +132,6 @@ export default function PlacesScreen() {
           ))}
         </View>
       </View>
-
-      {suggestions.map((s) => (
-        <Pressable
-          key={s.category}
-          style={styles.banner}
-          onPress={() => router.push({ pathname: '/place/[id]', params: {
-            id: 'new', lat: String(s.latitude), lon: String(s.longitude),
-            category: s.category, name: categoryMeta(s.category).labelFr,
-          } })}
-        >
-          <Text variant="label" color={colors.ink}>
-            💡 {s.category === 'home' ? 'Maison' : s.category === 'work' ? 'Travail' : s.category} probable détecté — valider ?
-          </Text>
-        </Pressable>
-      ))}
 
       {view === 'list' ? (
         <FlatList
@@ -162,9 +166,9 @@ export default function PlacesScreen() {
               <PlaceBadge category={p.category} />
             </PointAnnotation>
           ))}
-          {freqSuggestions.map((c: Place) => (
-            <PointAnnotation key={`sug-${c.id}`} id={`sug-${c.id}`} coordinate={[c.longitude, c.latitude]} onSelected={() => nameCluster(c)}>
-              <GhostBadge />
+          {sortedSuggestions.map(({ cluster: c, cat }) => (
+            <PointAnnotation key={`sug-${c.id}`} id={`sug-${c.id}`} coordinate={[c.longitude, c.latitude]} onSelected={() => openSuggestion(c, cat)}>
+              <GhostBadge category={cat} />
             </PointAnnotation>
           ))}
         </MapView>
