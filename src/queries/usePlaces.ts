@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useDb } from '../db/DbContext';
 import {
   getUserPlaces, getPlaceById, getUserPoiVisitStats, getUnnamedClusters,
-  createUserPlace, updateUserPlace, deleteUserPlace, type UserPlaceInput,
+  createUserPlace, updateUserPlace, deleteUserPlace, dismissSuggestion, type UserPlaceInput,
 } from '../db/places';
 import { suggestHomeWork } from '../stats/homeWorkDetection';
 
@@ -80,6 +80,15 @@ export function useDeleteUserPlace() {
   const invalidate = useInvalidatePlaces();
   return useMutation({
     mutationFn: (id: number) => deleteUserPlace(db, id),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDismissSuggestion() {
+  const db = useDb();
+  const invalidate = useInvalidatePlaces();
+  return useMutation({
+    mutationFn: (id: number) => dismissSuggestion(db, id),
     onSuccess: invalidate,
   });
 }
