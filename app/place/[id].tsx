@@ -55,6 +55,7 @@ export default function PlaceEditor() {
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<AddressHit[]>([]);
   const [focused, setFocused] = useState(false);
+  const [showRadiusHelp, setShowRadiusHelp] = useState(false);
   const dragSeqRef = useRef(0);
   const skipSearchRef = useRef(false);
 
@@ -253,9 +254,12 @@ export default function PlaceEditor() {
       </View>
 
       <View style={styles.radiusRow}>
-        <Text variant="label" color={colors.inkSoft} style={styles.radiusHint}>
-          Rayon
-        </Text>
+        <View style={styles.radiusLabel}>
+          <Text variant="label" color={colors.inkSoft}>Rayon</Text>
+          <Pressable onPress={() => setShowRadiusHelp((v) => !v)} hitSlop={8}>
+            <MaterialCommunityIcons name="information-outline" size={15} color={colors.inkSoft} />
+          </Pressable>
+        </View>
         <Pressable style={styles.step} onPress={() => setRadius((r) => Math.max(30, r - 10))}>
           <Text variant="body" color={colors.ink}>
             −
@@ -270,9 +274,11 @@ export default function PlaceEditor() {
           </Text>
         </Pressable>
       </View>
-      <Text variant="label" color={colors.inkSoft} style={styles.radiusCaption}>
-        Un trajet qui démarre ou se termine dans ce rayon est rattaché à ce lieu.
-      </Text>
+      {showRadiusHelp && (
+        <Text variant="label" color={colors.inkSoft} style={styles.radiusCaption}>
+          Un trajet qui démarre ou se termine dans ce rayon est rattaché à ce lieu.
+        </Text>
+      )}
 
       <Text variant="label" color={colors.inkSoft} style={styles.sec}>
         CATÉGORIE
@@ -359,7 +365,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space[3],
     marginTop: space[2],
   },
-  radiusHint: { flex: 1 },
+  radiusLabel: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space[1] },
   step: {
     width: 36,
     height: 36,
