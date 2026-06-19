@@ -1,10 +1,5 @@
-import { externalApiAllowed, externalFetch } from './net';
-
-const SEARCH_URL = 'https://nominatim.openstreetmap.org/search';
-const USER_AGENT = 'mapozy/0.1.0 (personal use)';
-const MIN_INTERVAL_MS = 1100;
-
-let lastFetchMs = 0;
+import { externalApiAllowed } from './net';
+import { nominatimFetch } from './nominatim';
 
 export interface AddressHit {
   label: string;
@@ -23,13 +18,8 @@ export async function searchAddress(query: string): Promise<AddressHit[]> {
   if (!q) return [];
   if (!externalApiAllowed()) return [];
 
-  const wait = lastFetchMs + MIN_INTERVAL_MS - Date.now();
-  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-  lastFetchMs = Date.now();
-
-  const url = `${SEARCH_URL}?q=${encodeURIComponent(q)}&format=json&addressdetails=1&limit=5`;
   try {
-    const resp = await externalFetch(url, { headers: { 'User-Agent': USER_AGENT } });
+    const resp = await nominatimFetch(`/search?q=${encodeURIComponent(q)}&format=json&addressdetails=1&limit=5`);
     if (!resp.ok) return [];
     const rows = (await resp.json()) as NominatimSearchRow[];
     return rows

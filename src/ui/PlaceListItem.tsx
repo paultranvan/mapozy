@@ -2,7 +2,6 @@ import { Pressable, View, StyleSheet } from 'react-native';
 import { colors, space } from '@/theme/tokens';
 import { Text } from './Text';
 import { PlaceBadge } from './PlaceBadge';
-import { placeLabels } from '@/lib/placeLabel';
 import type { Place } from '@/types';
 
 export function PlaceListItem({
@@ -14,7 +13,7 @@ export function PlaceListItem({
   visitCount: number;
   onPress: () => void;
 }) {
-  const address = place.displayName ? placeLabels(place, '', null).full : 'Adresse non renseignée';
+  const address = place.displayName ?? 'Adresse non renseignée';
   return (
     <Pressable onPress={onPress} style={styles.row}>
       <PlaceBadge category={place.category} />

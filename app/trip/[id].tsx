@@ -26,8 +26,7 @@ import { locateSplitPoint } from '@/pipeline/edits/locateSplitPoint';
 import { makeOverpassDeps } from '@/tracking/overpassDeps';
 import { geocodePlaceLazy } from '@/pipeline/geocoding';
 import { placeLabels } from '@/lib/placeLabel';
-import { useUserPlaces } from '@/queries/usePlaces';
-import { nearestUserPoi } from '@/lib/poiResolve';
+import { useTripEndpointPois } from '@/queries/usePlaces';
 import { TripMap } from '@/ui/TripMap';
 import { Text } from '@/ui/Text';
 import { Timeline } from '@/ui/Timeline';
@@ -64,7 +63,7 @@ export default function TripDetailScreen() {
   const tripQ = useTrip(id);
   const startPlaceQ = usePlace(tripQ.data?.startPlaceId ?? null);
   const endPlaceQ = usePlace(tripQ.data?.endPlaceId ?? null);
-  const userPlaces = useUserPlaces();
+  const { startPoi, endPoi } = useTripEndpointPois(startPlaceQ.data, endPlaceQ.data);
   const sheetRef = useRef<BottomSheet>(null);
   const insets = useSafeAreaInsets();
 
@@ -228,13 +227,6 @@ export default function TripDetailScreen() {
     setMenuActions(acts);
     setMenuOpen(true);
   }
-
-  const startPoi = startPlaceQ.data
-    ? nearestUserPoi(startPlaceQ.data.latitude, startPlaceQ.data.longitude, userPlaces.data ?? [])
-    : null;
-  const endPoi = endPlaceQ.data
-    ? nearestUserPoi(endPlaceQ.data.latitude, endPlaceQ.data.longitude, userPlaces.data ?? [])
-    : null;
 
   const nameThisPlace = (autoPlace: { latitude: number; longitude: number } | null | undefined) => {
     if (!autoPlace) return;

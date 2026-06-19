@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { View, FlatList, Pressable, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -66,19 +66,19 @@ export default function PlacesScreen() {
   const clusters = useUnnamedClusters(20);
   const dismiss = useDismissSuggestion();
 
-  const homeC = suggestion.data?.home ?? null;
-  const workC = suggestion.data?.work ?? null;
-  const suggestedCategoryFor = (c: Place): PlaceCategory | null => {
-    if (homeC && haversineMeters(c.latitude, c.longitude, homeC.latitude, homeC.longitude) < 60) return 'home';
-    if (workC && haversineMeters(c.latitude, c.longitude, workC.latitude, workC.longitude) < 60) return 'work';
-    return null;
-  };
-  const annotated = (clusters.data ?? []).map((c: Place) => ({ cluster: c, cat: suggestedCategoryFor(c) }));
-  const sortedSuggestions = [...annotated].sort((a, b) => {
-    const ra = a.cat ? 0 : 1, rb = b.cat ? 0 : 1;
-    if (ra !== rb) return ra - rb;
-    return b.cluster.visitCount - a.cluster.visitCount;
-  });
+  const home = suggestion.data?.home ?? null;
+  const work = suggestion.data?.work ?? null;
+  type SugRow = { cluster: Place; cat: PlaceCategory | null };
+  const sortedSuggestions = useMemo((): SugRow[] => {
+    const cat = (c: Place): PlaceCategory | null => {
+      if (home && haversineMeters(c.latitude, c.longitude, home.latitude, home.longitude) < 60) return 'home';
+      if (work && haversineMeters(c.latitude, c.longitude, work.latitude, work.longitude) < 60) return 'work';
+      return null;
+    };
+    return (clusters.data ?? [])
+      .map((c: Place): SugRow => ({ cluster: c, cat: cat(c) }))
+      .sort((a: SugRow, b: SugRow) => (b.cat ? 0 : 1) - (a.cat ? 0 : 1) || b.cluster.visitCount - a.cluster.visitCount);
+  }, [clusters.data, home, work]);
   const visibleSuggestions = showAllSuggestions ? sortedSuggestions : sortedSuggestions.slice(0, 3);
 
   const openSuggestion = (c: Place, cat: PlaceCategory | null) =>

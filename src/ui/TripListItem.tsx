@@ -8,8 +8,7 @@ import { ModeBar } from './ModeBar';
 import { colors, space } from '@/theme/tokens';
 import { formatDistance, formatDuration, formatTime } from '@/lib/format';
 import { placeLabels } from '@/lib/placeLabel';
-import { useUserPlaces } from '@/queries/usePlaces';
-import { nearestUserPoi } from '@/lib/poiResolve';
+import { useTripEndpointPois } from '@/queries/usePlaces';
 import type { Trip, Place, DominantMode } from '@/types';
 
 interface Props {
@@ -61,13 +60,7 @@ export function TripListItem({
   onToggle,
 }: Props) {
   const router = useRouter();
-  const userPlaces = useUserPlaces();
-  const startPoi = startPlace
-    ? nearestUserPoi(startPlace.latitude, startPlace.longitude, userPlaces.data ?? [])
-    : null;
-  const endPoi = endPlace
-    ? nearestUserPoi(endPlace.latitude, endPlace.longitude, userPlaces.data ?? [])
-    : null;
+  const { startPoi, endPoi } = useTripEndpointPois(startPlace, endPlace);
   const distance = formatDistance(trip.distanceM);
   const [distValue, distUnit] = distance.split(' ');
   const modeSummary = summarizeModes(trip);

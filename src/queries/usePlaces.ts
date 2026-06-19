@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useDb } from '../db/DbContext';
 import {
@@ -5,6 +6,8 @@ import {
   createUserPlace, updateUserPlace, deleteUserPlace, dismissSuggestion, type UserPlaceInput,
 } from '../db/places';
 import { suggestHomeWork } from '../stats/homeWorkDetection';
+import { nearestUserPoi } from '../lib/poiResolve';
+import type { Place } from '../types';
 
 export function useUserPlaces() {
   const db = useDb();
@@ -47,14 +50,14 @@ export function useHomeWorkSuggestion() {
 
 function useInvalidatePlaces() {
   const qc = useQueryClient();
-  return () => {
+  return useCallback(() => {
     qc.invalidateQueries({ queryKey: ['userPlaces'] });
     qc.invalidateQueries({ queryKey: ['userPlaceVisits'] });
     qc.invalidateQueries({ queryKey: ['unnamedClusters'] });
     qc.invalidateQueries({ queryKey: ['homeWorkSuggestion'] });
     qc.invalidateQueries({ queryKey: ['trips'] });
     qc.invalidateQueries({ queryKey: ['trip'] });
-  };
+  }, [qc]);
 }
 
 export function useCreateUserPlace() {
@@ -91,4 +94,17 @@ export function useDismissSuggestion() {
     mutationFn: (id: number) => dismissSuggestion(db, id),
     onSuccess: invalidate,
   });
+}
+
+/** Resolve the user POI (if any) covering a trip's start and end endpoints. */
+export function useTripEndpointPois(
+  start: Place | null | undefined,
+  end: Place | null | undefined
+): { startPoi: Place | null; endPoi: Place | null } {
+  const places = useUserPlaces();
+  const list = places.data ?? [];
+  return {
+    startPoi: start ? nearestUserPoi(start.latitude, start.longitude, list) : null,
+    endPoi: end ? nearestUserPoi(end.latitude, end.longitude, list) : null,
+  };
 }

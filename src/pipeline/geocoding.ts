@@ -1,18 +1,7 @@
 import type { Db } from '../db/client';
 import { getPlaceById, setPlaceDisplayName } from '../db/places';
-import { externalApiAllowed, externalFetch } from '../lib/net';
-
-const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/reverse';
-const USER_AGENT = 'mapozy/0.1.0 (personal use)';
-const MIN_INTERVAL_MS = 1100;
-
-let lastFetchMs = 0;
-
-async function rateLimit(): Promise<void> {
-  const wait = lastFetchMs + MIN_INTERVAL_MS - Date.now();
-  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-  lastFetchMs = Date.now();
-}
+import { externalApiAllowed } from '../lib/net';
+import { nominatimFetch } from '../lib/nominatim';
 
 interface NominatimAddress {
   house_number?: string;
@@ -42,10 +31,8 @@ function formatDisplayName(data: NominatimResponse): string | null {
 
 export async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
   if (!externalApiAllowed()) return null;
-  await rateLimit();
-  const url = `${NOMINATIM_URL}?lat=${lat}&lon=${lon}&format=json&zoom=18&addressdetails=1`;
   try {
-    const resp = await externalFetch(url, { headers: { 'User-Agent': USER_AGENT } });
+    const resp = await nominatimFetch(`/reverse?lat=${lat}&lon=${lon}&format=json&zoom=18&addressdetails=1`);
     if (!resp.ok) return null;
     const data = (await resp.json()) as NominatimResponse;
     return formatDisplayName(data);
