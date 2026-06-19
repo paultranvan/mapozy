@@ -173,6 +173,12 @@ ALTER TABLE places ADD COLUMN category TEXT;
 CREATE INDEX IF NOT EXISTS idx_places_kind ON places(kind);
 `;
 
+// Frequent-cluster suggestions can be dismissed by the user; a dismissed auto
+// place never resurfaces as a suggestion.
+const MIGRATION_009 = `
+ALTER TABLE places ADD COLUMN suggestion_dismissed INTEGER NOT NULL DEFAULT 0;
+`;
+
 export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 1, sql: MIGRATION_001 },
   { version: 2, sql: MIGRATION_002 },
@@ -182,6 +188,7 @@ export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 6, sql: MIGRATION_006 },
   { version: 7, sql: MIGRATION_007 },
   { version: 8, sql: MIGRATION_008 },
+  { version: 9, sql: MIGRATION_009 },
 ];
 
 export async function getSchemaVersion(db: Db): Promise<number> {

@@ -71,3 +71,25 @@ describe('migration 008: places kind/name/category', () => {
     expect(row?.visit_count).toBe(3);
   });
 });
+
+describe('migration 009: suggestion_dismissed column', () => {
+  it('adds suggestion_dismissed to places, defaulting to 0 on a new auto row', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    expect(await getSchemaVersion(db)).toBeGreaterThanOrEqual(9);
+
+    const cols = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(places)`);
+    const names = cols.map((c) => c.name);
+    expect(names).toContain('suggestion_dismissed');
+
+    await db.runAsync(
+      `INSERT INTO places (latitude, longitude, radius_m, visit_count, first_seen_ms, last_seen_ms)
+       VALUES (?, ?, 50, 1, 1, 2)`,
+      45.75, 4.85
+    );
+    const row = await db.getFirstAsync<{ suggestion_dismissed: number }>(
+      `SELECT suggestion_dismissed FROM places LIMIT 1`
+    );
+    expect(row?.suggestion_dismissed).toBe(0);
+  });
+});

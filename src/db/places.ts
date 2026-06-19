@@ -191,13 +191,21 @@ export async function getUserPoiVisitStats(
 
 // Frequent stops not yet inside any user POI — proposed in the editor's
 // "from a frequent stop" picker. Busiest first.
-export async function getUnnamedClusters(db: Db, limit: number): Promise<Place[]> {
+// Only clusters with at least `minVisits` visits and not dismissed are returned.
+export async function getUnnamedClusters(db: Db, limit: number, minVisits = 3): Promise<Place[]> {
   const autos = (await db.getAllAsync<Row>(
-    `SELECT * FROM places WHERE kind = 'auto' ORDER BY visit_count DESC LIMIT ${CLUSTER_SCAN_LIMIT}`
+    `SELECT * FROM places
+     WHERE kind = 'auto' AND visit_count >= ? AND suggestion_dismissed = 0
+     ORDER BY visit_count DESC LIMIT ${CLUSTER_SCAN_LIMIT}`,
+    minVisits
   )).map(rowToPlace);
   const users = await getUserPlaces(db);
   const free = autos.filter(
     (a) => !users.some((u) => haversineMeters(a.latitude, a.longitude, u.latitude, u.longitude) <= u.radiusM)
   );
   return free.slice(0, limit);
+}
+
+export async function dismissSuggestion(db: Db, id: number): Promise<void> {
+  await db.runAsync(`UPDATE places SET suggestion_dismissed = 1 WHERE id = ? AND kind = 'auto'`, id);
 }
