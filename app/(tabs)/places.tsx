@@ -62,7 +62,8 @@ export default function PlacesScreen() {
 
   const suggestions = [suggestion.data?.home, suggestion.data?.work].filter(Boolean) as HomeWorkSuggestion[];
 
-  const hwCoords = [suggestion.data?.home, suggestion.data?.work].filter(Boolean) as { latitude: number; longitude: number }[];
+  const hwCoords = [suggestion.data?.home, suggestion.data?.work]
+    .filter((h): h is HomeWorkSuggestion => h != null);
   const freqSuggestions = (clusters.data ?? []).filter(
     (c: Place) => !hwCoords.some((h) => haversineMeters(c.latitude, c.longitude, h.latitude, h.longitude) < 60)
   );
