@@ -14,7 +14,8 @@ import { colors, space } from '@/theme/tokens';
 import { OSM_STYLE } from '@/ui/mapStyle';
 import { Text } from '@/ui/Text';
 import { PlaceBadge } from '@/ui/PlaceBadge';
-import { PLACE_CATEGORIES, categoryMeta } from '@/ui/placeCategories';
+import { categoryMeta } from '@/ui/placeCategories';
+import { useCategories } from '@/queries/useCategories';
 import { circlePolygon } from '@/lib/circle';
 import { externalApiAllowed } from '@/lib/net';
 import { searchAddress, type AddressHit } from '@/lib/geocodeSearch';
@@ -60,6 +61,7 @@ export default function PlaceEditor() {
   const dragSeqRef = useRef(0);
   const skipSearchRef = useRef(false);
 
+  const categories = useCategories();
   const clusters = useUnnamedClusters();
   const create = useCreateUserPlace();
   const update = useUpdateUserPlace();
@@ -299,15 +301,19 @@ export default function PlaceEditor() {
         CATEGORY
       </Text>
       <View style={styles.grid}>
-        {PLACE_CATEGORIES.map((c) => {
+        {categories.map((c) => {
           const on = category === c.key;
           return (
             <Pressable key={c.key} onPress={() => setCategory(c.key)} style={[styles.chip, on ? { backgroundColor: c.color, borderColor: c.color } : null]}>
               <MaterialCommunityIcons name={c.icon} size={20} color={on ? '#fff' : c.color} />
-              <Text variant="label" color={on ? '#fff' : colors.ink}>{c.label}</Text>
+              <Text variant="label" color={on ? '#fff' : colors.ink} numberOfLines={1}>{c.label}</Text>
             </Pressable>
           );
         })}
+        <Pressable onPress={() => router.push('/category/new')} style={[styles.chip, styles.chipAdd]}>
+          <MaterialCommunityIcons name="plus" size={20} color={colors.inkSoft} />
+          <Text variant="label" color={colors.inkSoft} numberOfLines={1}>New</Text>
+        </Pressable>
       </View>
 
       {!isNew && (
@@ -403,5 +409,6 @@ const styles = StyleSheet.create({
   },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2], paddingHorizontal: space[3], paddingTop: space[2] },
   chip: { flexBasis: '22%', flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: 3, paddingVertical: space[2], paddingHorizontal: space[1], borderRadius: 14, backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.divider },
+  chipAdd: { borderColor: colors.divider, backgroundColor: colors.ground },
   del: { alignItems: 'center', marginTop: space[5] },
 });
