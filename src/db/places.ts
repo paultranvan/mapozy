@@ -1,6 +1,5 @@
 import type { Db } from './client';
 import type { Place } from '../types';
-import { PLACE_CATEGORY_VALUES } from '../types';
 import { haversineMeters } from '../lib/distance';
 
 const MATCH_RADIUS_M = 100;
@@ -20,8 +19,6 @@ interface Row {
   last_seen_ms: number;
 }
 
-const CATEGORIES = new Set<string>(PLACE_CATEGORY_VALUES);
-
 // Cap the auto-place scan for the "frequent stop" picker; 200 busiest is plenty.
 const CLUSTER_SCAN_LIMIT = 200;
 
@@ -30,7 +27,7 @@ function rowToPlace(r: Row): Place {
     id: r.id,
     kind: r.kind === 'user' ? 'user' : 'auto',
     name: r.name,
-    category: r.category && CATEGORIES.has(r.category) ? (r.category as Place['category']) : null,
+    category: r.category ?? null,
     latitude: r.latitude,
     longitude: r.longitude,
     radiusM: r.radius_m,
@@ -120,7 +117,7 @@ export async function setPlaceDisplayName(
 
 export interface UserPlaceInput {
   name: string;
-  category: Place['category'];
+  category: string;
   latitude: number;
   longitude: number;
   radiusM: number;

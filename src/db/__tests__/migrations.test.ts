@@ -93,3 +93,19 @@ describe('migration 009: suggestion_dismissed column', () => {
     expect(row?.suggestion_dismissed).toBe(0);
   });
 });
+
+describe('migration 010: custom_categories table', () => {
+  it('creates the custom_categories table with name, icon, color columns', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    expect(await getSchemaVersion(db)).toBeGreaterThanOrEqual(10);
+
+    const cols = await db.getAllAsync<{ name: string }>(
+      `PRAGMA table_info(custom_categories)`
+    );
+    const names = cols.map((c) => c.name);
+    expect(names).toContain('name');
+    expect(names).toContain('icon');
+    expect(names).toContain('color');
+  });
+});

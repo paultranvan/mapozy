@@ -101,4 +101,10 @@ describe('user POIs', () => {
     await dismissSuggestion(db, before[0]!.id);
     expect(await getUnnamedClusters(db, 10)).toHaveLength(0);
   });
+
+  it('stores and returns a custom category key verbatim', async () => {
+    const id = await createUserPlace(db, { name: 'Climb gym', category: 'custom:7', latitude: 45.75, longitude: 4.85, radiusM: 100 });
+    const poi = (await getUserPlaces(db)).find((p) => p.id === id)!;
+    expect(poi.category).toBe('custom:7');
+  });
 });

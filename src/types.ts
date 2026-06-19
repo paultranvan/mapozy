@@ -69,7 +69,9 @@ export interface Place {
   id: number;
   kind: PlaceKind;
   name: string | null;
-  category: PlaceCategory | null;
+  // Category key: a built-in PlaceCategory value (e.g. 'home') or 'custom:<id>'
+  // referencing a row in the custom_categories table.
+  category: string | null;
   latitude: number;
   longitude: number;
   radiusM: number;

@@ -179,6 +179,18 @@ const MIGRATION_009 = `
 ALTER TABLE places ADD COLUMN suggestion_dismissed INTEGER NOT NULL DEFAULT 0;
 `;
 
+// User-defined place categories (reusable): name + MaterialCommunityIcons glyph
+// + colour. A place's `category` stores 'custom:<id>' to reference one.
+const MIGRATION_010 = `
+CREATE TABLE IF NOT EXISTS custom_categories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  icon TEXT NOT NULL,
+  color TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL
+);
+`;
+
 export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 1, sql: MIGRATION_001 },
   { version: 2, sql: MIGRATION_002 },
@@ -189,6 +201,7 @@ export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 7, sql: MIGRATION_007 },
   { version: 8, sql: MIGRATION_008 },
   { version: 9, sql: MIGRATION_009 },
+  { version: 10, sql: MIGRATION_010 },
 ];
 
 export async function getSchemaVersion(db: Db): Promise<number> {
