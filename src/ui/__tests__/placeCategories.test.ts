@@ -12,7 +12,7 @@ it('has 9 distinct categories with color + icon', () => {
 it('maps home to its coachCO2-style color and falls back to other', () => {
   expect(categoryMeta('work').color).toBe('#8978FF');
   expect(categoryMeta(null).key).toBe('other');
-  expect(categoryMeta('home').labelFr).toBe('Maison');
+  expect(categoryMeta('home').label).toBe('Home');
 });
 
 it('covers every PlaceCategory', () => {

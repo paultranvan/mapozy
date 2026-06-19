@@ -130,7 +130,7 @@ export default function PlaceEditor() {
   const onSave = async () => {
     const trimmed = name.trim();
     if (!trimmed) {
-      Alert.alert('Nom requis', "Donne un nom à ce lieu avant d'enregistrer.");
+      Alert.alert('Name required', 'Give this place a name before saving.');
       return;
     }
     const input = {
@@ -146,7 +146,7 @@ export default function PlaceEditor() {
       else if (editId !== null) await update.mutateAsync({ id: editId, input });
       router.back();
     } catch {
-      Alert.alert('Erreur', "Impossible d'enregistrer le lieu.");
+      Alert.alert('Error', "Could not save the place.");
     }
   };
 
@@ -156,7 +156,7 @@ export default function PlaceEditor() {
       await remove.mutateAsync(editId);
       router.back();
     } catch {
-      Alert.alert('Erreur', 'Impossible de supprimer le lieu.');
+      Alert.alert('Error', 'Could not delete the place.');
     }
   };
 
@@ -169,32 +169,32 @@ export default function PlaceEditor() {
       <View style={styles.bar}>
         <Pressable onPress={() => router.back()}>
           <Text variant="body" color={colors.inkSoft}>
-            Annuler
+            Cancel
           </Text>
         </Pressable>
         <Text variant="body" color={colors.ink}>
-          {isNew ? 'Nouveau lieu' : 'Modifier'}
+          {isNew ? 'New place' : 'Edit'}
         </Text>
         <Pressable onPress={onSave}>
           <Text variant="body" color={name.trim() ? colors.accent : colors.inkSoft}>
-            Enregistrer
+            Save
           </Text>
         </Pressable>
       </View>
 
       <Text variant="label" color={colors.inkSoft} style={styles.sec}>
-        NOM
+        NAME
       </Text>
       <TextInput
         value={name}
         onChangeText={setName}
-        placeholder="Nom du lieu (ex. Basic-Fit)"
+        placeholder="Place name (e.g. Basic-Fit)"
         placeholderTextColor={colors.inkSoft}
         style={styles.input}
       />
 
       <Text variant="label" color={colors.inkSoft} style={styles.sec}>
-        EMPLACEMENT
+        LOCATION
       </Text>
 
       <View style={styles.searchBar}>
@@ -203,7 +203,7 @@ export default function PlaceEditor() {
           value={query}
           onChangeText={setQuery}
           onFocus={() => setFocused(true)}
-          placeholder="Rechercher une adresse"
+          placeholder="Search an address"
           placeholderTextColor={colors.inkSoft}
           style={styles.searchInput}
         />
@@ -270,7 +270,7 @@ export default function PlaceEditor() {
 
       <View style={styles.radiusRow}>
         <View style={styles.radiusLabel}>
-          <Text variant="label" color={colors.inkSoft}>Rayon</Text>
+          <Text variant="label" color={colors.inkSoft}>Radius</Text>
           <Pressable onPress={() => setShowRadiusHelp((v) => !v)} hitSlop={8}>
             <MaterialCommunityIcons name="information-outline" size={15} color={colors.inkSoft} />
           </Pressable>
@@ -291,12 +291,12 @@ export default function PlaceEditor() {
       </View>
       {showRadiusHelp && (
         <Text variant="label" color={colors.inkSoft} style={styles.radiusCaption}>
-          Un trajet qui démarre ou se termine dans ce rayon est rattaché à ce lieu.
+          A trip that starts or ends within this radius is linked to this place.
         </Text>
       )}
 
       <Text variant="label" color={colors.inkSoft} style={styles.sec}>
-        CATÉGORIE
+        CATEGORY
       </Text>
       <View style={styles.grid}>
         {PLACE_CATEGORIES.map((c) => {
@@ -304,7 +304,7 @@ export default function PlaceEditor() {
           return (
             <Pressable key={c.key} onPress={() => setCategory(c.key)} style={[styles.chip, on ? { backgroundColor: c.color, borderColor: c.color } : null]}>
               <MaterialCommunityIcons name={c.icon} size={20} color={on ? '#fff' : c.color} />
-              <Text variant="label" color={on ? '#fff' : colors.ink}>{c.labelFr}</Text>
+              <Text variant="label" color={on ? '#fff' : colors.ink}>{c.label}</Text>
             </Pressable>
           );
         })}
@@ -313,7 +313,7 @@ export default function PlaceEditor() {
       {!isNew && (
         <Pressable onPress={onDelete} style={styles.del}>
           <Text variant="body" color={colors.danger}>
-            Supprimer ce lieu
+            Delete this place
           </Text>
         </Pressable>
       )}

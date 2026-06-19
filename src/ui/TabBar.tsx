@@ -16,7 +16,7 @@ const TAB_ICONS: Record<string, { active: keyof typeof MaterialCommunityIcons.gl
 const TAB_LABELS: Record<string, string> = {
   index: 'Trips',
   stats: 'Stats',
-  places: 'Lieux',
+  places: 'Places',
   settings: 'Settings',
 };
 

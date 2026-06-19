@@ -13,13 +13,13 @@ export function PlaceListItem({
   visitCount: number;
   onPress: () => void;
 }) {
-  const address = place.displayName ?? 'Adresse non renseignée';
+  const address = place.displayName ?? 'No address';
   return (
     <Pressable onPress={onPress} style={styles.row}>
       <PlaceBadge category={place.category} />
       <View style={styles.info}>
         <Text variant="body" color={colors.ink}>
-          {place.name ?? 'Sans nom'}
+          {place.name ?? 'Unnamed'}
         </Text>
         <Text variant="label" color={colors.inkSoft} numberOfLines={1}>
           {address}

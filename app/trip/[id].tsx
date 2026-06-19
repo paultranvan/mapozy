@@ -284,7 +284,7 @@ export default function TripDetailScreen() {
           </Text>
           {!startPoi && startPlaceQ.data && (
             <Pressable onPress={() => nameThisPlace(startPlaceQ.data)} hitSlop={6} style={styles.namePlace}>
-              <Text variant="label" color={colors.accent}>＋ Nommer ce lieu</Text>
+              <Text variant="label" color={colors.accent}>＋ Name this place</Text>
             </Pressable>
           )}
           <Text variant="display" numberOfLines={1} style={styles.destination}>
@@ -292,7 +292,7 @@ export default function TripDetailScreen() {
           </Text>
           {!endPoi && endPlaceQ.data && (
             <Pressable onPress={() => nameThisPlace(endPlaceQ.data)} hitSlop={6} style={styles.namePlace}>
-              <Text variant="label" color={colors.accent}>＋ Nommer ce lieu</Text>
+              <Text variant="label" color={colors.accent}>＋ Name this place</Text>
             </Pressable>
           )}
           <Text variant="meta" soft style={styles.stats}>

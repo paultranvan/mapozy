@@ -36,7 +36,7 @@ const styles = StyleSheet.create({
 });
 
 function EmptyPlaces() {
-  return <Text variant="body" color={colors.inkSoft} style={styles.empty}>Aucun lieu. Touchez ＋ pour en créer un.</Text>;
+  return <Text variant="body" color={colors.inkSoft} style={styles.empty}>No places yet. Tap ＋ to add one.</Text>;
 }
 
 function GhostBadge({ category = null }: { category?: PlaceCategory | null }) {
@@ -85,7 +85,7 @@ export default function PlacesScreen() {
     router.push({
       pathname: '/place/[id]',
       params: cat
-        ? { id: 'new', lat: String(c.latitude), lon: String(c.longitude), category: cat, name: categoryMeta(cat).labelFr }
+        ? { id: 'new', lat: String(c.latitude), lon: String(c.longitude), category: cat, name: categoryMeta(cat).label }
         : { id: 'new', lat: String(c.latitude), lon: String(c.longitude) },
     });
 
@@ -98,9 +98,9 @@ export default function PlacesScreen() {
             <GhostBadge category={cat} />
             <View style={styles.sugInfo}>
               <Text variant="body" color={colors.ink} numberOfLines={1}>
-                {cat ? `${categoryMeta(cat).labelFr} probable` : (c.displayName ?? 'Lieu fréquent')}
+                {cat ? `Likely ${categoryMeta(cat).label.toLowerCase()}` : (c.displayName ?? 'Frequent place')}
               </Text>
-              <Text variant="label" color={colors.inkSoft}>{c.visitCount} visites</Text>
+              <Text variant="label" color={colors.inkSoft}>{c.visitCount} visits</Text>
             </View>
           </Pressable>
           <Pressable onPress={() => openSuggestion(c, cat)} hitSlop={6} style={styles.sugAdd}>
@@ -113,21 +113,21 @@ export default function PlacesScreen() {
       ))}
       {sortedSuggestions.length > 3 && !showAllSuggestions && (
         <Pressable onPress={() => setShowAllSuggestions(true)} style={styles.sugMore}>
-          <Text variant="label" color={colors.accent}>Voir plus de suggestions ({sortedSuggestions.length - 3})</Text>
+          <Text variant="label" color={colors.accent}>See more suggestions ({sortedSuggestions.length - 3})</Text>
         </Pressable>
       )}
-      <Text variant="label" color={colors.inkSoft} style={styles.sugLabel}>MES LIEUX</Text>
+      <Text variant="label" color={colors.inkSoft} style={styles.sugLabel}>MY PLACES</Text>
     </View>
   ) : null;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + space[2] }]}>
       <View style={styles.header}>
-        <Text variant="title" color={colors.ink}>Mes lieux</Text>
+        <Text variant="title" color={colors.ink}>My places</Text>
         <View style={styles.toggle}>
           {(['list', 'map'] as const).map((v) => (
             <Pressable key={v} onPress={() => setView(v)} style={[styles.tg, view === v && styles.tgOn]}>
-              <Text variant="label" color={view === v ? colors.ground : colors.inkSoft}>{v === 'list' ? 'Liste' : 'Carte'}</Text>
+              <Text variant="label" color={view === v ? colors.ground : colors.inkSoft}>{v === 'list' ? 'List' : 'Map'}</Text>
             </Pressable>
           ))}
         </View>
