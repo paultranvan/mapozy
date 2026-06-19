@@ -14,7 +14,7 @@ import { colors, space } from '@/theme/tokens';
 import { OSM_STYLE } from '@/ui/mapStyle';
 import { Text } from '@/ui/Text';
 import { PlaceBadge } from '@/ui/PlaceBadge';
-import { categoryMeta } from '@/ui/placeCategories';
+import { resolveCategory } from '@/ui/placeCategories';
 import { useCategories } from '@/queries/useCategories';
 import { circlePolygon } from '@/lib/circle';
 import { externalApiAllowed } from '@/lib/net';
@@ -105,7 +105,7 @@ export default function PlaceEditor() {
   }, [isNew, params.lat, params.lon]);
 
   const ring = useMemo(() => circlePolygon(coord[0], coord[1], radius), [coord, radius]);
-  const meta = categoryMeta(category);
+  const meta = resolveCategory(category, categories);
   const showFrequent = focused && query.trim().length < 3 && (clusters.data?.length ?? 0) > 0;
   const showHits = focused && hits.length > 0;
 
