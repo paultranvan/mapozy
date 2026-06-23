@@ -12,7 +12,7 @@ import { periodKpi, dailyDistances } from '../stats/periodStats';
 import { modeBreakdown } from '../stats/modeBreakdown';
 import { records } from '../stats/records';
 import type { PeriodKey } from '../lib/time';
-import { periodToRange, rangeForDayKey, dayKey } from '../lib/time';
+import { navigablePeriodRange, rangeForDayKey, dayKey } from '../lib/time';
 
 export function useTripsList(limit = 200) {
   const db = useDb();
@@ -87,29 +87,29 @@ export function usePlace(id: number | null) {
   });
 }
 
-export function usePeriodKpi(period: PeriodKey) {
+export function usePeriodKpi(period: PeriodKey, offset = 0) {
   const db = useDb();
-  const [start, end] = periodToRange(period);
+  const { start, end } = navigablePeriodRange(period, offset);
   return useQuery({
-    queryKey: ['stats', 'kpi', period],
+    queryKey: ['stats', 'kpi', period, start, end],
     queryFn: () => periodKpi(db, start, end),
   });
 }
 
-export function useDailyDistances(period: PeriodKey) {
+export function useDailyDistances(period: PeriodKey, offset = 0) {
   const db = useDb();
-  const [start, end] = periodToRange(period);
+  const { start, end } = navigablePeriodRange(period, offset);
   return useQuery({
-    queryKey: ['stats', 'daily', period],
+    queryKey: ['stats', 'daily', period, start, end],
     queryFn: () => dailyDistances(db, start, end),
   });
 }
 
-export function useModeBreakdown(period: PeriodKey) {
+export function useModeBreakdown(period: PeriodKey, offset = 0) {
   const db = useDb();
-  const [start, end] = periodToRange(period);
+  const { start, end } = navigablePeriodRange(period, offset);
   return useQuery({
-    queryKey: ['stats', 'modeBreakdown', period],
+    queryKey: ['stats', 'modeBreakdown', period, start, end],
     queryFn: () => modeBreakdown(db, start, end),
   });
 }

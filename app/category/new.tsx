@@ -8,10 +8,14 @@ import { useCustomCategories, useCreateCustomCategory, useDeleteCustomCategory }
 import type { CustomCategory } from '@/db/customCategories';
 
 const ICON_OPTIONS: (keyof typeof MaterialCommunityIcons.glyphMap)[] = [
-  'home', 'briefcase', 'bag-personal', 'dumbbell', 'run', 'weight-lifter', 'cart', 'silverware-fork-knife', 'coffee', 'glass-cocktail',
-  'account-group', 'baby-carriage', 'dog', 'paw', 'school', 'book-open-variant', 'hospital-box', 'bank', 'gas-station', 'car',
-  'bike', 'train', 'airplane', 'beach', 'pine-tree', 'image-filter-hdr', 'music', 'movie-open', 'gamepad-variant', 'basketball',
-  'palette', 'camera', 'heart', 'star', 'church', 'flower', 'map-marker',
+  'home', 'home-city', 'office-building', 'briefcase', 'bag-personal', 'dumbbell', 'run', 'weight-lifter', 'yoga', 'swim',
+  'cart', 'store', 'shopping', 'silverware-fork-knife', 'food', 'pizza', 'coffee', 'cup', 'glass-cocktail', 'beer',
+  'cake-variant', 'gift', 'account-group', 'baby-carriage', 'dog', 'cat', 'paw', 'fish', 'school', 'book-open-variant',
+  'hospital-box', 'medical-bag', 'pill', 'tooth', 'spa', 'bank', 'cash', 'credit-card', 'gas-station', 'ev-station',
+  'parking', 'car', 'bike', 'motorbike', 'bus', 'train', 'subway-variant', 'ferry', 'airplane', 'sail-boat',
+  'beach', 'umbrella-beach', 'pine-tree', 'tree', 'leaf', 'flower', 'flower-tulip', 'image-filter-hdr', 'tent', 'campfire',
+  'music', 'guitar-acoustic', 'movie-open', 'theater', 'ticket', 'party-popper', 'gamepad-variant', 'basketball', 'soccer', 'tennis',
+  'golf', 'ski', 'hiking', 'palette', 'camera', 'heart', 'star', 'church', 'anchor', 'map-marker',
 ];
 const COLOR_OPTIONS = ['#C9883F', '#8978FF', '#B3BF26', '#FF7B5E', '#1CAAE8', '#F85AA8', '#15CACD', '#21B930', '#BA5AE8', '#EA3F3F', '#0A84FF', '#A4A7AC'];
 

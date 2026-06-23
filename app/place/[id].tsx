@@ -260,7 +260,11 @@ export default function PlaceEditor() {
             />
           </ShapeSource>
           <PointAnnotation
-            id="pin"
+            // PointAnnotation renders its children to a native snapshot once and
+            // only refreshes it when `id` changes — so the marker icon stayed on
+            // the old category. Keying the id to the category forces a re-snapshot.
+            id={`pin-${category}`}
+            key={`pin-${category}`}
             coordinate={coord}
             draggable
             onDragEnd={onDragEnd}

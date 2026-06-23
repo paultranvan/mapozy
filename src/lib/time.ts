@@ -34,28 +34,91 @@ export function shiftDayKey(key: string, deltaDays: number): string {
 
 export type PeriodKey = 'today' | 'week' | 'month' | 'year' | 'all';
 
-export function periodToRange(period: PeriodKey, nowMs: number = Date.now()): [number, number] {
+const MONTHS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+// Monday-aligned start of the local week containing `d`.
+function startOfWeek(d: Date): Date {
+  const x = new Date(d);
+  const dow = (x.getDay() + 6) % 7; // Mon=0 … Sun=6
+  x.setDate(x.getDate() - dow);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+export interface NavPeriodRange {
+  start: number;
+  end: number;
+  label: string;
+  // False once the period reaches the one containing "now" — there's no data
+  // in the future, so the UI disables the forward arrow.
+  canGoForward: boolean;
+}
+
+// A calendar-aligned period shifted by `offset` units back (negative) or
+// forward, with a human label. Aligned to real calendar weeks/months/years so
+// users can page through their history one week/month/year at a time.
+// `offset === 0` is the current period; `offset` is clamped at the caller's
+// discretion.
+export function navigablePeriodRange(
+  period: PeriodKey,
+  offset: number,
+  nowMs: number = Date.now()
+): NavPeriodRange {
   const now = new Date(nowMs);
-  const end = endOfDayMs(nowMs);
-  const start = new Date(now);
   switch (period) {
-    case 'today':
-      start.setHours(0, 0, 0, 0);
-      return [start.getTime(), end];
-    case 'week':
-      start.setDate(now.getDate() - 6);
-      start.setHours(0, 0, 0, 0);
-      return [start.getTime(), end];
-    case 'month':
-      start.setMonth(now.getMonth(), now.getDate());
-      start.setDate(now.getDate() - 29);
-      start.setHours(0, 0, 0, 0);
-      return [start.getTime(), end];
-    case 'year':
-      start.setFullYear(now.getFullYear() - 1);
-      start.setHours(0, 0, 0, 0);
-      return [start.getTime(), end];
     case 'all':
-      return [0, end];
+      return { start: 0, end: endOfDayMs(nowMs), label: 'all time', canGoForward: false };
+    case 'today': {
+      const base = new Date(nowMs);
+      base.setDate(base.getDate() + offset);
+      const label =
+        offset === 0
+          ? 'today'
+          : offset === -1
+            ? 'yesterday'
+            : `${MONTHS[base.getMonth()]} ${base.getDate()}`;
+      return {
+        start: startOfDayMs(base.getTime()),
+        end: endOfDayMs(base.getTime()),
+        label,
+        canGoForward: offset < 0,
+      };
+    }
+    case 'week': {
+      const ws = startOfWeek(now);
+      ws.setDate(ws.getDate() + offset * 7);
+      const we = new Date(ws);
+      we.setDate(ws.getDate() + 6);
+      const sameMonth = ws.getMonth() === we.getMonth();
+      const label =
+        offset === 0
+          ? 'this week'
+          : sameMonth
+            ? `${MONTHS[ws.getMonth()]} ${ws.getDate()}–${we.getDate()}`
+            : `${MONTHS[ws.getMonth()]} ${ws.getDate()} – ${MONTHS[we.getMonth()]} ${we.getDate()}`;
+      return {
+        start: ws.getTime(),
+        end: endOfDayMs(we.getTime()),
+        label,
+        canGoForward: offset < 0,
+      };
+    }
+    case 'month': {
+      const m = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+      const next = new Date(now.getFullYear(), now.getMonth() + offset + 1, 1);
+      const label =
+        offset === 0 ? 'this month' : `${MONTHS[m.getMonth()]} ${m.getFullYear()}`;
+      return { start: m.getTime(), end: next.getTime() - 1, label, canGoForward: offset < 0 };
+    }
+    case 'year': {
+      const y = now.getFullYear() + offset;
+      const start = new Date(y, 0, 1).getTime();
+      const end = new Date(y + 1, 0, 1).getTime() - 1;
+      const label = offset === 0 ? 'this year' : String(y);
+      return { start, end, label, canGoForward: offset < 0 };
+    }
   }
 }

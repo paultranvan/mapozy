@@ -3,6 +3,7 @@ import { runMigrations } from '../../db/migrations';
 import { insertRawPoint } from '../../db/rawPoints';
 import { insertRawActivity } from '../../db/rawActivities';
 import { listTrips, getTripById } from '../../db/trips';
+import { insertPlaceAt, getPlaceById } from '../../db/places';
 import { getSetting, setSetting, SETTING_KEYS } from '../../db/settings';
 import { runPipeline } from '../runPipeline';
 import { syntheticTrip, mkPoint, mkActivity, resetIds } from './_fixtures';
@@ -197,6 +198,58 @@ describe('runPipeline end-to-end', () => {
     // And the stale setting should be cleared (or overwritten with the new id).
     const seedAfter = await getSetting(db, SETTING_KEYS.LAST_KNOWN_PLACE_ID);
     expect(seedAfter).not.toBe('1');
+  });
+
+  it('ignores a geographically implausible seed (place hundreds of km away)', async () => {
+    // Reproduces a real user-export bug (trip 81, "Dives" weekend): after a
+    // power-save GPS gap a local drive in Normandy had no preceding stay, so
+    // the pipeline fell back to the carried-over seed place — which pointed at
+    // the user's home ~200 km away. The trip's start was then mislabelled with
+    // the home address. The seed must be rejected when it is nowhere near the
+    // trip's actual first GPS point.
+    const farLat = 48.79; // home (Paris area)
+    const farLon = 2.38;
+    const farId = await insertPlaceAt(db, farLat, farLon, 1);
+    await setSetting(db, SETTING_KEYS.LAST_KNOWN_PLACE_ID, String(farId));
+
+    // trip → stay starting at lat 45.0, lon 5.0 — ~370 km from the seed, and
+    // no preceding stay (startStay === null), so the seed would otherwise be used.
+    const { points, activities } = tripThenStay();
+    for (const p of points) {
+      await insertRawPoint(db, {
+        timestampMs: p.timestampMs,
+        latitude: p.latitude,
+        longitude: p.longitude,
+        altitude: p.altitude,
+        accuracyMeters: p.accuracyMeters,
+        speedMps: p.speedMps,
+        bearingDeg: p.bearingDeg,
+        batteryLevel: p.batteryLevel,
+        isCharging: p.isCharging,
+      });
+    }
+    for (const a of activities) {
+      await insertRawActivity(db, {
+        timestampMs: a.timestampMs,
+        type: a.type,
+        confidence: a.confidence,
+      });
+    }
+    const upToMs = points[points.length - 1]!.timestampMs + 1000;
+
+    const result = await runPipeline(db, { upToMs, nowMs: upToMs });
+    expect(result.tripsInserted).toBe(1);
+
+    const trips = await listTrips(db, 10, 0);
+    expect(trips).toHaveLength(1);
+    // The far seed must NOT be reused as the start place.
+    expect(trips[0]!.startPlaceId).not.toBe(farId);
+    expect(trips[0]!.startPlaceId).not.toBeNull();
+    // The start place must sit near the trip's real first point (lat 45, lon 5).
+    const startPlace = await getPlaceById(db, trips[0]!.startPlaceId!);
+    expect(startPlace).not.toBeNull();
+    expect(Math.abs(startPlace!.latitude - 45.0)).toBeLessThan(0.1);
+    expect(Math.abs(startPlace!.longitude - 5.0)).toBeLessThan(0.1);
   });
 
   it('produces a 2-leg trip with one break when a short stop sits between two drives', async () => {

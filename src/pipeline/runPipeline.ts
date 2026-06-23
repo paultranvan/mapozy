@@ -10,7 +10,8 @@ import {
   getAllUnconsumedActivities,
   markActivitiesConsumed,
 } from '../db/rawActivities';
-import { findOrCreatePlace } from '../db/places';
+import { findOrCreatePlace, getPlaceById } from '../db/places';
+import { haversineMeters } from '../lib/distance';
 import { insertTripWithSections } from '../db/trips';
 import { getSetting, setSetting, SETTING_KEYS } from '../db/settings';
 import { accuracyFilter } from './accuracyFilter';
@@ -36,6 +37,12 @@ export interface RunPipelineResult {
   pointsConsumed: number;
   activitiesConsumed: number;
 }
+
+// A carried-over seed place farther than this from a gap-trip's first GPS point
+// cannot credibly be that trip's origin — reject it and trust the GPS instead.
+// Generous enough to keep legitimate same-area seeds (incl. a few km of
+// gap-induced offset at trip start), tight enough to catch cross-region errors.
+const SEED_MAX_DISTANCE_M = 10_000;
 
 // Serialize pipeline runs per-db. The app fires runPipeline from three
 // uncoordinated triggers (native MOVING→STATIONARY, app foreground/cold-start,
@@ -116,6 +123,34 @@ async function runPipelineLocked(
         group.startStay.centerLon,
         group.startStay.endMs
       );
+    } else {
+      // No preceding stay (typically a power-save GPS gap swallowed it), so we
+      // fall back to the carried-over seed. But the seed can be a stale,
+      // geographically wrong place: e.g. after driving 200 km to the coast and
+      // losing GPS overnight, a local morning drive has no startStay and would
+      // inherit "home" from days ago — mislabelling its start with the home
+      // address. Trust the GPS: if the seed is nowhere near the trip's first
+      // recorded point, drop it and anchor the start to where GPS resumed.
+      const firstPoint = group.legs[0]?.[0];
+      if (startPlaceId !== null && firstPoint) {
+        const seedPlace = await getPlaceById(db, startPlaceId);
+        if (
+          seedPlace &&
+          haversineMeters(
+            firstPoint.latitude,
+            firstPoint.longitude,
+            seedPlace.latitude,
+            seedPlace.longitude
+          ) > SEED_MAX_DISTANCE_M
+        ) {
+          startPlaceId = await findOrCreatePlace(
+            db,
+            firstPoint.latitude,
+            firstPoint.longitude,
+            firstPoint.timestampMs
+          );
+        }
+      }
     }
     const endPlaceId = await findOrCreatePlace(
       db,

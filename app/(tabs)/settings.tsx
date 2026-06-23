@@ -25,7 +25,6 @@ import {
   runPipelineAndInvalidate,
 } from '@/tracking/tracker';
 import { MapozyTracker } from 'mapozy-tracker';
-import { suggestHomeWork } from '@/stats/homeWorkDetection';
 import { injectDemoTrip } from '@/lib/demoTrip';
 import { sendDbToPaul } from '@/lib/sendDbToPaul';
 import { shareDb } from '@/lib/shareDb';
@@ -51,7 +50,6 @@ export default function SettingsScreen() {
   const [batteryUnrestricted, setBatteryUnrestricted] = useState(false);
   const [interruptions, setInterruptions] = useState<Interruption[] | null>(null);
   const [pipelineBusy, setPipelineBusy] = useState(false);
-  const [homeWorkBusy, setHomeWorkBusy] = useState(false);
   const [allowExternalApi, setAllowExternalApi] = useState(true);
   const [networkInfoVisible, setNetworkInfoVisible] = useState(false);
   const health = useTrackingHealth();
@@ -126,21 +124,6 @@ export default function SettingsScreen() {
       Alert.alert('Pipeline failed', String(e));
     } finally {
       setPipelineBusy(false);
-    }
-  }
-
-  async function runHomeWork() {
-    if (homeWorkBusy) return;
-    setHomeWorkBusy(true);
-    try {
-      const r = await suggestHomeWork(db);
-      await qc.invalidateQueries({ queryKey: ['places'] });
-      Alert.alert(
-        'Home/work detection',
-        `🏠 Home: ${r.home?.displayName ?? '—'}\n💼 Work: ${r.work?.displayName ?? '—'}`
-      );
-    } finally {
-      setHomeWorkBusy(false);
     }
   }
 
@@ -400,11 +383,6 @@ export default function SettingsScreen() {
               onPress={runPipeline}
               label="Force pipeline"
               busy={pipelineBusy}
-            />
-            <SecondaryButton
-              onPress={runHomeWork}
-              label="Detect home/work"
-              busy={homeWorkBusy}
             />
           </View>
           <View style={styles.divider} />

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { ScrollView, View, StyleSheet } from 'react-native';
+import { ScrollView, View, StyleSheet, Pressable } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   usePeriodKpi,
   useModeBreakdown,
@@ -14,24 +15,28 @@ import { PeriodTabs } from '@/ui/PeriodTabs';
 import { AreaChart } from '@/ui/AreaChart';
 import { colors, space } from '@/theme/tokens';
 import { formatDistance, formatDate } from '@/lib/format';
+import { navigablePeriodRange } from '@/lib/time';
 import type { PeriodKey } from '@/lib/time';
 import type { DominantMode, Mode } from '@/types';
 import type { ModeBucket } from '@/stats/modeBreakdown';
 
-const PERIOD_LABELS: Record<PeriodKey, string> = {
-  today: 'today',
-  week: 'this week',
-  month: 'this month',
-  year: 'this year',
-  all: 'all time',
-};
-
 export default function StatsScreen() {
   const [period, setPeriod] = useState<PeriodKey>('week');
+  // 0 = current period; negative pages into the past. Reset whenever the period
+  // granularity changes so we always land on the current week/month/etc.
+  const [offset, setOffset] = useState(0);
 
-  const kpiQ = usePeriodKpi(period);
-  const modeQ = useModeBreakdown(period);
-  const dailyQ = useDailyDistances(period);
+  const changePeriod = (p: PeriodKey) => {
+    setPeriod(p);
+    setOffset(0);
+  };
+
+  const range = navigablePeriodRange(period, offset);
+  const navigable = period !== 'all';
+
+  const kpiQ = usePeriodKpi(period, offset);
+  const modeQ = useModeBreakdown(period, offset);
+  const dailyQ = useDailyDistances(period, offset);
   const recordsQ = useRecords();
 
   const totalDistance = kpiQ.data?.totalDistanceM ?? 0;
@@ -71,12 +76,43 @@ export default function StatsScreen() {
     <View style={styles.root}>
       <TopBar title="Stats" />
       <ScrollView contentContainerStyle={styles.scroll}>
-        <PeriodTabs value={period} onChange={setPeriod} />
+        <PeriodTabs value={period} onChange={changePeriod} />
+
+        {navigable ? (
+          <View style={styles.nav}>
+            <Pressable
+              onPress={() => setOffset((o) => o - 1)}
+              hitSlop={10}
+              style={styles.navBtn}
+            >
+              <MaterialCommunityIcons
+                name="chevron-left"
+                size={26}
+                color={colors.inkOnGround}
+              />
+            </Pressable>
+            <Text variant="numberS" onGround>
+              {range.label}
+            </Text>
+            <Pressable
+              onPress={() => range.canGoForward && setOffset((o) => o + 1)}
+              hitSlop={10}
+              disabled={!range.canGoForward}
+              style={styles.navBtn}
+            >
+              <MaterialCommunityIcons
+                name="chevron-right"
+                size={26}
+                color={range.canGoForward ? colors.inkOnGround : colors.divider}
+              />
+            </Pressable>
+          </View>
+        ) : null}
 
         {/* Hero KPI */}
         <Card padded="lg" style={styles.section}>
           <Text variant="ribbon" soft>
-            DISTANCE {PERIOD_LABELS[period].toUpperCase()}
+            DISTANCE {range.label.toUpperCase()}
           </Text>
           <View style={styles.heroRow}>
             <Text variant="displayXL">{distValue}</Text>
@@ -221,6 +257,16 @@ const styles = StyleSheet.create({
   },
   scroll: {
     paddingBottom: space[6],
+  },
+  nav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginHorizontal: space[4],
+    marginTop: space[1],
+  },
+  navBtn: {
+    padding: space[1],
   },
   section: {
     marginHorizontal: space[4],

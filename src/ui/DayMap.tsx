@@ -11,6 +11,7 @@ import MapLibreGL, {
 } from '@maplibre/maplibre-react-native';
 import { colors as themeColors, MODE_COLORS } from '../theme/tokens';
 import { effectiveMode } from '../pipeline/effectiveMode';
+import { haversineMeters } from '../lib/distance';
 import { resolveCategory } from './placeCategories';
 import { useCategories } from '@/queries/useCategories';
 import { OSM_STYLE } from './mapStyle';
@@ -24,10 +25,13 @@ MapLibreGL.setAccessToken(null);
 
 // bottom clears the fixed ~46%-height detail panel; top clears the back button.
 const PAD = { left: 36, right: 36, top: 70, bottom: 400 };
-// MarkerView anchors: trip pins float just above their point; place pins
-// higher so they clear a coincident numbered pin.
+// MarkerView anchors: pins float just above their point.
 const TRIP_ANCHOR = { x: 0.5, y: 1.35 };
-const PLACE_ANCHOR = { x: 0.5, y: 1.7 };
+const PLACE_ANCHOR = { x: 0.5, y: 1.35 };
+// A trip endpoint within this distance of a recognized place is treated as the
+// same spot: we merge them into one badge instead of stacking two markers.
+// Slightly above the 100 m place-match radius to absorb GPS jitter at endpoints.
+const COINCIDE_M = 120;
 // Day's last-point marker — fully static.
 const END_CIRCLE = {
   circleColor: themeColors.end,
@@ -126,6 +130,33 @@ export function DayMap({
     };
   }, [trips]);
 
+  // Merge numbered trip markers into the recognized place they sit on, so a
+  // known place shows its icon *circled with the trip number* instead of two
+  // overlapping markers (per user feedback). Starts with no nearby place stay
+  // standalone numbered pins.
+  const { placeWithNums, soloStarts } = useMemo(() => {
+    const consumed = new Set<string>();
+    const placeWithNums = placeMarkers.map((p) => {
+      const nums: { tripId: number; label: string }[] = [];
+      for (const s of starts) {
+        const key = `${s.tripId}-${s.label}`;
+        if (consumed.has(key)) continue;
+        if (
+          haversineMeters(p.coord[1], p.coord[0], s.coord[1], s.coord[0]) <=
+          COINCIDE_M
+        ) {
+          nums.push({ tripId: s.tripId, label: s.label });
+          consumed.add(key);
+        }
+      }
+      return { ...p, nums };
+    });
+    const soloStarts = starts.filter(
+      (s) => !consumed.has(`${s.tripId}-${s.label}`)
+    );
+    return { placeWithNums, soloStarts };
+  }, [placeMarkers, starts]);
+
   const lineStyle = useMemo(() => {
     const match = ['==', ['get', 'tripId'], selectedTripId];
     return {
@@ -155,7 +186,7 @@ export function DayMap({
       <ShapeSource id="day-end" shape={endFC}>
         <CircleLayer id="day-end-l" style={END_CIRCLE} />
       </ShapeSource>
-      {starts.map((s) => (
+      {soloStarts.map((s) => (
         <MarkerView
           key={`${s.tripId}-${s.label}`}
           coordinate={s.coord}
@@ -172,23 +203,33 @@ export function DayMap({
           </View>
         </MarkerView>
       ))}
-      {placeMarkers.map((p, i) => {
+      {placeWithNums.map((p, i) => {
         const meta = resolveCategory(p.kind, categories);
+        const numbered = p.nums.length > 0;
+        const allDim =
+          dim && numbered && p.nums.every((n) => n.tripId !== selectedTripId);
         return (
-          // Anchored higher (y > 1) so the place pin floats clear above any
-          // numbered trip marker sharing the same place.
           <MarkerView
             key={`place-${p.kind}-${i}`}
             coordinate={p.coord}
             anchor={PLACE_ANCHOR}
             allowOverlap
           >
-            <View style={[styles.placePin, { backgroundColor: meta.color }]}>
-              <MaterialCommunityIcons
-                name={meta.icon}
-                size={16}
-                color={themeColors.surface}
-              />
+            <View style={[styles.placeWrap, allDim && styles.markerDim]}>
+              <View style={[styles.placePin, { backgroundColor: meta.color }]}>
+                <MaterialCommunityIcons
+                  name={meta.icon}
+                  size={16}
+                  color={themeColors.surface}
+                />
+              </View>
+              {numbered ? (
+                <View style={styles.numCorner}>
+                  <Text style={styles.numCornerText}>
+                    {p.nums.map((n) => n.label).join(',')}
+                  </Text>
+                </View>
+              ) : null}
             </View>
           </MarkerView>
         );
@@ -217,6 +258,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 14,
   },
+  placeWrap: {
+    // Padding leaves room for the number badge to overhang the pin's corner
+    // without being clipped.
+    paddingTop: 8,
+    paddingRight: 8,
+  },
   placePin: {
     width: 30,
     height: 30,
@@ -226,5 +273,25 @@ const styles = StyleSheet.create({
     backgroundColor: themeColors.deep,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  numCorner: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 3,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: themeColors.surface,
+    backgroundColor: themeColors.deep,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  numCornerText: {
+    color: themeColors.surface,
+    fontSize: 10,
+    fontWeight: '700',
+    lineHeight: 12,
   },
 });
