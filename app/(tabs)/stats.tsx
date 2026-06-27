@@ -16,6 +16,7 @@ import { AreaChart } from '@/ui/AreaChart';
 import { colors, space } from '@/theme/tokens';
 import { formatDistance, formatDate } from '@/lib/format';
 import { navigablePeriodRange } from '@/lib/time';
+import { bucketGranularityFor } from '@/stats/periodStats';
 import type { PeriodKey } from '@/lib/time';
 import type { DominantMode, Mode } from '@/types';
 import type { ModeBucket } from '@/stats/modeBreakdown';
@@ -66,11 +67,19 @@ export default function StatsScreen() {
 
   const dailyData = useMemo(() => {
     const d = dailyQ.data ?? [];
-    return d.map((p: { dayKey: string; distanceM: number }) => ({
-      label: p.dayKey.slice(5),
+    return d.map((p: { label: string; distanceM: number }) => ({
+      label: p.label,
       value: p.distanceM / 1000,
     }));
   }, [dailyQ.data]);
+
+  const BUCKET_TITLES: Record<string, string> = {
+    day: 'By day',
+    week: 'By week',
+    month: 'By month',
+    year: 'By year',
+  };
+  const distanceBreakdownTitle = BUCKET_TITLES[bucketGranularityFor(period)] ?? 'By day';
 
   return (
     <View style={styles.root}>
@@ -162,9 +171,9 @@ export default function StatsScreen() {
           )}
         </Card>
 
-        {/* Daily */}
+        {/* Distance breakdown — granularity follows the selected period. */}
         <Text variant="display" onGround style={styles.sectionTitle}>
-          Daily
+          {distanceBreakdownTitle}
         </Text>
         <Card style={styles.section}>
           {dailyData.length === 0 ? (

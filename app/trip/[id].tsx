@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -33,6 +33,7 @@ import { Timeline } from '@/ui/Timeline';
 import { SplitPickerSheet } from '@/ui/SplitPickerSheet';
 import { ActionSheet, type SheetAction } from '@/ui/ActionSheet';
 import { EditedPill } from '@/ui/EditedPill';
+import { ScreenErrorFallback } from '@/ui/ScreenErrorFallback';
 import { colors, radii, space } from '@/theme/tokens';
 import type { Section, Mode } from '@/types';
 import {
@@ -41,6 +42,13 @@ import {
   formatCo2,
   formatTime,
 } from '@/lib/format';
+
+// Per-route error boundary (expo-router). A render error in this screen used to
+// hard-crash the whole app (there is no global boundary); now it shows a
+// recoverable fallback and writes the stack to diagnostics for root-causing.
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  return <ScreenErrorFallback error={error} retry={retry} screen="trip-detail" />;
+}
 
 type SplitTarget = { kind: 'leg'; section: Section } | { kind: 'trip' };
 

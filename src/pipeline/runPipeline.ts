@@ -44,6 +44,14 @@ export interface RunPipelineResult {
 // gap-induced offset at trip start), tight enough to catch cross-region errors.
 const SEED_MAX_DISTANCE_M = 10_000;
 
+// For a GAP start stay (center = pre-gap departure point), if GPS resumes
+// farther than this from the center, the user moved during the gap and the
+// departure place isn't the trip's origin. Tighter than SEED_MAX_DISTANCE_M
+// because a gap stay's center is a real, recent fix (not a stale carried seed),
+// so a large offset specifically signals travel — yet still well above the
+// few-hundred-metre reacquisition jitter of a genuine at-rest power-save gap.
+const START_STAY_GAP_MAX_M = 1_500;
+
 // Serialize pipeline runs per-db. The app fires runPipeline from three
 // uncoordinated triggers (native MOVING→STATIONARY, app foreground/cold-start,
 // and the manual "Force pipeline" button), all fire-and-forget. Without this,
@@ -117,12 +125,34 @@ async function runPipelineLocked(
 
     let startPlaceId = previousStayPlaceId;
     if (group.startStay !== null) {
-      startPlaceId = await findOrCreatePlace(
-        db,
-        group.startStay.centerLat,
-        group.startStay.centerLon,
-        group.startStay.endMs
-      );
+      // A GAP stay anchors its center at the pre-gap *departure* point. If GPS
+      // resumed far from there, the user traveled during the untracked gap
+      // (e.g. a bus while GPS was suspended), so the departure place is NOT this
+      // trip's origin — anchor the start to where GPS actually resumed instead.
+      // (Normal observed stays are exact, so they're never second-guessed.)
+      const firstPoint = group.legs[0]?.[0];
+      const movedDuringGap =
+        group.startStay.gap &&
+        firstPoint != null &&
+        haversineMeters(
+          firstPoint.latitude,
+          firstPoint.longitude,
+          group.startStay.centerLat,
+          group.startStay.centerLon
+        ) > START_STAY_GAP_MAX_M;
+      startPlaceId = movedDuringGap
+        ? await findOrCreatePlace(
+            db,
+            firstPoint!.latitude,
+            firstPoint!.longitude,
+            firstPoint!.timestampMs
+          )
+        : await findOrCreatePlace(
+            db,
+            group.startStay.centerLat,
+            group.startStay.centerLon,
+            group.startStay.endMs
+          );
     } else {
       // No preceding stay (typically a power-save GPS gap swallowed it), so we
       // fall back to the carried-over seed. But the seed can be a stale,

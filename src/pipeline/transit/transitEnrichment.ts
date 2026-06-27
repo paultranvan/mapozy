@@ -157,9 +157,19 @@ export async function enrichTripTransit(
       const endStops = await getStopsNear(deps, exit[1], exit[0], subwayRadius);
       if (startStops.some(isMetroStation) && endStops.some(isMetroStation)) {
         conversions.set(b.ordering, buildSubwaySection(b, entry, exit));
-        restructured = true;
       }
     }
+    // A single untracked underground hop is plausible. TWO or more "subway"
+    // gaps in one trip almost always mean a SURFACE ride (bus/tram) whose GPS
+    // was repeatedly suspended by power-save — not a chain of metro legs. In
+    // dense cities nearly every gap endpoint sits within the station radius, so
+    // converting them all fabricates a string of straight-line teleports plus
+    // bogus walk-to/from-station legs (tester: bus ride shown as metro with a
+    // walk that never happened). Decline the whole set in that case.
+    if (conversions.size >= 2) {
+      conversions.clear();
+    }
+    restructured = conversions.size > 0;
   } catch (err) {
     let reason: DraftReason;
     if (err instanceof OverpassRateLimitError) reason = 'rate_limited';

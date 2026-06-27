@@ -11,6 +11,7 @@ import {
 import { getSectionsForTrip, setSectionUserMode } from './sections';
 import { getPlaceById, insertPlaceAt } from './places';
 import { co2GramsForSection } from '../co2/compute';
+import { haversineMeters } from '../lib/distance';
 import { recomputeAndPersistTripAggregates } from './tripAggregates';
 import { effectiveMode } from '../pipeline/effectiveMode';
 import {
@@ -20,6 +21,11 @@ import {
 } from '../pipeline/edits/sectionGeometry';
 import { planRecompute, recomputeForTrips } from '../pipeline/recomputeRange';
 import type { OverpassDeps } from '../lib/overpass';
+
+// Two merged trips whose join is farther apart than this are treated as having
+// an untracked gap between them (well above GPS endpoint jitter and the 100 m
+// place-match radius), so the map draws a dashed connector across the jump.
+const MERGE_GAP_M = 150;
 
 /** Re-number sections 0..n-1 and recompute each section's co2 from effective mode. */
 function renumberAndCost(sections: Section[]): Section[] {
@@ -140,13 +146,29 @@ export async function mergeTrips(
       centerLat = last[1];
     }
   }
+  // If the two trips don't physically join up — the first ends well away from
+  // where the second begins (an untracked ride between them, e.g. a bus while
+  // GPS was suspended) — mark the boundary as a data gap so the map bridges it
+  // with the dashed "gap" connector instead of leaving a silent straight-line
+  // teleport between the two traces (tester: "I teleported after merging").
+  const firstLastCoords = parseCoords(
+    first.sections[first.sections.length - 1]?.geojson ?? '[]'
+  );
+  const firstLast = firstLastCoords[firstLastCoords.length - 1];
+  const secondFirstCoords = parseCoords(second.sections[0]?.geojson ?? '[]');
+  const secondFirst = secondFirstCoords[0];
+  const boundaryGap =
+    firstLast != null && secondFirst != null
+      ? haversineMeters(firstLast[1], firstLast[0], secondFirst[1], secondFirst[0]) >
+        MERGE_GAP_M
+      : false;
   const boundaryBreak: TripBreak = {
     ordering: boundaryOrdering,
     startTimeMs: first.endTimeMs,
     endTimeMs: second.startTimeMs,
     centerLat,
     centerLon,
-    gap: false,
+    gap: boundaryGap,
   };
   const combinedBreaks: TripBreak[] = [
     ...first.breaks,

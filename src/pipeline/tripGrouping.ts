@@ -18,6 +18,11 @@ export interface TripStayBoundary {
   centerLat: number;
   centerLon: number;
   endMs: number;
+  // True when this stay was reconstructed from a GPS dropout (power-save gap)
+  // rather than observed stillness. A gap stay's center is the *pre-gap*
+  // departure point, which can be far from where GPS resumed — consumers use
+  // this to sanity-check the start place against the trip's first real fix.
+  gap: boolean;
 }
 
 export interface TripLegGroup {
@@ -62,6 +67,7 @@ export function groupIntoTrips(segments: Segment[]): TripLegGroup[] {
         centerLat: seg.centerLat,
         centerLon: seg.centerLon,
         endMs: seg.endMs,
+        gap: seg.gap,
       };
 
       if (duration < maxBreakMs) {

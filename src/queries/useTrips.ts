@@ -8,7 +8,7 @@ import {
   getTripStartTimesInRange,
 } from '../db/trips';
 import { getAllPlaces, getPlaceById } from '../db/places';
-import { periodKpi, dailyDistances } from '../stats/periodStats';
+import { periodKpi, dailyDistances, aggregateDailyBuckets, bucketGranularityFor } from '../stats/periodStats';
 import { modeBreakdown } from '../stats/modeBreakdown';
 import { records } from '../stats/records';
 import type { PeriodKey } from '../lib/time';
@@ -99,9 +99,11 @@ export function usePeriodKpi(period: PeriodKey, offset = 0) {
 export function useDailyDistances(period: PeriodKey, offset = 0) {
   const db = useDb();
   const { start, end } = navigablePeriodRange(period, offset);
+  const granularity = bucketGranularityFor(period);
   return useQuery({
     queryKey: ['stats', 'daily', period, start, end],
-    queryFn: () => dailyDistances(db, start, end),
+    queryFn: async () =>
+      aggregateDailyBuckets(await dailyDistances(db, start, end), granularity),
   });
 }
 

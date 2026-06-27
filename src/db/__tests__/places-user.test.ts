@@ -10,7 +10,9 @@ import {
   getUnnamedClusters,
   dismissSuggestion,
 } from '../places';
+import { insertTripWithSections } from '../trips';
 import type { Db } from '../client';
+import type { Trip } from '../../types';
 
 describe('user POIs', () => {
   let db: Db;
@@ -18,6 +20,37 @@ describe('user POIs', () => {
     db = createMockDb();
     await runMigrations(db);
   });
+
+  // Suggestions count real trip arrivals (end_place_id), not the stored
+  // visit_count column. Record `n` arrivals at the place covering (lat, lon).
+  async function recordArrivals(lat: number, lon: number, n: number): Promise<number> {
+    let placeId = 0;
+    for (let i = 0; i < n; i++) {
+      placeId = await findOrCreatePlace(db, lat, lon, 1000 + i);
+      const trip: Trip = {
+        id: 0,
+        startTimeMs: 1000 + i,
+        endTimeMs: 2000 + i,
+        startPlaceId: null,
+        endPlaceId: placeId,
+        distanceM: 1000,
+        durationS: 600,
+        dominantMode: 'walk',
+        co2G: 0,
+        geojson: '{"type":"LineString","coordinates":[[2,48],[2.01,48.01]]}',
+        manualPurpose: null,
+        draft: false,
+        draftReason: null,
+        edited: false,
+        locked: false,
+        createdAtMs: 1000 + i,
+        sections: [],
+        breaks: [],
+      };
+      await insertTripWithSections(db, trip);
+    }
+    return placeId;
+  }
 
   it('creates, lists, updates and deletes a user POI', async () => {
     const id = await createUserPlace(db, {
@@ -71,14 +104,8 @@ describe('user POIs', () => {
   });
 
   it('lists unnamed clusters not already inside a user POI, busiest first', async () => {
-    // cluster A: 3 visits (covered by user POI → excluded)
-    await findOrCreatePlace(db, 45.7500, 4.8500, 1000);
-    await findOrCreatePlace(db, 45.7500, 4.8500, 2000);
-    await findOrCreatePlace(db, 45.7500, 4.8500, 2500); // cluster A: 3 visits
-    // cluster B: 3 visits (not covered → should appear)
-    await findOrCreatePlace(db, 45.8000, 4.9000, 3000);
-    await findOrCreatePlace(db, 45.8000, 4.9000, 4000);
-    await findOrCreatePlace(db, 45.8000, 4.9000, 5000); // cluster B: 3 visits
+    await recordArrivals(45.7500, 4.8500, 3); // cluster A: 3 arrivals (covered by POI → excluded)
+    await recordArrivals(45.8000, 4.9000, 3); // cluster B: 3 arrivals (not covered → should appear)
     await createUserPlace(db, { name: 'Maison', category: 'home', latitude: 45.7500, longitude: 4.8500, radiusM: 100 });
     const clusters = await getUnnamedClusters(db, 10);
     expect(clusters).toHaveLength(1);
@@ -86,16 +113,15 @@ describe('user POIs', () => {
   });
 
   it('only suggests clusters with at least 3 visits', async () => {
-    // cluster A: 3 visits; cluster B: 2 visits (far apart)
-    for (const t of [1, 2, 3]) await findOrCreatePlace(db, 45.7500, 4.8500, t);
-    for (const t of [4, 5]) await findOrCreatePlace(db, 45.9000, 5.1000, t);
+    await recordArrivals(45.7500, 4.8500, 3); // cluster A: 3 arrivals
+    await recordArrivals(45.9000, 5.1000, 2); // cluster B: 2 arrivals (far apart)
     const clusters = await getUnnamedClusters(db, 10);
     expect(clusters).toHaveLength(1);
     expect(clusters[0]).toMatchObject({ latitude: 45.75, longitude: 4.85, visitCount: 3 });
   });
 
   it('excludes a dismissed cluster from suggestions', async () => {
-    for (const t of [1, 2, 3]) await findOrCreatePlace(db, 45.7500, 4.8500, t);
+    await recordArrivals(45.7500, 4.8500, 3);
     const before = await getUnnamedClusters(db, 10);
     expect(before).toHaveLength(1);
     await dismissSuggestion(db, before[0]!.id);

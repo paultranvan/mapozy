@@ -190,12 +190,21 @@ export async function getUserPoiVisitStats(
 // "from a frequent stop" picker. Busiest first.
 // Only clusters with at least `minVisits` visits and not dismissed are returned.
 export async function getUnnamedClusters(db: Db, limit: number, minVisits = 3): Promise<Place[]> {
-  const autos = (await db.getAllAsync<Row>(
-    `SELECT * FROM places
-     WHERE kind = 'auto' AND visit_count >= ? AND suggestion_dismissed = 0
-     ORDER BY visit_count DESC LIMIT ${CLUSTER_SCAN_LIMIT}`,
+  // Gate on real trip arrivals, NOT the stored `visit_count` column. That column
+  // is incremented twice per physical visit (arrival + departure) and is never
+  // decremented when trips are deleted on recompute, so it inflates on every
+  // reprocess — a one-off stop ("Boulevard Macdonald", visited once) had drifted
+  // to visit_count=6 and crossed the threshold. Counting arrivals (end_place_id)
+  // is the true visit count and self-heals on recompute.
+  const autos = (await db.getAllAsync<Row & { arrivals: number }>(
+    `SELECT p.*, (SELECT COUNT(*) FROM trips t WHERE t.end_place_id = p.id) AS arrivals
+       FROM places p
+      WHERE p.kind = 'auto' AND p.suggestion_dismissed = 0
+        AND (SELECT COUNT(*) FROM trips t WHERE t.end_place_id = p.id) >= ?
+      ORDER BY arrivals DESC
+      LIMIT ${CLUSTER_SCAN_LIMIT}`,
     minVisits
-  )).map(rowToPlace);
+  )).map((r) => ({ ...rowToPlace(r), visitCount: r.arrivals }));
   const users = await getUserPlaces(db);
   const free = autos.filter(
     (a) => !users.some((u) => haversineMeters(a.latitude, a.longitude, u.latitude, u.longitude) <= u.radiusM)

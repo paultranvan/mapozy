@@ -6,7 +6,7 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ActivityIndicator } from 'react-native-paper';
@@ -14,6 +14,7 @@ import { useDayTrips, usePlaces, useTripDaysWithTrips } from '@/queries/useTrips
 import { useUserPlaces } from '@/queries/usePlaces';
 import { nearestUserPoi } from '@/lib/poiResolve';
 import { DayMap } from '@/ui/DayMap';
+import { ScreenErrorFallback } from '@/ui/ScreenErrorFallback';
 import { TripListItem } from '@/ui/TripListItem';
 import { WeekStrip, type WeekDay } from '@/ui/WeekStrip';
 import { ModeBar } from '@/ui/ModeBar';
@@ -67,6 +68,10 @@ function dayLabel(key: string): string {
   return sameYear
     ? `${WEEKDAYS[d.getDay()]}, ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`
     : `${WEEKDAYS[d.getDay()]}, ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  return <ScreenErrorFallback error={error} retry={retry} screen="day" />;
 }
 
 export default function DayScreen() {
