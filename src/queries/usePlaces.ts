@@ -5,7 +5,7 @@ import {
   getUserPlaces, getPlaceById, getUserPoiVisitStats, getUnnamedClusters,
   createUserPlace, updateUserPlace, deleteUserPlace, dismissSuggestion, type UserPlaceInput,
 } from '../db/places';
-import { suggestHomeWork } from '../stats/homeWorkDetection';
+import { suggestHome } from '../stats/homeDetection';
 import { nearestUserPoi } from '../lib/poiResolve';
 import type { Place } from '../types';
 
@@ -43,9 +43,9 @@ export function useUnnamedClusters(limit = 12) {
   return useQuery({ queryKey: ['unnamedClusters', limit], queryFn: () => getUnnamedClusters(db, limit) });
 }
 
-export function useHomeWorkSuggestion() {
+export function useHomeSuggestion() {
   const db = useDb();
-  return useQuery({ queryKey: ['homeWorkSuggestion'], queryFn: () => suggestHomeWork(db) });
+  return useQuery({ queryKey: ['homeSuggestion'], queryFn: () => suggestHome(db) });
 }
 
 function useInvalidatePlaces() {
@@ -54,7 +54,7 @@ function useInvalidatePlaces() {
     qc.invalidateQueries({ queryKey: ['userPlaces'] });
     qc.invalidateQueries({ queryKey: ['userPlaceVisits'] });
     qc.invalidateQueries({ queryKey: ['unnamedClusters'] });
-    qc.invalidateQueries({ queryKey: ['homeWorkSuggestion'] });
+    qc.invalidateQueries({ queryKey: ['homeSuggestion'] });
     qc.invalidateQueries({ queryKey: ['trips'] });
     qc.invalidateQueries({ queryKey: ['trip'] });
   }, [qc]);

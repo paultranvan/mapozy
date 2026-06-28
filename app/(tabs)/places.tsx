@@ -10,7 +10,7 @@ import { Text } from '@/ui/Text';
 import { PlaceListItem } from '@/ui/PlaceListItem';
 import { PlaceBadge } from '@/ui/PlaceBadge';
 import { categoryMeta } from '@/ui/placeCategories';
-import { useUserPlaces, useUserPoiVisits, useHomeWorkSuggestion, useUnnamedClusters, useDismissSuggestion } from '@/queries/usePlaces';
+import { useUserPlaces, useUserPoiVisits, useHomeSuggestion, useUnnamedClusters, useDismissSuggestion } from '@/queries/usePlaces';
 import { haversineMeters } from '@/lib/distance';
 import type { Place, PlaceCategory } from '@/types';
 
@@ -62,23 +62,21 @@ export default function PlacesScreen() {
   const [showAllSuggestions, setShowAllSuggestions] = useState(false);
   const places = useUserPlaces();
   const visits = useUserPoiVisits(view === 'list');
-  const suggestion = useHomeWorkSuggestion();
+  const suggestion = useHomeSuggestion();
   const clusters = useUnnamedClusters(20);
   const dismiss = useDismissSuggestion();
 
-  const home = suggestion.data?.home ?? null;
-  const work = suggestion.data?.work ?? null;
+  const home = suggestion.data ?? null;
   type SugRow = { cluster: Place; cat: PlaceCategory | null };
   const sortedSuggestions = useMemo((): SugRow[] => {
     const cat = (c: Place): PlaceCategory | null => {
       if (home && haversineMeters(c.latitude, c.longitude, home.latitude, home.longitude) < 60) return 'home';
-      if (work && haversineMeters(c.latitude, c.longitude, work.latitude, work.longitude) < 60) return 'work';
       return null;
     };
     return (clusters.data ?? [])
       .map((c: Place): SugRow => ({ cluster: c, cat: cat(c) }))
       .sort((a: SugRow, b: SugRow) => (b.cat ? 0 : 1) - (a.cat ? 0 : 1) || b.cluster.visitCount - a.cluster.visitCount);
-  }, [clusters.data, home, work]);
+  }, [clusters.data, home]);
   const visibleSuggestions = showAllSuggestions ? sortedSuggestions : sortedSuggestions.slice(0, 3);
 
   const openSuggestion = (c: Place, cat: PlaceCategory | null) =>
