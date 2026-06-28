@@ -120,6 +120,10 @@ export async function runPipelineIfSafe(
   qc: ReturnType<typeof useQueryClient>
 ): Promise<void> {
   const status = await MapozyTracker.getStatus().catch(() => null);
-  if (!shouldRunGivenMotion(status?.motionState ?? null)) return;
+  const safe = shouldRunGivenMotion({
+    isTracking: status?.isTracking ?? false,
+    motionState: status?.motionState ?? null,
+  });
+  if (!safe) return;
   await runPipelineAndInvalidate(db, qc);
 }

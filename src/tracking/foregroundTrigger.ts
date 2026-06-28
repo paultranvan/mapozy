@@ -48,15 +48,23 @@ export function shouldRunPipelineForForeground(
   return false;
 }
 
+export interface MotionGateInput {
+  isTracking: boolean;
+  motionState: 'moving' | 'stationary' | null;
+}
+
 /**
  * Pure gate for "soft" triggers (screen focus, pull-to-refresh, banner tap):
- * run the pipeline unless the device is actively moving. Running mid-motion
- * would fragment the in-progress trip; running while stationary is the safe
- * moment (segmentation sees a terminating stay). Unknown state errs toward
- * running — the worst case is a no-op pipeline pass, never corruption.
+ * run the pipeline unless a trip is actively in progress. A trip can only be
+ * in progress while we are BOTH tracking and moving — running then would
+ * fragment it. Running while stationary is the safe moment (segmentation sees
+ * a terminating stay).
+ *
+ * The `isTracking` guard matters: the native motionState is persisted and
+ * defaults to 'moving' on a fresh install / before tracking ever starts, so
+ * gating on motionState alone would wrongly block every run until the tracker
+ * has first declared a stationary state.
  */
-export function shouldRunGivenMotion(
-  motionState: 'moving' | 'stationary' | null
-): boolean {
-  return motionState !== 'moving';
+export function shouldRunGivenMotion(input: MotionGateInput): boolean {
+  return !(input.isTracking && input.motionState === 'moving');
 }

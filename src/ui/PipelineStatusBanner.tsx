@@ -20,6 +20,7 @@ export function PipelineStatusBanner() {
   const qc = useQueryClient();
   const run = usePipelineRunState();
   const [motionState, setMotionState] = useState<MotionState | null>(null);
+  const [isTracking, setIsTracking] = useState(false);
   const [unconsumed, setUnconsumed] = useState(0);
 
   const fetchOnce = useCallback(async () => {
@@ -29,6 +30,7 @@ export function PipelineStatusBanner() {
       countUnconsumedPoints(db),
     ]);
     setMotionState(status?.motionState ?? null);
+    setIsTracking(status?.isTracking ?? false);
     setUnconsumed(count);
   }, [db]);
 
@@ -49,6 +51,7 @@ export function PipelineStatusBanner() {
 
   const state = derivePipelineBannerState({
     running: run.running,
+    isTracking,
     motionState,
     unconsumedCount: unconsumed,
   });
