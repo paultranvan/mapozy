@@ -9,7 +9,7 @@ import {
   Pressable,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTripsList, usePlaces } from '@/queries/useTrips';
 import { useDb } from '@/db/DbContext';
@@ -20,6 +20,8 @@ import { Text } from '@/ui/Text';
 import { RecordingPill } from '@/ui/RecordingPill';
 import { useRecordingStatus } from '@/tracking/useRecordingStatus';
 import { refreshDraftTrips } from '@/tracking/refreshDrafts';
+import { runPipelineIfSafe } from '@/tracking/tracker';
+import { PipelineStatusBanner } from '@/ui/PipelineStatusBanner';
 import { TripSelectionBar } from '@/ui/TripSelectionBar';
 import { deleteTrips } from '@/db/trips';
 import { planRecompute, recomputeForTrips } from '@/pipeline/recomputeRange';
@@ -71,6 +73,12 @@ export default function TripsScreen() {
   const tripsQ = useTripsList(500);
   const placesQ = usePlaces();
   const recording = useRecordingStatus();
+
+  useFocusEffect(
+    useCallback(() => {
+      void runPipelineIfSafe(db, qc);
+    }, [db, qc])
+  );
 
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -159,6 +167,7 @@ export default function TripsScreen() {
   }, [selected, db, refreshAfterMutation, exitSelect]);
 
   const onRefresh = useCallback(async () => {
+    await runPipelineIfSafe(db, qc);
     const res = await refreshDraftTrips(db).catch(() => ({ enriched: 0, rateLimited: false }));
     if (res.rateLimited) {
       Alert.alert(
@@ -233,6 +242,7 @@ export default function TripsScreen() {
   return (
     <View style={styles.root}>
       {topBar}
+      <PipelineStatusBanner />
       {sections.length === 0 ? (
         <View style={styles.center}>
           <MaterialCommunityIcons
