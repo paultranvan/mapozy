@@ -47,3 +47,16 @@ export function shouldRunPipelineForForeground(
   if (oldestPointMs !== null && nowMs - oldestPointMs >= staleBypassMs) return true;
   return false;
 }
+
+/**
+ * Pure gate for "soft" triggers (screen focus, pull-to-refresh, banner tap):
+ * run the pipeline unless the device is actively moving. Running mid-motion
+ * would fragment the in-progress trip; running while stationary is the safe
+ * moment (segmentation sees a terminating stay). Unknown state errs toward
+ * running — the worst case is a no-op pipeline pass, never corruption.
+ */
+export function shouldRunGivenMotion(
+  motionState: 'moving' | 'stationary' | null
+): boolean {
+  return motionState !== 'moving';
+}
