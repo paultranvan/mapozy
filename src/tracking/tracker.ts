@@ -3,8 +3,9 @@ import type { TrackingConfig } from 'mapozy-tracker';
 import { runPipeline } from '../pipeline/runPipeline';
 import type { Db } from '../db/client';
 import { useQueryClient } from '@tanstack/react-query';
-import { shouldRunPipelineForForeground } from './foregroundTrigger';
+import { shouldRunPipelineForForeground, shouldRunGivenMotion } from './foregroundTrigger';
 import { makeOverpassDeps } from './overpassDeps';
+import { markPipelineRunStart, markPipelineRunEnd } from './pipelineStatus';
 
 export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
   desiredAccuracy: 'high',
@@ -42,11 +43,18 @@ export async function runPipelineAndInvalidate(
   db: Db,
   qc: ReturnType<typeof useQueryClient>
 ): Promise<void> {
-  const r = await runPipeline(db, { transit: makeOverpassDeps(db) });
-  if (r.tripsInserted > 0) {
-    await qc.invalidateQueries({ queryKey: ['trips'] });
-    await qc.invalidateQueries({ queryKey: ['stats'] });
-    await qc.invalidateQueries({ queryKey: ['places'] });
+  markPipelineRunStart();
+  let tripsInserted = 0;
+  try {
+    const r = await runPipeline(db, { transit: makeOverpassDeps(db) });
+    tripsInserted = r.tripsInserted;
+    if (r.tripsInserted > 0) {
+      await qc.invalidateQueries({ queryKey: ['trips'] });
+      await qc.invalidateQueries({ queryKey: ['stats'] });
+      await qc.invalidateQueries({ queryKey: ['places'] });
+    }
+  } finally {
+    markPipelineRunEnd(tripsInserted);
   }
 }
 
@@ -101,5 +109,17 @@ export async function runPipelineForForeground(
   const lastPointMs = row?.last ?? null;
   const oldestPointMs = row?.oldest ?? null;
   if (!shouldRunPipelineForForeground(lastPointMs, oldestPointMs, Date.now())) return;
+  await runPipelineAndInvalidate(db, qc);
+}
+
+/**
+ * Soft trigger: drain the pipeline unless we are currently moving.
+ */
+export async function runPipelineIfSafe(
+  db: Db,
+  qc: ReturnType<typeof useQueryClient>
+): Promise<void> {
+  const status = await MapozyTracker.getStatus().catch(() => null);
+  if (!shouldRunGivenMotion(status?.motionState ?? null)) return;
   await runPipelineAndInvalidate(db, qc);
 }
