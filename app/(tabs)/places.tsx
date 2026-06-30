@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { View, FlatList, Pressable, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapLibreGL, { MapView, Camera, PointAnnotation } from '@maplibre/maplibre-react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -58,6 +59,9 @@ function GhostBadge({ category = null }: { category?: PlaceCategory | null }) {
 export default function PlacesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  // Unmount this map while a map-bearing screen (place/[id]) is pushed on top —
+  // two live MapViews crash the app natively on Android. See app/day/[date].tsx.
+  const isFocused = useIsFocused();
   const [view, setView] = useState<'list' | 'map'>('list');
   const [showAllSuggestions, setShowAllSuggestions] = useState(false);
   const places = useUserPlaces();
@@ -146,7 +150,7 @@ export default function PlacesScreen() {
           )}
           ListEmptyComponent={EmptyPlaces}
         />
-      ) : (
+      ) : isFocused ? (
         <MapView style={styles.map} mapStyle={OSM_STYLE as unknown as string}>
           <Camera
             defaultSettings={{
@@ -170,7 +174,7 @@ export default function PlacesScreen() {
             </PointAnnotation>
           ))}
         </MapView>
-      )}
+      ) : null}
 
       <Pressable style={[styles.fab, { bottom: insets.bottom + space[4] }]} onPress={() => router.push({ pathname: '/place/[id]', params: { id: 'new' } })}>
         <MaterialCommunityIcons name="plus" size={28} color={colors.ground} />

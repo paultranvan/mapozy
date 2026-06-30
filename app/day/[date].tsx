@@ -7,6 +7,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Stack, useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ActivityIndicator } from 'react-native-paper';
@@ -78,6 +79,11 @@ export default function DayScreen() {
   const params = useLocalSearchParams<{ date: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  // Only mount the MapLibre MapView while this screen is focused. Expo-router
+  // keeps a screen mounted when another is pushed on top, so without this guard
+  // navigating day → trip detail leaves TWO MapViews alive at once, which crashes
+  // the app natively on Android. Unmounting on blur keeps it to one live map.
+  const isFocused = useIsFocused();
 
   // The visible day is local state seeded from the route param. Switching days
   // updates this state in place — NO navigation — so React just re-renders the
@@ -194,9 +200,9 @@ export default function DayScreen() {
     <View style={styles.root}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={StyleSheet.absoluteFill}>
-        {tripsQ.isLoading ? (
+        {tripsQ.isLoading || !isFocused ? (
           <View style={styles.center}>
-            <ActivityIndicator color={colors.inkOnGround} />
+            {tripsQ.isLoading ? <ActivityIndicator color={colors.inkOnGround} /> : null}
           </View>
         ) : (
           <DayMap

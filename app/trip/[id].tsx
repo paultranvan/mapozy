@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -74,6 +75,10 @@ export default function TripDetailScreen() {
   const { startPoi, endPoi } = useTripEndpointPois(startPlaceQ.data, endPlaceQ.data);
   const sheetRef = useRef<BottomSheet>(null);
   const insets = useSafeAreaInsets();
+  // Only mount the MapLibre MapView while focused — see app/day/[date].tsx for
+  // the rationale. Two coexisting MapViews (e.g. trip → "Name this place", which
+  // pushes the map-bearing place screen) crash the app natively on Android.
+  const isFocused = useIsFocused();
 
   useEffect(() => {
     if (!tripQ.data) return;
@@ -257,7 +262,7 @@ export default function TripDetailScreen() {
     <View style={styles.root}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={StyleSheet.absoluteFill}>
-        <TripMap trip={trip} />
+        {isFocused ? <TripMap trip={trip} /> : null}
       </View>
       <FloatingIconButton
         icon="chevron-left"

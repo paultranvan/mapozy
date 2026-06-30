@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, TextInput, Pressable, ScrollView, StyleSheet, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import MapLibreGL, {
   MapView,
   Camera,
@@ -41,6 +42,9 @@ export default function PlaceEditor() {
     name?: string;
   }>();
   const router = useRouter();
+  // Only mount the MapLibre MapView while focused — see app/day/[date].tsx.
+  // Keeps a single live MapView when this screen stacks over a map-bearing one.
+  const isFocused = useIsFocused();
   const isNew = params.id === 'new';
   const editId = isNew ? null : Number(params.id);
   const existing = useUserPlace(editId);
@@ -250,6 +254,7 @@ export default function PlaceEditor() {
       )}
 
       <View style={styles.mapBox}>
+        {!isFocused ? null : (
         <MapView style={{ flex: 1 }} mapStyle={OSM_STYLE as unknown as string}>
           <Camera centerCoordinate={coord} zoomLevel={15} animationDuration={0} />
           <ShapeSource id="radiusRing" shape={ring}>
@@ -272,6 +277,7 @@ export default function PlaceEditor() {
             <PlaceBadge category={category} />
           </PointAnnotation>
         </MapView>
+        )}
       </View>
 
       <View style={styles.radiusRow}>
