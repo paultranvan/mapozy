@@ -14,6 +14,7 @@ import { findOrCreatePlace, getPlaceById } from '../db/places';
 import { haversineMeters } from '../lib/distance';
 import { insertTripWithSections } from '../db/trips';
 import { getSetting, setSetting, SETTING_KEYS } from '../db/settings';
+import { insertDiagnosticEvent } from '../db/diagnostics';
 import { accuracyFilter } from './accuracyFilter';
 import { segmentation } from './segmentation';
 import { smoothing } from './smoothing';
@@ -246,7 +247,17 @@ async function runPipelineLocked(
       try {
         await enrichTripTransit(opts.transit, tripId);
       } catch (err) {
+        // Non-Overpass throw → trip stays a draft with no draftReason. Persist
+        // it (not just console.warn) so the next export can root-cause it.
         console.warn('[runPipeline] transit enrichment failed', err);
+        await insertDiagnosticEvent(db, now, 'transit_enrich_error', {
+          source: 'runPipeline',
+          tripId,
+          message: String((err as Error)?.message ?? err),
+          stack: (err as Error)?.stack ?? null,
+        }).catch(() => {
+          /* diagnostics are best-effort */
+        });
       }
     }
   }

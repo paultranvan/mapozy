@@ -1,6 +1,7 @@
 import type { Db } from '../db/client';
 import type { OverpassDeps } from '../lib/overpass';
 import { listDraftTripIds } from '../db/trips';
+import { insertDiagnosticEvent } from '../db/diagnostics';
 import { enrichTripTransit } from '../pipeline/transit/transitEnrichment';
 import { makeOverpassDeps } from './overpassDeps';
 
@@ -33,7 +34,18 @@ export async function refreshDraftTrips(
         break; // further calls would just hit the same 429
       }
     } catch (err) {
+      // A NON-Overpass throw escapes enrichTripTransit's typed catch, so the
+      // trip is left as a draft with no draftReason and no refresh can clear it.
+      // Persist it (not just console.warn) so the next export pins the cause.
       console.warn('[refreshDraftTrips] enrichment failed for trip', id, err);
+      await insertDiagnosticEvent(db, Date.now(), 'transit_enrich_error', {
+        source: 'refreshDraftTrips',
+        tripId: id,
+        message: String((err as Error)?.message ?? err),
+        stack: (err as Error)?.stack ?? null,
+      }).catch(() => {
+        /* diagnostics are best-effort — never mask the original failure */
+      });
     }
   }
   return { enriched, rateLimited };
