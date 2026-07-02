@@ -187,6 +187,36 @@ export const RULES = {
     { radiusM: 70 }
   ),
 
+  BUS_CORRIDOR: rule(
+    'RULE_BUS_CORRIDOR',
+    'A door-to-door bus ride has NO transit stop at its section endpoints ' +
+      '(they are the rider\'s home/work), so endpoint matching misses it. ' +
+      'Instead score each bus route_ref by its stops within stopRadiusM of ' +
+      'the trace POLYLINE (stop→line, not line→sampled-points: stops are ' +
+      '~350 m apart so point sampling aliases) on three signals — ' +
+      'count+density, span along the section, and dwell (trace slows under ' +
+      'dwellSpeedMps within dwellNearM of the stop: a bus SERVES stops, a car ' +
+      'passes them). Any 2 of 3 ⇒ bus. Thresholds fitted on the 2026-07-02 ' +
+      'tester export: real rides each fail one signal (power-save GPS thins ' +
+      'dwells, door-to-door legs dilute span) while a car along a bus ' +
+      'corridor passes at most one. Guards: section ≥ minDistanceM, average ' +
+      'speed ≤ maxAvgSpeedMps (~40 km/h) so motorway drives never qualify. ' +
+      'cellProbe* pick which stop-cache cells to load along the path.',
+    {
+      stopRadiusM: 60,
+      minStops: 10,
+      minDensityPerKm: 1.0,
+      minSpan: 0.65,
+      minDwellFrac: 0.5,
+      dwellNearM: 80,
+      dwellSpeedMps: 2.5,
+      minDistanceM: 1500,
+      maxAvgSpeedMps: 11,
+      cellProbeEveryM: 400,
+      cellProbeRadiusM: 900,
+    }
+  ),
+
   SUBWAY_GAP: rule(
     'RULE_SUBWAY_GAP',
     'A gap-derived break (no GPS during the stop) of plausible ride length and ' +

@@ -19,7 +19,7 @@ import { effectiveMode } from '../effectiveMode';
 import { mapMatch, type Costing } from '../../lib/valhalla';
 import { RULES } from '../rules';
 import type { Mode } from '../../types';
-import { classifySection } from './classifySection';
+import { classifyBusCorridor, classifySection, samplePathEvery } from './classifySection';
 import {
   isMetroStation,
   qualifiesAsSubwayGap,
@@ -34,6 +34,7 @@ import {
   OverpassOfflineError,
   OverpassUnavailableError,
   type OverpassDeps,
+  type TransitStop,
 } from '../../lib/overpass';
 
 export interface EnrichResult {
@@ -105,17 +106,40 @@ export async function enrichTripTransit(
       // subway surfacing only near stations), and those chords bow far off the
       // curved track — tanking rail coverage. The raw fixes sit on the rail.
       // Fall back to the resampled trace when raw points aren't available.
-      const rawFixes = (await getPointsInRange(db, sec.startTimeMs, sec.endTimeMs))
-        .filter((p) => p.accuracyMeters <= maxAccM)
-        .map((p) => [p.longitude, p.latitude] as [number, number]);
-      const coords = rawFixes.length >= 2 ? rawFixes : coordsOf(sec.geojson);
+      const rawPoints = (await getPointsInRange(db, sec.startTimeMs, sec.endTimeMs)).filter(
+        (p) => p.accuracyMeters <= maxAccM
+      );
+      const rawFixes = rawPoints.map((p) => [p.longitude, p.latitude] as [number, number]);
+      const useRaw = rawFixes.length >= 2;
+      const coords = useRaw ? rawFixes : coordsOf(sec.geojson);
       if (coords.length < 2) continue;
       const ways = await getRailwaysNear(deps, coords);
       const start = coords[0]!;
       const end = coords[coords.length - 1]!;
       const startStops = await getStopsNear(deps, start[1], start[0], radius);
       const endStops = await getStopsNear(deps, end[1], end[0], radius);
-      const cls = classifySection({ coords, ways, startStops, endStops });
+      let cls = classifySection({ coords, ways, startStops, endStops });
+      if (!cls) {
+        // Step 4 — door-to-door bus: endpoints are home/work, not stops, so
+        // endpoint matching missed it. Gather the bus stops lining the path
+        // (probing one cache cell every ~400 m) and score route corridors.
+        // Guarded to plausible bus legs so motorway drives skip the lookups.
+        const bc = RULES.BUS_CORRIDOR.defaults;
+        const avgSpeed = sec.distanceM / Math.max(1, sec.durationS);
+        if (sec.distanceM >= bc.minDistanceM && avgSpeed <= bc.maxAvgSpeedMps) {
+          const seen = new Map<number, TransitStop>();
+          for (const p of samplePathEvery(coords, bc.cellProbeEveryM)) {
+            for (const s of await getStopsNear(deps, p[1], p[0], bc.cellProbeRadiusM)) {
+              seen.set(s.id, s);
+            }
+          }
+          cls = classifyBusCorridor({
+            path: coords,
+            speeds: useRaw ? rawPoints.map((p) => p.speedMps ?? null) : coords.map(() => null),
+            stops: [...seen.values()],
+          });
+        }
+      }
       if (cls) {
         const co2 = co2GramsForSection(cls.mode, sec.distanceM);
         await updateSectionClassification(db, sec.id, cls.mode, cls.modeSource, cls.modeConfidence, co2);

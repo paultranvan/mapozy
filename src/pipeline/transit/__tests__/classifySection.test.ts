@@ -97,3 +97,82 @@ describe('classifySection — bus route_ref', () => {
     ).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Bus corridor (step 4) — door-to-door bus with no stop at either endpoint.
+// ---------------------------------------------------------------------------
+import { classifyBusCorridor, samplePathEvery } from '../classifySection';
+
+function busStop(id: number, routeRef: string): TransitStop {
+  return { id, lat: lat0, lon: lon0, busStop: true, routeRef };
+}
+
+describe('samplePathEvery', () => {
+  it('samples roughly one point per everyM of path length', () => {
+    // 0.0005° lat ≈ 55.6 m per step; 100 steps ≈ 5.56 km.
+    const coords: Array<[number, number]> = [];
+    for (let i = 0; i <= 100; i++) coords.push([lon0, lat0 + 0.0005 * i]);
+    const samples = samplePathEvery(coords, 400);
+    expect(samples.length).toBeGreaterThanOrEqual(13);
+    expect(samples.length).toBeLessThanOrEqual(16);
+    expect(samples[0]).toEqual(coords[0]);
+  });
+
+  it('handles empty and single-point input', () => {
+    expect(samplePathEvery([], 400)).toEqual([]);
+    expect(samplePathEvery([[lon0, lat0]], 400)).toEqual([[lon0, lat0]]);
+  });
+});
+
+describe('classifyBusCorridor', () => {
+  // A ~5.5 km north-south path, one point every ~55.6 m (0.0005° lat).
+  const path: Array<[number, number]> = [];
+  for (let i = 0; i <= 100; i++) path.push([lon0, lat0 + 0.0005 * i]);
+  const slowEverywhere = path.map(() => 1.0);
+  const fastEverywhere = path.map(() => 8.0);
+  // Bus stops of route "183" every ~390 m along the whole path, right on it.
+  const lineStops = (ref: string, everyPts = 7, offLon = 0): TransitStop[] => {
+    const out: TransitStop[] = [];
+    for (let i = 0; i < path.length; i += everyPts) {
+      out.push({ id: 1000 + i, lat: path[i]![1], lon: path[i]![0] + offLon, busStop: true, routeRef: ref });
+    }
+    return out;
+  };
+
+  it('one line hugging the whole trace with dwells → bus (3 votes)', () => {
+    const r = classifyBusCorridor({ path, speeds: slowEverywhere, stops: lineStops('183') });
+    expect(r?.mode).toBe('bus');
+    expect(r?.modeSource).toBe('corridor');
+    expect(r?.modeConfidence).toBe(0.8);
+  });
+
+  it('full corridor but no dwells (power-save GPS) → still bus (2 votes)', () => {
+    const r = classifyBusCorridor({ path, speeds: fastEverywhere, stops: lineStops('183') });
+    expect(r?.mode).toBe('bus');
+    expect(r?.modeConfidence).toBe(0.6);
+  });
+
+  it('few stops over a small part of the trace → null (car crossing a line)', () => {
+    // 5 stops clustered on the first fifth of the path, no dwells.
+    const stops = lineStops('62').slice(0, 5).map((s, i) => ({ ...s, lat: path[i * 2]![1], lon: path[i * 2]![0] }));
+    expect(classifyBusCorridor({ path, speeds: fastEverywhere, stops })).toBeNull();
+  });
+
+  it('stops far from the polyline never vote', () => {
+    // Same line but shifted ~800 m east of the path.
+    const r = classifyBusCorridor({ path, speeds: slowEverywhere, stops: lineStops('183', 7, 0.011) });
+    expect(r).toBeNull();
+  });
+
+  it('non-bus stops and refless stops are ignored', () => {
+    const rail: TransitStop[] = path
+      .filter((_, i) => i % 7 === 0)
+      .map((c, i) => ({ id: i, lat: c[1], lon: c[0], busStop: false, routeRef: 'C', railway: 'station' }));
+    expect(classifyBusCorridor({ path, speeds: slowEverywhere, stops: rail })).toBeNull();
+  });
+
+  it('degenerate paths return null', () => {
+    expect(classifyBusCorridor({ path: [], speeds: [], stops: [] })).toBeNull();
+    expect(classifyBusCorridor({ path: [[lon0, lat0]], speeds: [null], stops: [] })).toBeNull();
+  });
+});

@@ -24,12 +24,14 @@ export type DominantMode = Mode | 'mixed';
 //   'speed'      — p75-speed fallback
 //   'railmatch'  — trace follows OSM railway geometry
 //   'station'    — endpoints matched transit stops / routes
+//   'corridor'   — bus stops of one route line the trace (door-to-door bus)
 //   'gap'        — underground subway gap converted to a section (Plan C)
 export type ModeSource =
   | 'activity'
   | 'speed'
   | 'railmatch'
   | 'station'
+  | 'corridor'
   | 'gap'
   | 'manual';
 
