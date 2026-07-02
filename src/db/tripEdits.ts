@@ -2,6 +2,7 @@ import type { Db } from './client';
 import type { Mode, Section, TripBreak } from '../types';
 import {
   getTripById,
+  getTripsByIds,
   setTripEditFlags,
   replaceTripSectionsAndBreaks,
   updateTripTimes,
@@ -19,7 +20,8 @@ import {
   splitSectionAt,
   parseCoords,
 } from '../pipeline/edits/sectionGeometry';
-import { planRecompute, recomputeForTrips } from '../pipeline/recomputeRange';
+import { planRecompute, recomputeForTrips, MissingRawDataError } from '../pipeline/recomputeRange';
+import { countPointsInRange } from './rawPoints';
 import type { OverpassDeps } from '../lib/overpass';
 
 // Two merged trips whose join is farther apart than this are treated as having
@@ -266,6 +268,14 @@ export async function resetTripToAuto(
   nowMs: number = Date.now(),
   transit?: OverpassDeps
 ): Promise<void> {
+  // Check raw availability BEFORE discarding any edit state: reset on a
+  // purged range must fail cleanly, not strip edits and then throw.
+  const [trip] = await getTripsByIds(db, [tripId]);
+  if (!trip) return;
+  if ((await countPointsInRange(db, trip.startTimeMs, trip.endTimeMs)) === 0) {
+    throw new MissingRawDataError([tripId]);
+  }
+
   // Clear overrides BEFORE recompute so they aren't snapshotted and reapplied
   // to the rebuilt sections — reset must discard every manual edit.
   await db.runAsync(

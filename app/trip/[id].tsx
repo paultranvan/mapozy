@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet, Pressable } from 'react-native';
+import { Alert, View, StyleSheet, Pressable } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
@@ -23,6 +23,7 @@ import {
   mergeTrips,
   resetTripToAuto,
 } from '@/db/tripEdits';
+import { MissingRawDataError } from '@/pipeline/recomputeRange';
 import { locateSplitPoint } from '@/pipeline/edits/locateSplitPoint';
 import { makeOverpassDeps } from '@/tracking/overpassDeps';
 import { geocodePlaceLazy } from '@/pipeline/geocoding';
@@ -211,7 +212,17 @@ export default function TripDetailScreen() {
         icon: 'backup-restore',
         onPress: async () => {
           const origStartMs = trip.startTimeMs;
-          await resetTripToAuto(db, id, Date.now(), makeOverpassDeps(db));
+          try {
+            await resetTripToAuto(db, id, Date.now(), makeOverpassDeps(db));
+          } catch (e) {
+            Alert.alert(
+              "Can't reset",
+              e instanceof MissingRawDataError
+                ? 'The raw GPS data behind this trip has been cleaned up (90-day retention), so it can no longer be rebuilt.'
+                : String(e)
+            );
+            return;
+          }
           await refresh();
           // Reset deletes & rebuilds the trip with a fresh id, so the current
           // /trip/{id} route is now stale. Re-locate the rebuilt trip covering

@@ -116,6 +116,16 @@ function unlockedSubRanges(
   return out;
 }
 
+export class MissingRawDataError extends Error {
+  constructor(public tripIds: number[]) {
+    super(
+      `Raw GPS data is missing for ${tripIds.length} trip(s); ` +
+        `recomputing would delete them with nothing to rebuild from`
+    );
+    this.name = 'MissingRawDataError';
+  }
+}
+
 export async function recomputeForTrips(
   db: Db,
   plan: RecomputePlan,
@@ -124,6 +134,14 @@ export async function recomputeForTrips(
 ): Promise<RunPipelineResult> {
   if (plan.inRangeTripIds.length === 0) {
     return { tripsInserted: 0, pointsConsumed: 0, activitiesConsumed: 0 };
+  }
+
+  // Raw points for these trips were purged (90-day retention) or never
+  // imported: deleting and re-running the pipeline would destroy the trips
+  // with nothing to rebuild them from. The trips screen pre-checks this, but
+  // enforce it here so every caller (resetTripToAuto, future ones) is safe.
+  if (plan.missingRawTripIds.length > 0) {
+    throw new MissingRawDataError(plan.missingRawTripIds);
   }
 
   const savedSeed = await getSetting(db, SETTING_KEYS.LAST_KNOWN_PLACE_ID);
