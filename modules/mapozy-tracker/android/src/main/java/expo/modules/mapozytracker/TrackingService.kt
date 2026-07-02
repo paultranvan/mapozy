@@ -530,7 +530,13 @@ class TrackingService : Service() {
     TrackingState.setState(this, TrackingState.STATE_STATIONARY)
     unsubscribeLocation()
     TrackingState.clearRecentGpsSamples(this)
-    armGeofence()
+    // Arm at THIS stop's position. armGeofence() alone would reuse the persisted
+    // center from the previous stop (it is never cleared), so every later stop
+    // would re-arm on the first stop's location — being outside that stale fence
+    // immediately re-fires geofence_exit and the state bounces back to moving
+    // forever (phantom "trip in progress", auto-pipeline never runs).
+    val stopCenter = if (lat != null && lng != null) Pair(lat, lng) else null
+    armGeofence(stopCenter ?: TrackingState.getLastLocationCoords(this))
     val payload = JsonObj().apply {
       put("trigger", trigger)
       put("stoppedAtMs", stoppedAtMs)
@@ -578,8 +584,14 @@ class TrackingService : Service() {
     TrackingState.clearStopDeadline(this)
   }
 
-  private fun armGeofence() {
-    val center = TrackingState.getGeofenceCenter(this)
+  /**
+   * Arm the stationary geofence. Pass [freshCenter] when a NEW stop begins so the
+   * fence is anchored at the actual stop position. Without it (service restart or
+   * watchdog re-arm while already stationary) the persisted center is reused.
+   */
+  private fun armGeofence(freshCenter: Pair<Double, Double>? = null) {
+    val center = freshCenter
+      ?: TrackingState.getGeofenceCenter(this)
       ?: TrackingState.getLastLocationCoords(this)
       ?: run {
         Log.w("mapozy", "armGeofence: no known location yet; skipping")
