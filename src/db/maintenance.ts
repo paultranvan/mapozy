@@ -27,6 +27,12 @@ export async function maybeVacuum(db: Db): Promise<boolean> {
     pages > 0 &&
     (freelist / pages > VACUUM_MIN_FREE_RATIO || freelist * pageSize > VACUUM_MIN_FREE_BYTES);
   if (!worthIt) return false;
+  // Accepted risk: the native tracker writes raw points into mapozy.db via
+  // android.database.sqlite (outside the JS pipeline chain). A long VACUUM can
+  // exceed its ~2.5s busy timeout and drop a fix (swallowed insert, no retry).
+  // Bounded: at most once/day, pipeline fires when movement has stopped, and a
+  // VACUUM that itself hits SQLITE_BUSY throws, is caught upstream, and retries
+  // the next day.
   await db.execAsync('VACUUM');
   return true;
 }

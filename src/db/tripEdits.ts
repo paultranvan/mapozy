@@ -272,7 +272,9 @@ export async function resetTripToAuto(
   // purged range must fail cleanly, not strip edits and then throw.
   const [trip] = await getTripsByIds(db, [tripId]);
   if (!trip) return;
-  if ((await countPointsInRange(db, trip.startTimeMs, trip.endTimeMs)) === 0) {
+  if ((await countPointsInRange(db, trip.startTimeMs, trip.endTimeMs)) < 2) {
+    // Pipeline needs ≥ 2 raw points to rebuild; a single surviving point is
+    // not enough to reconstruct the trip, so treat it like a purged range.
     throw new MissingRawDataError([tripId]);
   }
 

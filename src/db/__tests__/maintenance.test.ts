@@ -94,4 +94,19 @@ describe('pipeline wiring', () => {
     await runPipeline(db, { upToMs: NOW2, nowMs: NOW2 });
     expect(await countDiagnosticEvents(db, { type: 'db_maintenance' })).toBe(1);
   });
+
+  it('cache-open failure does not abort maintenance or raw purge', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    const NOW2 = 300 * 24 * 60 * 60 * 1000;
+    await seedPoint(db, NOW2 - 60_000, false);
+    await seedPoint(db, NOW2 - 30_000, false);
+    const transit = {
+      db,
+      cacheDb: async (): Promise<never> => { throw new Error('disk full'); },
+      fetchFn: async (): Promise<never> => { throw new Error('offline'); },
+    };
+    await runPipeline(db, { upToMs: NOW2, nowMs: NOW2, transit });
+    expect(await countDiagnosticEvents(db, { type: 'db_maintenance' })).toBe(1);
+  });
 });

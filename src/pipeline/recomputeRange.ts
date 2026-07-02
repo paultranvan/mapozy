@@ -74,7 +74,7 @@ export async function planRecompute(
   const missingRawTripIds: number[] = [];
   for (const t of deletable) {
     const n = await countPointsInRange(db, t.startTimeMs, t.endTimeMs);
-    if (n === 0) missingRawTripIds.push(t.id!);
+    if (n < 2) missingRawTripIds.push(t.id!); // pipeline needs ≥ 2 raw points to rebuild
   }
 
   return {

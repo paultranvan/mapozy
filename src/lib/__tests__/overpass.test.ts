@@ -160,9 +160,7 @@ describe('overpass — getRailwaysNear (tiled cache)', () => {
   it('covers tiles crossed mid-segment by long chords (subway gap interpolation)', async () => {
     // Two fixes 3 tiles apart with nothing in between: the middle tile must
     // still be fetched/cached, otherwise ways there would be invisible.
-    let bboxes: string[] = [];
-    const deps = await mkDeps(async (_url: any, init: any) => {
-      bboxes.push(String(init.body));
+    const deps = await mkDeps(async () => {
       return fakeResponse({ elements: [] });
     });
     await getRailwaysNear(deps, [[5.01, 45.01], [5.16, 45.01]]); // tiles x=100..103

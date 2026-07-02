@@ -2,6 +2,7 @@
 import { createMockDb } from '../../db/mockDb';
 import { runMigrations } from '../../db/migrations';
 import { insertTripWithSections, getTripsByIds, setTripEditFlags } from '../../db/trips';
+import { insertRawPoint } from '../../db/rawPoints';
 import { recomputeForTrips, MissingRawDataError, type RecomputePlan } from '../recomputeRange';
 import { resetTripToAuto } from '../../db/tripEdits';
 import type { Trip } from '../../types';
@@ -64,5 +65,21 @@ describe('recompute guard on purged raw data', () => {
       tripId
     );
     expect(row?.edited).toBe(1); // edit state untouched
+  });
+
+  it('resetTripToAuto refuses when exactly one raw point survives (pipeline needs ≥ 2)', async () => {
+    // One point inside the trip window — not enough for the pipeline to rebuild.
+    await insertRawPoint(db, {
+      timestampMs: 1500,
+      latitude: 45,
+      longitude: 5,
+      altitude: null,
+      accuracyMeters: 5,
+      speedMps: null,
+      bearingDeg: null,
+      batteryLevel: null,
+      isCharging: false,
+    });
+    await expect(resetTripToAuto(db, tripId, 99_999)).rejects.toThrow(MissingRawDataError);
   });
 });

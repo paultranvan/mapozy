@@ -268,7 +268,7 @@ async function runPipelineLocked(
   // fail the pipeline run. Cache eviction is skipped when transit is off
   // (the cache isn't growing then either).
   try {
-    const cacheDb = opts.transit ? await opts.transit.cacheDb() : null;
+    const cacheDb = opts.transit ? await opts.transit.cacheDb().catch(() => null) : null;
     await runDbMaintenance(db, cacheDb, now);
   } catch (err) {
     console.warn('[runPipeline] db maintenance failed', err);
