@@ -71,14 +71,6 @@ let lastFetchMs = 0;
 function snap(v: number): number {
   return Math.floor(v / GRID_DEG) * GRID_DEG;
 }
-function snapBBox(b: BBox): BBox {
-  return {
-    south: Math.floor(b.south / GRID_DEG) * GRID_DEG,
-    west: Math.floor(b.west / GRID_DEG) * GRID_DEG,
-    north: Math.ceil(b.north / GRID_DEG) * GRID_DEG,
-    east: Math.ceil(b.east / GRID_DEG) * GRID_DEG,
-  };
-}
 function r5(v: number): number {
   return Math.round(v * 1e5) / 1e5;
 }
@@ -239,22 +231,130 @@ export async function getStopsNear(
   return stops.filter((s) => haversineMeters(lat, lon, s.lat, s.lon) <= radiusM);
 }
 
-export async function getRailwaysIn(
+const TILE_DEG = 0.05; // ~5.5 km latitude — dedup unit for railway geometry
+const TILE_CHUNK = 12; // max tiles per Overpass query (keeps responses small)
+
+interface Tile {
+  tx: number;
+  ty: number;
+}
+
+function tileKey(t: Tile): string {
+  return `waystile:${t.tx}:${t.ty}`;
+}
+
+function tileBBox(t: Tile): BBox {
+  return {
+    south: t.ty * TILE_DEG,
+    west: t.tx * TILE_DEG,
+    north: (t.ty + 1) * TILE_DEG,
+    east: (t.tx + 1) * TILE_DEG,
+  };
+}
+
+// Tiles crossed by the polyline, in path order. Endpoints alone can skip a
+// tile when a segment is long (GPS gaps interpolate multi-km chords), so long
+// segments are sampled every half-tile.
+function tilesForPath(coords: Array<[number, number]>): Tile[] {
+  const seen = new Set<string>();
+  const out: Tile[] = [];
+  const add = (lon: number, lat: number) => {
+    const tx = Math.floor(lon / TILE_DEG);
+    const ty = Math.floor(lat / TILE_DEG);
+    const k = `${tx}:${ty}`;
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push({ tx, ty });
+    }
+  };
+  for (let i = 0; i < coords.length; i++) {
+    const [lon, lat] = coords[i]!;
+    add(lon, lat);
+    if (i + 1 < coords.length) {
+      const [lon2, lat2] = coords[i + 1]!;
+      const span = Math.max(Math.abs(lon2 - lon), Math.abs(lat2 - lat));
+      const steps = Math.ceil(span / (TILE_DEG / 2));
+      for (let s = 1; s < steps; s++) {
+        add(lon + ((lon2 - lon) * s) / steps, lat + ((lat2 - lat) * s) / steps);
+      }
+    }
+  }
+  return out;
+}
+
+function padBBox(b: BBox, pad: number): BBox {
+  return { south: b.south - pad, west: b.west - pad, north: b.north + pad, east: b.east + pad };
+}
+
+function bboxIntersects(a: BBox, b: BBox): boolean {
+  return a.south <= b.north && a.north >= b.south && a.west <= b.east && a.east >= b.west;
+}
+
+function wayBBox(w: RailwayWay): BBox {
+  let south = 90;
+  let west = 180;
+  let north = -90;
+  let east = -180;
+  for (const [lon, lat] of w.coords) {
+    if (lat < south) south = lat;
+    if (lat > north) north = lat;
+    if (lon < west) west = lon;
+    if (lon > east) east = lon;
+  }
+  return { south, west, north, east };
+}
+
+function roundWay(w: RailwayWay): RailwayWay {
+  return { ...w, coords: w.coords.map(([lon, lat]) => [r5(lon), r5(lat)] as [number, number]) };
+}
+
+/**
+ * Railway ways near a section's polyline, cached per fixed 0.05° tile so
+ * near-identical trips share cache rows instead of re-querying (and
+ * re-storing) whole per-trip bboxes. Missing tiles are fetched in chunks of
+ * TILE_CHUNK via one bounding-rect query each; every fetched tile is cached,
+ * empty ones included. Returned set is deduped by way id and may extend
+ * slightly beyond the path's surroundings (harmless: callers measure
+ * point-to-way distance).
+ */
+export async function getRailwaysNear(
   deps: OverpassDeps,
-  bbox: BBox
+  coords: Array<[number, number]>
 ): Promise<RailwayWay[]> {
   const now = (deps.nowMs ?? Date.now)();
-  const snapped = snapBBox(bbox);
-  const key = `ways:${r5(snapped.south)}:${r5(snapped.west)}:${r5(snapped.north)}:${r5(snapped.east)}`;
-  let ways = await cacheGet<RailwayWay[]>(deps, key, now);
-  if (ways === null) {
-    const { south, west, north, east } = snapped;
-    const q =
-      `[out:json][timeout:60];` +
-      `way["railway"~"^(rail|light_rail|subway|tram|narrow_gauge)$"](${south},${west},${north},${east});` +
-      `out geom;`;
-    ways = parseWays(await overpassFetch(deps, q));
-    await cacheSet(deps, key, 'ways', ways, now);
+  const tiles = tilesForPath(coords);
+  const byId = new Map<number, RailwayWay>();
+  const missing: Tile[] = [];
+  for (const t of tiles) {
+    const cached = await cacheGet<RailwayWay[]>(deps, tileKey(t), now);
+    if (cached === null) missing.push(t);
+    else for (const w of cached) byId.set(w.id, w);
   }
-  return ways;
+  for (let i = 0; i < missing.length; i += TILE_CHUNK) {
+    const chunk = missing.slice(i, i + TILE_CHUNK);
+    let rect = tileBBox(chunk[0]!);
+    for (const t of chunk.slice(1)) {
+      const b = tileBBox(t);
+      rect = {
+        south: Math.min(rect.south, b.south),
+        west: Math.min(rect.west, b.west),
+        north: Math.max(rect.north, b.north),
+        east: Math.max(rect.east, b.east),
+      };
+    }
+    const q = padBBox(rect, PAD_DEG);
+    const query =
+      `[out:json][timeout:60];` +
+      `way["railway"~"^(rail|light_rail|subway|tram|narrow_gauge)$"](${q.south},${q.west},${q.north},${q.east});` +
+      `out geom;`;
+    const ways = parseWays(await overpassFetch(deps, query)).map(roundWay);
+    for (const t of chunk) {
+      // Pad the tile so border-hugging ways land in both neighbours.
+      const padded = padBBox(tileBBox(t), PAD_DEG);
+      const tileWays = ways.filter((w) => bboxIntersects(wayBBox(w), padded));
+      await cacheSet(deps, tileKey(t), 'ways', tileWays, now);
+      for (const w of tileWays) byId.set(w.id, w);
+    }
+  }
+  return [...byId.values()];
 }

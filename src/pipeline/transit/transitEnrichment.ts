@@ -28,13 +28,12 @@ import {
   recomputeTotals,
 } from './subwayGaps';
 import {
-  getRailwaysIn,
+  getRailwaysNear,
   getStopsNear,
   OverpassRateLimitError,
   OverpassOfflineError,
   OverpassUnavailableError,
   type OverpassDeps,
-  type BBox,
 } from '../../lib/overpass';
 
 export interface EnrichResult {
@@ -50,21 +49,6 @@ function coordsOf(geojson: string): Array<[number, number]> {
   } catch {
     return [];
   }
-}
-
-function bboxOf(coords: Array<[number, number]>): BBox {
-  if (coords.length === 0) throw new Error('bboxOf: empty coords');
-  let south = 90;
-  let west = 180;
-  let north = -90;
-  let east = -180;
-  for (const [lon, lat] of coords) {
-    if (lat < south) south = lat;
-    if (lat > north) north = lat;
-    if (lon < west) west = lon;
-    if (lon > east) east = lon;
-  }
-  return { south, west, north, east };
 }
 
 function firstCoord(geojson: string): [number, number] | null {
@@ -126,7 +110,7 @@ export async function enrichTripTransit(
         .map((p) => [p.longitude, p.latitude] as [number, number]);
       const coords = rawFixes.length >= 2 ? rawFixes : coordsOf(sec.geojson);
       if (coords.length < 2) continue;
-      const ways = await getRailwaysIn(deps, bboxOf(coords));
+      const ways = await getRailwaysNear(deps, coords);
       const start = coords[0]!;
       const end = coords[coords.length - 1]!;
       const startStops = await getStopsNear(deps, start[1], start[0], radius);
