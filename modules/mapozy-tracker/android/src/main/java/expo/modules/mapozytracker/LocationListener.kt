@@ -89,20 +89,34 @@ class LocationListener(private val context: Context) : LocationCallback() {
 
   private fun checkGpsStationary(currentTs: Long, currentLat: Double, currentLng: Double) {
     if (TrackingState.getState(context) != TrackingState.STATE_MOVING) return
+    // Retention is much longer than the stop window on purpose: Doze throttles
+    // fixes to 15–30 min at rest, and a ring pruned to STOP_TIMEOUT_MS then
+    // never holds 3 samples at once (see GPS_STATIONARY_RETENTION_MS).
     TrackingState.addRecentGpsSample(
-      context, currentTs, currentLat, currentLng, TrackingRules.STOP_TIMEOUT_MS
+      context, currentTs, currentLat, currentLng, TrackingRules.GPS_STATIONARY_RETENTION_MS
     )
     val samples = TrackingState.getRecentGpsSamples(context)
-    // Require enough samples to be confident this isn't a coincidental
-    // 2-fix cluster — and the window must actually span STOP_TIMEOUT_MS.
     if (samples.size < 3) return
-    val oldest = samples.first()
-    if (currentTs - oldest.ts < TrackingRules.STOP_TIMEOUT_MS) return
-    // Pairwise check against the oldest sample catches a slow drift (where
-    // the centroid would still look stationary) — if ANY sample is beyond
-    // the radius from the oldest, the device has been moving.
+    // Only the trailing run of same-place fixes counts: the long ring may
+    // still hold pre-stop travel samples (e.g. the drive home), which must not
+    // veto a stop that happened after them. Walk back from the newest fix and
+    // keep samples within the stationary radius of it.
+    var suffixStart = samples.size - 1
     val out = FloatArray(1)
-    for (s in samples) {
+    for (i in samples.size - 2 downTo 0) {
+      AndroidLocation.distanceBetween(samples[i].lat, samples[i].lng, currentLat, currentLng, out)
+      if (out[0] > TrackingRules.STATIONARY_RADIUS_M) break
+      suffixStart = i
+    }
+    val suffix = samples.subList(suffixStart, samples.size)
+    // Require enough samples to be confident this isn't a coincidental
+    // 2-fix cluster — and the still suffix must actually span STOP_TIMEOUT_MS.
+    if (suffix.size < 3) return
+    val oldest = suffix.first()
+    if (currentTs - oldest.ts < TrackingRules.STOP_TIMEOUT_MS) return
+    // Pairwise check against the suffix's oldest sample catches a slow drift
+    // (where each hop stays near the newest but the run as a whole migrates).
+    for (s in suffix) {
       AndroidLocation.distanceBetween(oldest.lat, oldest.lng, s.lat, s.lng, out)
       if (out[0] > TrackingRules.STATIONARY_RADIUS_M) return
     }

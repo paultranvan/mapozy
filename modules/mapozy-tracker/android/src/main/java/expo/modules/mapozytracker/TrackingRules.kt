@@ -203,6 +203,27 @@ object TrackingRules {
   const val GEOFENCE_REQUEST_ID = "mapozy_stationary"
 
   /**
+   * Grace before a RESTORED stop timer may fire (see
+   * TrackingService.scheduleStopTimerAt). A deadline recovered after a process
+   * kill is usually already overdue; firing instantly would race the freshly
+   * re-subscribed AR, whose initial ENTER (in_vehicle/walking) is what cancels
+   * a stale pending stop when the user is actually moving again.
+   */
+  const val RESTORED_STOP_MIN_DELAY_MS = 30_000L
+
+  /**
+   * RULE_GPS_STATIONARY_DETECTION — retention of the recent-GPS-samples ring.
+   * Deliberately much longer than STOP_TIMEOUT_MS: at rest, Doze/battery-saver
+   * stretches fix cadence to 15–30 min, so a ring pruned to the 5-min stop
+   * window never accumulates the 3 samples the detector needs and the fallback
+   * structurally cannot fire (observed on-device 2 Jul 2026: fixes every
+   * 15–30 min at home from 19:00 to 23:00, state stuck MOVING). The detector
+   * still requires the *still suffix* of the ring to span STOP_TIMEOUT_MS —
+   * retention only widens how far back that suffix may reach.
+   */
+  const val GPS_STATIONARY_RETENTION_MS = 60L * 60_000L
+
+  /**
    * RULE_WATCHDOG — inexact allow-while-idle heartbeat that re-asserts the
    * service and re-arms AR/geofence. Inexact on purpose (exact alarms need the
    * Play-restricted SCHEDULE_EXACT_ALARM permission on API 31+).

@@ -225,6 +225,11 @@ class TrackingService : Service() {
         if (TrackingState.getState(this) == TrackingState.STATE_STATIONARY) {
           armGeofence()
         }
+        // Safety net: if the process died and was recreated by an intent other
+        // than the sticky null redelivery (this tick, a transition fix, ...),
+        // applyCurrentState never ran and a pending stop deadline is dangling
+        // with no timer behind it. Pick it up here at the latest.
+        restoreStopTimerIfPending("watchdog")
         return START_STICKY
       }
       ACTION_TRANSITION_FIX -> {
@@ -497,7 +502,15 @@ class TrackingService : Service() {
       unsubscribeLocation()
       armGeofence()
     } else {
+      // Capture the persisted stop deadline BEFORE applyMoving — its
+      // cancelStopTimer() clears the deadline, which is correct for a real
+      // movement ENTER but would eat a pending stop across a service restart.
+      val pendingDeadline = TrackingState.getStopDeadline(this)
       applyMoving(cfg, "restart")
+      if (pendingDeadline != null) {
+        TrackingState.setStopDeadline(this, pendingDeadline)
+        restoreStopTimerIfPending("restart")
+      }
     }
   }
 
@@ -559,11 +572,25 @@ class TrackingService : Service() {
   }
 
   private fun scheduleStopTimer() {
+    scheduleStopTimerAt(System.currentTimeMillis() + TrackingRules.STOP_TIMEOUT_MS)
+  }
+
+  /**
+   * (Re)arm the stop timer against an absolute deadline. Used by the normal
+   * STILL_PENDING path (deadline = now + STOP_TIMEOUT_MS) and by the restore
+   * path after a service kill, where the persisted deadline may already be in
+   * the past — then the timer fires after a short grace so the freshly
+   * re-subscribed AR gets a chance to cancel it with a real movement ENTER.
+   */
+  private fun scheduleStopTimerAt(deadlineMs: Long) {
     cancelStopTimer()
-    TrackingState.setStopDeadline(this, System.currentTimeMillis() + TrackingRules.STOP_TIMEOUT_MS)
+    TrackingState.setStopDeadline(this, deadlineMs)
     val r = Runnable {
       if (TrackingState.getState(this) == TrackingState.STATE_MOVING) {
-        val stoppedAt = System.currentTimeMillis() - TrackingRules.STOP_TIMEOUT_MS
+        // The stop began STOP_TIMEOUT_MS before the deadline (when
+        // STILL_PENDING arrived) — anchored to the deadline, not to fire
+        // time, so a restored-overdue timer still stamps the real stop time.
+        val stoppedAt = deadlineMs - TrackingRules.STOP_TIMEOUT_MS
         val coords = TrackingState.getLastLocationCoords(this)
         enterStationaryNow(
           trigger = "stop_timeout",
@@ -575,7 +602,33 @@ class TrackingService : Service() {
       stopRunnable = null
     }
     stopRunnable = r
-    mainHandler.postDelayed(r, TrackingRules.STOP_TIMEOUT_MS)
+    val delay = (deadlineMs - System.currentTimeMillis())
+      .coerceAtLeast(TrackingRules.RESTORED_STOP_MIN_DELAY_MS)
+    mainHandler.postDelayed(r, delay)
+  }
+
+  /**
+   * A process kill silently drops the in-flight stop timer (Handler runnables
+   * die with the process) while the persisted deadline survives. Without
+   * restoring it the state machine is stuck MOVING forever at rest: AR never
+   * re-fires ENTER(still) — the user never stopped being still — so nothing
+   * ends the trip, the app shows a phantom "trip in progress" and the
+   * stationary-triggered pipeline never runs (observed on-device 2 Jul 2026:
+   * svc_create at 19:03 during a pending stop, stuck MOVING until 23:00).
+   */
+  private fun restoreStopTimerIfPending(source: String) {
+    if (TrackingState.getState(this) != TrackingState.STATE_MOVING) return
+    if (stopRunnable != null) return
+    val deadline = TrackingState.getStopDeadline(this) ?: return
+    scheduleStopTimerAt(deadline)
+    NativeStore.insertDiagnostic(
+      this, System.currentTimeMillis(), "stop_timer_restored",
+      JsonObj().apply {
+        put("deadlineMs", deadline)
+        put("overdueMs", System.currentTimeMillis() - deadline)
+        put("source", source)
+      }.toString()
+    )
   }
 
   private fun cancelStopTimer() {
