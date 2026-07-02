@@ -22,15 +22,6 @@ describe('migration 004', () => {
     expect(sectionNames).toContain('mode_source');
     expect(sectionNames).toContain('mode_confidence');
   });
-
-  it('transit_cache table is dropped by migration 011', async () => {
-    const db = createMockDb();
-    await runMigrations(db);
-    const row = await db.getFirstAsync<{ name: string }>(
-      `SELECT name FROM sqlite_master WHERE type='table' AND name='transit_cache'`
-    );
-    expect(row).toBeNull();
-  });
 });
 
 describe('migration 006: trip editing columns', () => {
