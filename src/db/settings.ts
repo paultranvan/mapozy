@@ -38,4 +38,5 @@ export const SETTING_KEYS = {
   // (transit), Nominatim (place names), Valhalla (map-matching). When '0', all
   // are bypassed and trips fall back to local-only processing. See src/lib/net.ts.
   ALLOW_EXTERNAL_API: 'allow_external_api',
+  LAST_DB_MAINTENANCE_MS: 'last_db_maintenance_ms',
 } as const;

@@ -25,6 +25,7 @@ import { assemble } from './assemble';
 import { groupIntoTrips, type TripLegGroup } from './tripGrouping';
 import { RULES } from './rules';
 import { enrichTripTransit } from './transit/transitEnrichment';
+import { runDbMaintenance } from '../db/maintenance';
 import type { OverpassDeps } from '../lib/overpass';
 
 export interface RunPipelineOpts {
@@ -260,6 +261,17 @@ async function runPipelineLocked(
         });
       }
     }
+  }
+
+  // Post-run DB upkeep (raw retention, cache eviction, conditional VACUUM).
+  // Throttled internally to once a day; best-effort — a failure must never
+  // fail the pipeline run. Cache eviction is skipped when transit is off
+  // (the cache isn't growing then either).
+  try {
+    const cacheDb = opts.transit ? await opts.transit.cacheDb() : null;
+    await runDbMaintenance(db, cacheDb, now);
+  } catch (err) {
+    console.warn('[runPipeline] db maintenance failed', err);
   }
 
   return {
