@@ -23,13 +23,13 @@ describe('migration 004', () => {
     expect(sectionNames).toContain('mode_confidence');
   });
 
-  it('creates the transit_cache table', async () => {
+  it('transit_cache table is dropped by migration 011', async () => {
     const db = createMockDb();
     await runMigrations(db);
-    const t = await db.getFirstAsync<{ name: string }>(
+    const row = await db.getFirstAsync<{ name: string }>(
       `SELECT name FROM sqlite_master WHERE type='table' AND name='transit_cache'`
     );
-    expect(t?.name).toBe('transit_cache');
+    expect(row).toBeNull();
   });
 });
 
@@ -107,5 +107,16 @@ describe('migration 010: custom_categories table', () => {
     expect(names).toContain('name');
     expect(names).toContain('icon');
     expect(names).toContain('color');
+  });
+});
+
+describe('migration 011: drop transit_cache', () => {
+  it('migration 011 drops the main-DB transit_cache (cache moved to its own file)', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    const row = await db.getFirstAsync<{ name: string }>(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='transit_cache'`
+    );
+    expect(row).toBeNull();
   });
 });

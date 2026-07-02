@@ -191,6 +191,13 @@ CREATE TABLE IF NOT EXISTS custom_categories (
 );
 `;
 
+// The transit cache moved to its own DB file (transit-cache.db, see
+// src/db/transitCacheDb.ts). Nothing is transferred: it is disposable,
+// re-downloadable data that was bloating exports and fragmenting this file.
+const MIGRATION_011 = `
+DROP TABLE IF EXISTS transit_cache;
+`;
+
 export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 1, sql: MIGRATION_001 },
   { version: 2, sql: MIGRATION_002 },
@@ -202,6 +209,7 @@ export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 8, sql: MIGRATION_008 },
   { version: 9, sql: MIGRATION_009 },
   { version: 10, sql: MIGRATION_010 },
+  { version: 11, sql: MIGRATION_011 },
 ];
 
 export async function getSchemaVersion(db: Db): Promise<number> {
