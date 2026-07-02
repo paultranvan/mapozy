@@ -68,6 +68,7 @@ export async function markActivitiesConsumed(db: Db, ids: number[]): Promise<voi
   }
 }
 
+// Inclusive of endMs — see resetConsumedPointsInRange for why.
 export async function resetConsumedActivitiesInRange(
   db: Db,
   startMs: number,
@@ -75,6 +76,22 @@ export async function resetConsumedActivitiesInRange(
 ): Promise<number> {
   const r = await db.runAsync(
     `UPDATE raw_activities SET consumed=0 WHERE timestamp_ms BETWEEN ? AND ?`,
+    startMs,
+    endMs
+  );
+  return r.changes;
+}
+
+// Re-consume the still-unconsumed leftovers of a bounded recompute
+// (inclusive, mirroring the reset above so it covers everything reset).
+export async function consumeUnconsumedActivitiesInRange(
+  db: Db,
+  startMs: number,
+  endMs: number
+): Promise<number> {
+  const r = await db.runAsync(
+    `UPDATE raw_activities SET consumed=1
+     WHERE consumed=0 AND timestamp_ms BETWEEN ? AND ?`,
     startMs,
     endMs
   );

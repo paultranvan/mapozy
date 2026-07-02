@@ -119,6 +119,13 @@ export async function countPointsInRange(
   return r?.c ?? 0;
 }
 
+// INCLUSIVE of endMs on purpose. A recompute span ends at the NEXT trip's
+// start timestamp, and when the recomputed trip ends in a tracking gap
+// (subway, GPS dropout) that boundary point is the post-gap fix the re-run
+// needs to close the trip's terminating gap stay — without it the trip can't
+// be rebuilt. The re-run leaves the point consumed again (it either
+// terminates a gap stay or is a 1-point tail), and recomputeForTrips
+// force-consumes any leftovers, so it can't leak as an unconsumed orphan.
 export async function resetConsumedPointsInRange(
   db: Db,
   startMs: number,
@@ -126,6 +133,22 @@ export async function resetConsumedPointsInRange(
 ): Promise<number> {
   const r = await db.runAsync(
     `UPDATE raw_points SET consumed=0 WHERE timestamp_ms BETWEEN ? AND ?`,
+    startMs,
+    endMs
+  );
+  return r.changes;
+}
+
+// Re-consume the still-unconsumed leftovers of a bounded recompute
+// (inclusive, mirroring the reset above so it covers everything reset).
+export async function consumeUnconsumedPointsInRange(
+  db: Db,
+  startMs: number,
+  endMs: number
+): Promise<number> {
+  const r = await db.runAsync(
+    `UPDATE raw_points SET consumed=1
+     WHERE consumed=0 AND timestamp_ms BETWEEN ? AND ?`,
     startMs,
     endMs
   );

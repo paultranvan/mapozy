@@ -7,8 +7,16 @@ import {
   getTripAfter,
   deleteTrips,
 } from '../db/trips';
-import { countPointsInRange, resetConsumedPointsInRange } from '../db/rawPoints';
-import { resetConsumedActivitiesInRange } from '../db/rawActivities';
+import {
+  countPointsInRange,
+  resetConsumedPointsInRange,
+  consumeUnconsumedPointsInRange,
+} from '../db/rawPoints';
+import {
+  resetConsumedActivitiesInRange,
+  consumeUnconsumedActivitiesInRange,
+} from '../db/rawActivities';
+import { insertDiagnosticEvent } from '../db/diagnostics';
 import { getSetting, setSetting, SETTING_KEYS } from '../db/settings';
 import { runPipeline, type RunPipelineResult } from './runPipeline';
 import { snapshotUserModes, reapplyUserModes } from './edits/reapplyUserModes';
@@ -168,6 +176,34 @@ export async function recomputeForTrips(
   );
 
   const result = await runPipeline(db, { upToMs: plan.spanEndMs, nowMs, transit });
+
+  // A bounded re-run can end with an open tail (a trailing leg with no
+  // terminating stay inside the span) whose points runPipeline holds
+  // unconsumed "for the next run" — but for a historical span no future run
+  // ever completes that tail: the points sit unconsumed forever, and the next
+  // LIVE run merges these stale orphans with fresh points, manufacturing a
+  // multi-day gap stay anchored at the orphan (seen in the field as a trip
+  // whose start place was a 2-day-old GPS fix 140 m from home). When trips
+  // exist after the span the tail's data is already represented in those
+  // trips, so force-consume whatever the re-run left behind. When the span
+  // runs to "now" (recomputing the latest trips) an open tail may be a
+  // genuinely in-progress trip — leave it for the live pipeline.
+  if (plan.hasTripsAfterSpan) {
+    let orphanPoints = 0;
+    for (const [s, e] of subRanges) {
+      orphanPoints += await consumeUnconsumedPointsInRange(db, s, e);
+      await consumeUnconsumedActivitiesInRange(db, s, e);
+    }
+    if (orphanPoints > 0) {
+      await insertDiagnosticEvent(db, nowMs, 'recompute_orphans_consumed', {
+        spanStartMs: plan.spanStartMs,
+        spanEndMs: plan.spanEndMs,
+        orphanPoints,
+      }).catch(() => {
+        /* diagnostics are best-effort */
+      });
+    }
+  }
 
   // Reapply mode overrides to rebuilt sections with matching bounds, then
   // refresh aggregates for any trip that regained an override.
