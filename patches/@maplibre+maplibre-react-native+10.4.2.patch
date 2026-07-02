@@ -1,0 +1,100 @@
+diff --git a/node_modules/@maplibre/maplibre-react-native/android/src/main/java/org/maplibre/reactnative/components/annotation/MLRNMarkerView.java b/node_modules/@maplibre/maplibre-react-native/android/src/main/java/org/maplibre/reactnative/components/annotation/MLRNMarkerView.java
+index 835d96a..e0eeb2b 100644
+--- a/node_modules/@maplibre/maplibre-react-native/android/src/main/java/org/maplibre/reactnative/components/annotation/MLRNMarkerView.java
++++ b/node_modules/@maplibre/maplibre-react-native/android/src/main/java/org/maplibre/reactnative/components/annotation/MLRNMarkerView.java
+@@ -31,9 +31,79 @@ public class MLRNMarkerView extends AbstractMapFeature implements MarkerView.OnP
+         mManager = manager;
+     }
+ 
++    // --- Honest child accounting (crash fix) ---
++    // React Native's NativeViewHierarchyManager drives child add/remove through
++    // the ViewGroupManager, which delegates to these ViewGroup methods. The
++    // original implementation stored the child without ever reporting it
++    // (getChildCount() == 0), so RN's bookkeeping and the native hierarchy
++    // diverged and unmounting a MarkerView crashed with "Trying to remove a
++    // view index above child count" (IllegalViewOperationException in
++    // manageChildren). Worse, reanimated's ReanimatedNativeHierarchyManager
++    // re-adds exit-animating children at index getChildCount() and removes
++    // them later, so the view must faithfully track ANY number of children at
++    // ANY position. We keep an honest list; only the first React child is the
++    // marker content shown on the map, extra entries (reanimated re-adds) are
++    // bookkeeping only.
++
++    private final java.util.ArrayList<View> mChildren = new java.util.ArrayList<>();
++
+     @Override
+     public void addView(View childView, int childPosition) {
+-        mChildView = childView;
++        int pos = Math.max(0, Math.min(childPosition, mChildren.size()));
++        mChildren.add(pos, childView);
++        if (mChildView == null) {
++            mChildView = childView;
++        }
++    }
++
++    @Override
++    public int getChildCount() {
++        return mChildren.size();
++    }
++
++    @Override
++    public View getChildAt(int index) {
++        return (index >= 0 && index < mChildren.size()) ? mChildren.get(index) : null;
++    }
++
++    @Override
++    public void removeView(View view) {
++        if (view == null) return;
++        mChildren.remove(view);
++        if (view == mChildView && !mChildren.contains(view)) {
++            removeContentView();
++        }
++    }
++
++    @Override
++    public void removeViewAt(int index) {
++        if (index < 0 || index >= mChildren.size()) return;
++        View view = mChildren.remove(index);
++        if (view == mChildView && !mChildren.contains(view)) {
++            removeContentView();
++        }
++    }
++
++    private void removeContentView() {
++        detachFromMarkerViewManager();
++        if (mChildView != null && mChildView.getParent() instanceof android.view.ViewGroup) {
++            ((android.view.ViewGroup) mChildView.getParent()).removeView(mChildView);
++        }
++        mChildView = null;
++    }
++
++    private void detachFromMarkerViewManager() {
++        if (mMarkerView != null) {
++            if (mMarkerViewManager != null) {
++                mMarkerViewManager.removeMarker(mMarkerView);
++            }
++            if (mChildView != null) {
++                mChildView.removeOnLayoutChangeListener(this);
++            }
++            mMarkerView.setOnPositionUpdateListener(null);
++            mMarkerView = null;
++            mMarkerViewManager = null;
++        }
+     }
+ 
+     public void setCoordinate(Point point) {
+@@ -92,13 +162,7 @@ public class MLRNMarkerView extends AbstractMapFeature implements MarkerView.OnP
+ 
+     @Override
+     public void removeFromMap(MLRNMapView mapView) {
+-        if (mMarkerView != null) {
+-            mMarkerViewManager.removeMarker(mMarkerView);
+-            mChildView.removeOnLayoutChangeListener(this);
+-            mMarkerView.setOnPositionUpdateListener(null);
+-            mMarkerView = null;
+-            mMarkerViewManager = null;
+-        }
++        detachFromMarkerViewManager();
+     }
+ 
+     @Override
