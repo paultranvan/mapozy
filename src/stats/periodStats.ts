@@ -64,13 +64,15 @@ export async function dailyDistances(
 // granularity steps up with the selected period, so a year doesn't render as
 // 365 daily bars (tester feedback: "par an ça devrait être des années … par
 // mois … pas par jour"). One step coarser than the period:
-//   today/week → day, month → week, year → month, all → year.
+//   today → hour (a single day rendered "by day" is one lonely dot —
+//   tester feedback), week → day, month → week, year → month, all → year.
 
-export type BucketGranularity = 'day' | 'week' | 'month' | 'year';
+export type BucketGranularity = 'hour' | 'day' | 'week' | 'month' | 'year';
 
 export function bucketGranularityFor(period: PeriodKey): BucketGranularity {
   switch (period) {
     case 'today':
+      return 'hour';
     case 'week':
       return 'day';
     case 'month':
@@ -122,9 +124,42 @@ function bucketFor(dayKey: string, g: BucketGranularity): { key: string; label: 
 }
 
 /**
+ * Distance per hour-of-day for a single-day range, zero-filled over 0–23 so
+ * the chart keeps a stable time axis (spikes sit at the travel hours).
+ */
+export async function hourlyDistances(
+  db: Db,
+  startMs: number,
+  endMs: number
+): Promise<DisplayBucket[]> {
+  const rows = await db.getAllAsync<{ hh: string; d: number; c: number }>(
+    `SELECT strftime('%H', start_time_ms / 1000, 'unixepoch', 'localtime') as hh,
+            SUM(distance_m) as d,
+            COUNT(*) as c
+     FROM trips WHERE start_time_ms BETWEEN ? AND ?
+     GROUP BY hh ORDER BY hh ASC`,
+    startMs,
+    endMs
+  );
+  const byHour = new Map(rows.map((r) => [Number(r.hh), r]));
+  const out: DisplayBucket[] = [];
+  for (let h = 0; h < 24; h++) {
+    const r = byHour.get(h);
+    out.push({
+      key: pad2(h),
+      label: `${pad2(h)}h`,
+      distanceM: r?.d ?? 0,
+      tripsCount: r?.c ?? 0,
+    });
+  }
+  return out;
+}
+
+/**
  * Roll per-day buckets up to the requested granularity, summing distance and
  * trip counts. Returns chronologically-sorted display buckets with x-axis
  * labels. `day` granularity is a passthrough that just attaches labels.
+ * (`hour` never reaches this function — the hook queries hourlyDistances.)
  */
 export function aggregateDailyBuckets(
   daily: DailyBucket[],

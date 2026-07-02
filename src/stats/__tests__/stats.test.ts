@@ -87,3 +87,23 @@ describe('stats', () => {
     expect(daily[1]!.tripsCount).toBe(1);
   });
 });
+
+describe('hourlyDistances', () => {
+  it('zero-fills 24 hours and buckets trips by local start hour', async () => {
+    const { hourlyDistances } = require('../periodStats');
+    const db: Db = createMockDb() as unknown as Db;
+    await runMigrations(db);
+    // Two trips at 07h local, one at 18h local, on the same day.
+    const day = new Date(2026, 5, 29); // 29 Jun 2026 local midnight
+    const at = (h: number, m = 0) => day.getTime() + (h * 60 + m) * 60_000;
+    await insertTripWithSections(db, mkTrip({ startMs: at(7, 35), distanceM: 13_600, durationS: 3480, mode: 'car', co2G: 100 }));
+    await insertTripWithSections(db, mkTrip({ startMs: at(7, 50), distanceM: 1_000, durationS: 600, mode: 'walk', co2G: 0 }));
+    await insertTripWithSections(db, mkTrip({ startMs: at(18, 14), distanceM: 18_400, durationS: 5160, mode: 'car', co2G: 150 }));
+
+    const buckets = await hourlyDistances(db, day.getTime(), day.getTime() + 86_400_000 - 1);
+    expect(buckets).toHaveLength(24);
+    expect(buckets[7]).toMatchObject({ label: '07h', distanceM: 14_600, tripsCount: 2 });
+    expect(buckets[18]).toMatchObject({ label: '18h', distanceM: 18_400, tripsCount: 1 });
+    expect(buckets[3]).toMatchObject({ distanceM: 0, tripsCount: 0 });
+  });
+});

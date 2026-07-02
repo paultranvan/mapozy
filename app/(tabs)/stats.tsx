@@ -74,6 +74,7 @@ export default function StatsScreen() {
   }, [dailyQ.data]);
 
   const BUCKET_TITLES: Record<string, string> = {
+    hour: 'By hour',
     day: 'By day',
     week: 'By week',
     month: 'By month',

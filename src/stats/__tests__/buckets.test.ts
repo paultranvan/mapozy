@@ -12,7 +12,7 @@ const daily = (dayKey: string, km: number, trips = 1): DailyBucket => ({
 
 describe('bucketGranularityFor', () => {
   it('steps granularity up with the period', () => {
-    expect(bucketGranularityFor('today')).toBe('day');
+    expect(bucketGranularityFor('today')).toBe('hour');
     expect(bucketGranularityFor('week')).toBe('day');
     expect(bucketGranularityFor('month')).toBe('week');
     expect(bucketGranularityFor('year')).toBe('month');
