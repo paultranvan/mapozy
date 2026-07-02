@@ -45,7 +45,8 @@ export class OverpassUnavailableError extends Error {
 }
 
 export interface OverpassDeps {
-  db: Db;
+  db: Db; // MAIN app db — enrichment reads trips/raw points from it
+  cacheDb: () => Promise<Db>; // transit-cache.db provider (lazy, async open)
   fetchFn?: typeof fetch;
   nowMs?: () => number; // for cache TTL; default Date.now
   minIntervalMs?: number; // rate-limit; default 1100, tests pass 0
@@ -82,7 +83,8 @@ function r5(v: number): number {
   return Math.round(v * 1e5) / 1e5;
 }
 
-async function cacheGet<T>(db: Db, key: string, now: number): Promise<T | null> {
+async function cacheGet<T>(deps: OverpassDeps, key: string, now: number): Promise<T | null> {
+  const db = await deps.cacheDb();
   const row = await db.getFirstAsync<{ payload: string; fetched_at_ms: number }>(
     `SELECT payload, fetched_at_ms FROM transit_cache WHERE cell_key = ?`,
     key
@@ -93,12 +95,13 @@ async function cacheGet<T>(db: Db, key: string, now: number): Promise<T | null> 
 }
 
 async function cacheSet(
-  db: Db,
+  deps: OverpassDeps,
   key: string,
   kind: string,
   payload: unknown,
   now: number
 ): Promise<void> {
+  const db = await deps.cacheDb();
   await db.runAsync(
     `INSERT INTO transit_cache (cell_key, kind, payload, fetched_at_ms)
      VALUES (?, ?, ?, ?)
@@ -218,7 +221,7 @@ export async function getStopsNear(
 ): Promise<TransitStop[]> {
   const now = (deps.nowMs ?? Date.now)();
   const key = `stops:${r5(snap(lat))}:${r5(snap(lon))}`;
-  let stops = await cacheGet<TransitStop[]>(deps.db, key, now);
+  let stops = await cacheGet<TransitStop[]>(deps, key, now);
   if (stops === null) {
     const south = snap(lat) - PAD_DEG;
     const west = snap(lon) - PAD_DEG;
@@ -231,7 +234,7 @@ export async function getStopsNear(
       `node["public_transport"~"^(platform|stop_position)$"](${south},${west},${north},${east});` +
       `);out body;`;
     stops = parseStops(await overpassFetch(deps, q));
-    await cacheSet(deps.db, key, 'stops', stops, now);
+    await cacheSet(deps, key, 'stops', stops, now);
   }
   return stops.filter((s) => haversineMeters(lat, lon, s.lat, s.lon) <= radiusM);
 }
@@ -243,7 +246,7 @@ export async function getRailwaysIn(
   const now = (deps.nowMs ?? Date.now)();
   const snapped = snapBBox(bbox);
   const key = `ways:${r5(snapped.south)}:${r5(snapped.west)}:${r5(snapped.north)}:${r5(snapped.east)}`;
-  let ways = await cacheGet<RailwayWay[]>(deps.db, key, now);
+  let ways = await cacheGet<RailwayWay[]>(deps, key, now);
   if (ways === null) {
     const { south, west, north, east } = snapped;
     const q =
@@ -251,7 +254,7 @@ export async function getRailwaysIn(
       `way["railway"~"^(rail|light_rail|subway|tram|narrow_gauge)$"](${south},${west},${north},${east});` +
       `out geom;`;
     ways = parseWays(await overpassFetch(deps, q));
-    await cacheSet(deps.db, key, 'ways', ways, now);
+    await cacheSet(deps, key, 'ways', ways, now);
   }
   return ways;
 }

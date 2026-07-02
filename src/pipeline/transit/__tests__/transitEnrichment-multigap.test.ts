@@ -1,5 +1,6 @@
 import { createMockDb } from '../../../db/mockDb';
 import { runMigrations } from '../../../db/migrations';
+import { ensureTransitCacheSchema } from '../../../db/transitCacheDb';
 import { insertTripWithSections, getTripById } from '../../../db/trips';
 import { enrichTripTransit } from '../transitEnrichment';
 import type { OverpassDeps } from '../../../lib/overpass';
@@ -74,7 +75,9 @@ function metroFetch(): OverpassDeps['fetchFn'] {
 async function depsWith(fetchFn: OverpassDeps['fetchFn']) {
   const db = createMockDb();
   await runMigrations(db);
-  return { db, fetchFn, nowMs: () => 1_000_000, minIntervalMs: 0 } as OverpassDeps;
+  const cacheDb = createMockDb();
+  await ensureTransitCacheSchema(cacheDb);
+  return { db, cacheDb: async () => cacheDb, fetchFn, nowMs: () => 1_000_000, minIntervalMs: 0 } as OverpassDeps;
 }
 
 describe('enrichTripTransit — multiple subway gaps in one trip', () => {

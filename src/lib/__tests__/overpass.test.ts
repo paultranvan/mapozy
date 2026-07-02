@@ -1,5 +1,6 @@
 import { createMockDb } from '../../db/mockDb';
 import { runMigrations } from '../../db/migrations';
+import { ensureTransitCacheSchema } from '../../db/transitCacheDb';
 import {
   getStopsNear,
   getRailwaysIn,
@@ -23,7 +24,9 @@ async function mkDeps(
 ): Promise<OverpassDeps> {
   const db = createMockDb();
   await runMigrations(db);
-  return { db, fetchFn, nowMs: () => nowMs, minIntervalMs: 0 };
+  const cacheDb = createMockDb();
+  await ensureTransitCacheSchema(cacheDb);
+  return { db, cacheDb: async () => cacheDb, fetchFn, nowMs: () => nowMs, minIntervalMs: 0 };
 }
 
 describe('overpass — getStopsNear', () => {
@@ -120,8 +123,11 @@ describe('overpass — getRailwaysIn', () => {
     };
     const db = createMockDb();
     await runMigrations(db);
+    const cacheDb = createMockDb();
+    await ensureTransitCacheSchema(cacheDb);
     const deps: OverpassDeps = {
       db,
+      cacheDb: async () => cacheDb,
       fetchFn: async () => fakeResponse(body),
       nowMs: () => 1_000_000,
       minIntervalMs: 0,
@@ -144,8 +150,11 @@ describe('overpass — getRailwaysIn', () => {
     let calls = 0;
     const db = createMockDb();
     await runMigrations(db);
+    const cacheDb = createMockDb();
+    await ensureTransitCacheSchema(cacheDb);
     const deps = {
       db,
+      cacheDb: async () => cacheDb,
       fetchFn: async () => {
         calls++;
         return fakeResponse({

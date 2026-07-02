@@ -8,6 +8,7 @@ jest.mock('../../pipeline/transit/transitEnrichment', () => ({
 
 import { createMockDb } from '../../db/mockDb';
 import { runMigrations } from '../../db/migrations';
+import { ensureTransitCacheSchema } from '../../db/transitCacheDb';
 import { insertTripWithSections } from '../../db/trips';
 import { listDiagnosticEvents } from '../../db/diagnostics';
 import { refreshDraftTrips } from '../refreshDrafts';
@@ -35,7 +36,9 @@ describe('refreshDraftTrips diagnostics', () => {
     await runMigrations(db);
     const id = await insertTripWithSections(db, draftTrip());
     mockEnrich.mockRejectedValue(new Error('boom in enrichment'));
-    const deps: OverpassDeps = { db, fetchFn: async () => ({}) as unknown as Response };
+    const cacheDb = createMockDb();
+    await ensureTransitCacheSchema(cacheDb);
+    const deps: OverpassDeps = { db, cacheDb: async () => cacheDb, fetchFn: async () => ({}) as unknown as Response };
 
     const res = await refreshDraftTrips(db, deps);
 

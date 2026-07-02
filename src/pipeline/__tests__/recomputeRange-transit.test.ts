@@ -1,5 +1,6 @@
 import { createMockDb } from '../../db/mockDb';
 import { runMigrations } from '../../db/migrations';
+import { ensureTransitCacheSchema } from '../../db/transitCacheDb';
 import { runPipeline } from '../runPipeline';
 import { planRecompute, recomputeForTrips } from '../recomputeRange';
 import { listTrips } from '../../db/trips';
@@ -54,9 +55,12 @@ describe('recomputeForTrips — transit forwarding', () => {
     expect(before.dominantMode).toBe('car');
 
     // Recompute WITH a rail-returning transit dep: the drive must become train.
+    const cacheDb = createMockDb();
+    await ensureTransitCacheSchema(cacheDb);
     const plan = await planRecompute(db, [before.id!], maxTs + 1);
     await recomputeForTrips(db, plan, maxTs, {
       db,
+      cacheDb: async () => cacheDb,
       fetchFn: railFetch(),
       nowMs: () => 1,
       minIntervalMs: 0,

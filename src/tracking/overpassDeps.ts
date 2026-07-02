@@ -1,6 +1,7 @@
 import type { Db } from '../db/client';
 import type { OverpassDeps } from '../lib/overpass';
 import { externalApiAllowed, externalFetch } from '../lib/net';
+import { getTransitCacheDb } from '../db/transitCacheDb';
 
 // Real-network Overpass deps for the running app: routes through `externalFetch`
 // (the toggle choke-point) with the default rate-limit/TTL. Tests build
@@ -13,5 +14,5 @@ import { externalApiAllowed, externalFetch } from '../lib/net';
 // backstop in case any path slips through.
 export function makeOverpassDeps(db: Db): OverpassDeps | undefined {
   if (!externalApiAllowed()) return undefined;
-  return { db, fetchFn: externalFetch };
+  return { db, cacheDb: getTransitCacheDb, fetchFn: externalFetch };
 }

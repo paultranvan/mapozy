@@ -1,5 +1,6 @@
 import { createMockDb } from '../../db/mockDb';
 import { runMigrations } from '../../db/migrations';
+import { ensureTransitCacheSchema } from '../../db/transitCacheDb';
 import { runPipeline } from '../runPipeline';
 import { listTrips } from '../../db/trips';
 import { syntheticTrip } from './_fixtures';
@@ -61,9 +62,11 @@ describe('runPipeline transit enrichment (opt-in)', () => {
     await runMigrations(db);
     const opts = await seed(db);
 
+    const cacheDb = createMockDb();
+    await ensureTransitCacheSchema(cacheDb);
     await runPipeline(db, {
       ...opts,
-      transit: { db, fetchFn: railFetch(), nowMs: () => 1_000_000, minIntervalMs: 0 },
+      transit: { db, cacheDb: async () => cacheDb, fetchFn: railFetch(), nowMs: () => 1_000_000, minIntervalMs: 0 },
     });
 
     const [trip] = await listTrips(db, 10, 0);

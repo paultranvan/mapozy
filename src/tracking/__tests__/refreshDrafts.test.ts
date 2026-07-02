@@ -1,5 +1,6 @@
 import { createMockDb } from '../../db/mockDb';
 import { runMigrations } from '../../db/migrations';
+import { ensureTransitCacheSchema } from '../../db/transitCacheDb';
 import { insertTripWithSections, getTripById } from '../../db/trips';
 import { refreshDraftTrips } from '../refreshDrafts';
 import type { OverpassDeps } from '../../lib/overpass';
@@ -58,7 +59,9 @@ describe('refreshDraftTrips', () => {
   it('re-enriches drafts and reports the count', async () => {
     const db = await mkDb();
     await insertTripWithSections(db, draftCarTrip());
-    const deps: OverpassDeps = { db, fetchFn: railFetch(), nowMs: () => 1_000_000, minIntervalMs: 0 };
+    const cacheDb = createMockDb();
+    await ensureTransitCacheSchema(cacheDb);
+    const deps: OverpassDeps = { db, cacheDb: async () => cacheDb, fetchFn: railFetch(), nowMs: () => 1_000_000, minIntervalMs: 0 };
 
     const res = await refreshDraftTrips(db, deps);
     expect(res.enriched).toBe(1);
@@ -68,7 +71,9 @@ describe('refreshDraftTrips', () => {
   it('reports rateLimited when Overpass 429s', async () => {
     const db = await mkDb();
     const id = await insertTripWithSections(db, draftCarTrip());
-    const deps: OverpassDeps = { db, fetchFn: async () => fakeResponse({}, { status: 429, ok: false }), nowMs: () => 1_000_000, minIntervalMs: 0 };
+    const cacheDb = createMockDb();
+    await ensureTransitCacheSchema(cacheDb);
+    const deps: OverpassDeps = { db, cacheDb: async () => cacheDb, fetchFn: async () => fakeResponse({}, { status: 429, ok: false }), nowMs: () => 1_000_000, minIntervalMs: 0 };
 
     const res = await refreshDraftTrips(db, deps);
     expect(res.rateLimited).toBe(true);
@@ -80,7 +85,9 @@ describe('refreshDraftTrips', () => {
 
   it('is a no-op with no drafts', async () => {
     const db = await mkDb();
-    const deps: OverpassDeps = { db, fetchFn: railFetch(), nowMs: () => 1_000_000, minIntervalMs: 0 };
+    const cacheDb = createMockDb();
+    await ensureTransitCacheSchema(cacheDb);
+    const deps: OverpassDeps = { db, cacheDb: async () => cacheDb, fetchFn: railFetch(), nowMs: () => 1_000_000, minIntervalMs: 0 };
     const res = await refreshDraftTrips(db, deps);
     expect(res).toEqual({ enriched: 0, rateLimited: false });
   });

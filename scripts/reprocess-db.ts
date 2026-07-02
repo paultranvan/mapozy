@@ -14,6 +14,7 @@
 import * as fs from 'fs';
 import { runMigrations } from '../src/db/migrations';
 import { runPipeline } from '../src/pipeline/runPipeline';
+import { TRANSIT_CACHE_SCHEMA } from '../src/db/transitCacheDb';
 
 function makeAdapter(raw: any) {
   const norm = (params: any[]) =>
@@ -79,8 +80,16 @@ async function main() {
 
   const maxTs = (raw.prepare('SELECT MAX(timestamp_ms) m FROM raw_points').get() as any).m as number;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const transit = enrich ? ({ db, fetchFn: fetch } as any) : undefined;
+  let transit: any;
+  if (enrich) {
+    // Script-local cache DB next to the output, so repeated --enrich runs on
+    // the same export reuse previous Overpass responses.
+    const cacheRaw = new Better(`${out}.transit-cache.db`);
+    cacheRaw.pragma('journal_mode = TRUNCATE');
+    cacheRaw.exec(TRANSIT_CACHE_SCHEMA);
+    const cacheDb = makeAdapter(cacheRaw) as any;
+    transit = { db, cacheDb: async () => cacheDb, fetchFn: fetch };
+  }
   const res = await runPipeline(db, { upToMs: maxTs + 1, nowMs: maxTs, transit });
   console.log('runPipeline result:', JSON.stringify(res), enrich ? '(enriched)' : '(offline)');
 

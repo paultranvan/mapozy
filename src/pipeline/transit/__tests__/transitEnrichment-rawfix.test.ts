@@ -1,5 +1,6 @@
 import { createMockDb } from '../../../db/mockDb';
 import { runMigrations } from '../../../db/migrations';
+import { ensureTransitCacheSchema } from '../../../db/transitCacheDb';
 import { insertTripWithSections, getTripById } from '../../../db/trips';
 import { insertRawPoint } from '../../../db/rawPoints';
 import { enrichTripTransit } from '../transitEnrichment';
@@ -110,7 +111,9 @@ describe('enrichTripTransit — rail match uses raw fixes, not the resampled tra
       });
     }
 
-    const deps: OverpassDeps = { db, fetchFn: railFetch(), nowMs: () => 1, minIntervalMs: 0 };
+    const cacheDb = createMockDb();
+    await ensureTransitCacheSchema(cacheDb);
+    const deps: OverpassDeps = { db, cacheDb: async () => cacheDb, fetchFn: railFetch(), nowMs: () => 1, minIntervalMs: 0 };
     const res = await enrichTripTransit(deps, id);
     expect(res.status).toBe('enriched');
 
@@ -148,7 +151,9 @@ describe('enrichTripTransit — rail match uses raw fixes, not the resampled tra
       }
       return fakeResponse({ elements: [] });
     };
-    const deps: OverpassDeps = { db, fetchFn, nowMs: () => 1, minIntervalMs: 0 };
+    const cacheDb2 = createMockDb();
+    await ensureTransitCacheSchema(cacheDb2);
+    const deps: OverpassDeps = { db, cacheDb: async () => cacheDb2, fetchFn, nowMs: () => 1, minIntervalMs: 0 };
     await enrichTripTransit(deps, id);
     const t = await getTripById(db, id);
     expect(t!.sections[0]!.mode).toBe('train'); // railway=rail -> train
