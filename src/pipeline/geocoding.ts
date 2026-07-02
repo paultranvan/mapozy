@@ -5,9 +5,25 @@ import { nominatimFetch } from '../lib/nominatim';
 
 interface NominatimAddress {
   house_number?: string;
+  // POI names — the most specific thing a stay can sit on.
+  amenity?: string;
+  building?: string;
+  leisure?: string;
+  shop?: string;
+  tourism?: string;
+  office?: string;
+  // Street-like ways.
   road?: string;
   pedestrian?: string;
   footway?: string;
+  cycleway?: string;
+  path?: string;
+  square?: string;
+  // Area fallbacks — the nearest way can be unnamed (e.g. a pedestrian path in
+  // a redeveloped block), in which case Nominatim only returns these.
+  neighbourhood?: string;
+  quarter?: string;
+  suburb?: string;
   city?: string;
   town?: string;
   village?: string;
@@ -21,11 +37,15 @@ interface NominatimResponse {
 function formatDisplayName(data: NominatimResponse): string | null {
   if (!data.address) return data.display_name ?? null;
   const a = data.address;
+  const poi = a.amenity ?? a.building ?? a.leisure ?? a.shop ?? a.tourism ?? a.office ?? '';
   const housenumber = a.house_number ?? '';
-  const street = a.road ?? a.pedestrian ?? a.footway ?? '';
+  const street = a.road ?? a.pedestrian ?? a.footway ?? a.cycleway ?? a.path ?? a.square ?? '';
+  // Without a named street, fall back to the neighbourhood so the label stays
+  // more specific than the bare city (tester saw just "Boulogne-Billancourt").
+  const area = street ? '' : (a.neighbourhood ?? a.quarter ?? a.suburb ?? '');
   const city = a.city ?? a.town ?? a.village ?? '';
   const lhs = [housenumber, street].filter(Boolean).join(' ');
-  const parts = [lhs, city].filter(Boolean);
+  const parts = [poi, lhs, area, city].filter(Boolean);
   return parts.length > 0 ? parts.join(', ') : data.display_name ?? null;
 }
 
@@ -41,16 +61,23 @@ export async function reverseGeocode(lat: number, lon: number): Promise<string |
   }
 }
 
+// A cached label with no comma is a bare locality ("Boulogne-Billancourt") —
+// the legacy formatter produced these when the nearest way was unnamed. Worth
+// one retry with the wider formatter, which adds POI/quarter fallbacks.
+function isBareLocality(label: string): boolean {
+  return !label.includes(',');
+}
+
 export async function geocodePlaceLazy(db: Db, placeId: number): Promise<string | null> {
   const p = await getPlaceById(db, placeId);
   if (!p) return null;
-  if (p.displayName) return p.displayName;
+  if (p.displayName && !isBareLocality(p.displayName)) return p.displayName;
   // External API disabled: skip the network call, caller falls back to coords.
-  if (!externalApiAllowed()) return null;
+  if (!externalApiAllowed()) return p.displayName ?? null;
 
   const name = await reverseGeocode(p.latitude, p.longitude);
-  if (name) await setPlaceDisplayName(db, placeId, name);
-  return name;
+  if (name && name !== p.displayName) await setPlaceDisplayName(db, placeId, name);
+  return name ?? p.displayName ?? null;
 }
 
 export function fallbackPlaceLabel(lat: number, lon: number): string {
