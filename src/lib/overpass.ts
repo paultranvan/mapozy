@@ -62,7 +62,7 @@ const ENDPOINTS = [
 ];
 const USER_AGENT = 'mapozy/0.1.0 (personal use)';
 const DEFAULT_MIN_INTERVAL_MS = 1100;
-const CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+export const CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const GRID_DEG = 0.005; // ~500 m latitude cell
 const PAD_DEG = 0.004; // bbox padding so any in-cell point's radius is covered
 
