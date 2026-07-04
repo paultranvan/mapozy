@@ -1,5 +1,5 @@
 import type { Mode, ModeSource } from '../../types';
-import type { RailwayWay, TransitStop } from '../../lib/overpass';
+import type { RailwayWay, TransitStop, WaterWay } from '../../lib/overpass';
 import { coverageFraction, haversineMeters, pointToPolylineMeters } from '../../lib/distance';
 import { RULES } from '../rules';
 
@@ -129,6 +129,36 @@ export function classifySection(input: ClassifyInput): TransitClassification | n
   }
 
   return null;
+}
+
+/**
+ * Cheap local guard for the boat check — evaluated BEFORE any waterway fetch
+ * so fast/short sections never cost an Overpass query.
+ */
+export function boatGuard(distanceM: number, durationS: number): boolean {
+  const { maxAvgSpeedMps, minDistanceM } = RULES.WATERWAY_MATCH.defaults;
+  return distanceM >= minDistanceM && distanceM / Math.max(1, durationS) <= maxAvgSpeedMps;
+}
+
+/**
+ * Classify a motorized section as boat when its trace hugs navigable water
+ * (RULE_WATERWAY_MATCH). Call only when rail matching came up empty and
+ * `boatGuard` passed. Tighter coverage than rail because roads often run
+ * within metres of narrow canals.
+ */
+export function classifyBoat(
+  coords: Array<[number, number]>,
+  waterways: WaterWay[]
+): TransitClassification | null {
+  const { coverageMin, bufferM } = RULES.WATERWAY_MATCH.defaults;
+  if (waterways.length === 0 || coords.length < 2) return null;
+  const cov = coverageFraction(
+    coords,
+    waterways.map((w) => w.coords),
+    bufferM
+  );
+  if (cov < coverageMin) return null;
+  return { mode: 'boat', modeSource: 'watermatch', modeConfidence: Math.min(0.99, cov) };
 }
 
 /**

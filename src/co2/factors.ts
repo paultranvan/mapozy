@@ -12,6 +12,9 @@ export const CO2_FACTORS_KG_PER_KM: Record<string, number> = {
   tram: 0.0046,
   subway: 0.0036,
   metro: 0.0036,
+  // ADEME ferry (foot passenger) order of magnitude; covers canal boats and
+  // ferries alike. Rough — tune if boat trips become a real share.
+  boat: 0.267,
   unknown: 0.218,
 };
 

@@ -9,7 +9,11 @@ import {
   deleteTrip,
   insertTripWithSections,
 } from './trips';
-import { getSectionsForTrip, setSectionUserMode } from './sections';
+import {
+  getSectionsForTrip,
+  setSectionUserMode,
+  updateSectionMatchedGeometry,
+} from './sections';
 import { getPlaceById, insertPlaceAt } from './places';
 import { co2GramsForSection } from '../co2/compute';
 import { haversineMeters } from '../lib/distance';
@@ -38,6 +42,12 @@ function renumberAndCost(sections: Section[]): Section[] {
   }));
 }
 
+// Modes whose displayed geometry may legitimately be a road-snapped (Valhalla)
+// polyline. Forcing any OTHER mode drops an existing road snap: a leg
+// re-labelled boat/train/… did not happen on a road, so keeping the snapped
+// shape would draw a canal cruise glued to the quai-side street.
+const ROAD_SNAPPED_MODES: ReadonlySet<Mode> = new Set(['walk', 'run', 'car', 'bike']);
+
 /** Override one leg's mode. Trip stays recompute-eligible (edited, not locked). */
 export async function setSectionMode(
   db: Db,
@@ -53,6 +63,9 @@ export async function setSectionMode(
     }
     const co2 = co2GramsForSection(mode, target.distanceM);
     await setSectionUserMode(db, sectionId, mode, co2);
+    if (!ROAD_SNAPPED_MODES.has(mode)) {
+      await updateSectionMatchedGeometry(db, sectionId, null);
+    }
     await setTripEditFlags(db, tripId, true, false);
   });
   await recomputeAndPersistTripAggregates(db, tripId);

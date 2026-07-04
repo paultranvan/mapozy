@@ -36,6 +36,7 @@ export const colors = {
     tram: '#20B2AA',
     subway: '#9370DB',
     plane: '#E5446D',
+    boat: '#2E86AB',
     mixed: '#A4A7AC',
   } satisfies Record<DominantMode, string>,
 } as const;
@@ -154,6 +155,7 @@ export const MODE_ICONS: Record<Mode, string> = {
   tram: 'tram',
   subway: 'subway',
   plane: 'airplane',
+  boat: 'ferry',
 };
 
 export const DOMINANT_MODE_ICONS: Record<DominantMode, string> = {

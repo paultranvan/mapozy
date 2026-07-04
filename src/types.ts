@@ -15,7 +15,8 @@ export type Mode =
   | 'train'
   | 'tram'
   | 'subway'
-  | 'plane';
+  | 'plane'
+  | 'boat';
 export type DominantMode = Mode | 'mixed';
 
 // Why a section received its mode — for UI badges, debugging, and so a
@@ -26,6 +27,7 @@ export type DominantMode = Mode | 'mixed';
 //   'station'    — endpoints matched transit stops / routes
 //   'corridor'   — bus stops of one route line the trace (door-to-door bus)
 //   'gap'        — underground subway gap converted to a section (Plan C)
+//   'watermatch' — trace follows OSM waterway / ferry-route geometry
 export type ModeSource =
   | 'activity'
   | 'speed'
@@ -33,6 +35,7 @@ export type ModeSource =
   | 'station'
   | 'corridor'
   | 'gap'
+  | 'watermatch'
   | 'manual';
 
 // Why a trip could not be fully classified online (left as a `draft`).

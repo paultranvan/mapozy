@@ -177,6 +177,20 @@ export const RULES = {
     { coverageMin: 0.8, bufferM: 25 }
   ),
 
+  WATERWAY_MATCH: rule(
+    'RULE_WATERWAY_MATCH',
+    'A motorized section whose trace follows OSM navigable-water geometry ' +
+      '(waterway=river/canal/fairway centerlines or route=ferry ways) is a ' +
+      'boat. Guards make quai-side driving hard to confuse with an actual ' +
+      'boat: the whole section must be slow (boats: canal cruise ~15 km/h, ' +
+      'ferries a bit more; riverside through-traffic is faster), long enough ' +
+      'to be a ride, and covered tighter than the rail rule since roads often ' +
+      'run within metres of narrow canals. Checked only after rail matching ' +
+      'fails, and the Overpass fetch is skipped entirely when the guards ' +
+      'already disqualify the section.',
+    { coverageMin: 0.85, bufferM: 35, maxAvgSpeedMps: 9, minDistanceM: 800 }
+  ),
+
   TRANSIT_STOP_RADIUS: rule(
     'RULE_TRANSIT_STOP_RADIUS',
     'Radius around a section endpoint within which OSM transit stops are ' +

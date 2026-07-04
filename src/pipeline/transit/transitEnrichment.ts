@@ -13,13 +13,20 @@ import {
   getSectionsForTrip,
 } from '../../db/sections';
 import { getPointsInRange } from '../../db/rawPoints';
+import { haversineMeters } from '../../lib/distance';
 import { co2GramsForSection } from '../../co2/compute';
 import { dominantModeFor } from '../dominantMode';
 import { effectiveMode } from '../effectiveMode';
 import { mapMatch, type Costing } from '../../lib/valhalla';
 import { RULES } from '../rules';
 import type { Mode } from '../../types';
-import { classifyBusCorridor, classifySection, samplePathEvery } from './classifySection';
+import {
+  boatGuard,
+  classifyBoat,
+  classifyBusCorridor,
+  classifySection,
+  samplePathEvery,
+} from './classifySection';
 import {
   isMetroStation,
   qualifiesAsSubwayGap,
@@ -30,6 +37,7 @@ import {
 import {
   getRailwaysNear,
   getStopsNear,
+  getWaterwaysNear,
   OverpassRateLimitError,
   OverpassOfflineError,
   OverpassUnavailableError,
@@ -119,6 +127,14 @@ export async function enrichTripTransit(
       const startStops = await getStopsNear(deps, start[1], start[0], radius);
       const endStops = await getStopsNear(deps, end[1], end[0], radius);
       let cls = classifySection({ coords, ways, startStops, endStops });
+      if (!cls && boatGuard(sec.distanceM, sec.durationS)) {
+        // Step 3.5 — boat: slow, long section following waterway/ferry
+        // geometry (tester: canal cruise classified walk·car·bike). Checked
+        // before the bus corridor — cheaper (one tiled fetch vs per-400 m
+        // stop probes) and a canal trace lined with quai-side bus stops must
+        // not win as "bus".
+        cls = classifyBoat(coords, await getWaterwaysNear(deps, coords));
+      }
       if (!cls) {
         // Step 4 — door-to-door bus: endpoints are home/work, not stops, so
         // endpoint matching missed it. Gather the bus stops lining the path
@@ -216,6 +232,37 @@ const COSTING_FOR_MODE: Partial<Record<Mode, Costing>> = {
   bike: 'bicycle',
 };
 
+// A trip's terminal sections carry an anchor fix from the adjacent stay (the
+// arrival/departure point segmentation pulls into the trip), but that fix can
+// sit up to one resample interval PAST the section's persisted end_time_ms —
+// so a [start,end]-bounded raw re-query silently drops it and the map-matched
+// line stops short of the destination (tester: walk drawn ending ~60 m before
+// the place he named). Stays last minutes, so widening the terminal sections'
+// query by one resample interval can never leak the next trip's fixes.
+const ANCHOR_MARGIN_MS = RULES.RESAMPLE.defaults.intervalMs;
+
+// If the snapped line still ends farther than this from the raw trace's
+// endpoint, splice the raw endpoint back on. The short unsnapped tail is far
+// less wrong than a trip that visibly "never arrives".
+const ENDPOINT_SPLICE_M = 25;
+
+function spliceEndpoints(
+  matched: Array<[number, number]>,
+  input: Array<[number, number]>
+): Array<[number, number]> {
+  const out = [...matched];
+  const [firstIn, lastIn] = [input[0]!, input[input.length - 1]!];
+  const firstM = out[0]!;
+  const lastM = out[out.length - 1]!;
+  if (haversineMeters(firstIn[1], firstIn[0], firstM[1], firstM[0]) > ENDPOINT_SPLICE_M) {
+    out.unshift(firstIn);
+  }
+  if (haversineMeters(lastIn[1], lastIn[0], lastM[1], lastM[0]) > ENDPOINT_SPLICE_M) {
+    out.push(lastIn);
+  }
+  return out;
+}
+
 /**
  * Snap each walk/run/car/bike section onto the road network and persist the
  * result as the section's matched geometry. Re-reads sections from the DB so it
@@ -229,12 +276,21 @@ async function mapMatchTripSections(
   const maxAccM = RULES.ACCURACY_FILTER.defaults.maxAccuracyM;
   const { minConfidence, maxPoints } = RULES.MAP_MATCH.defaults;
   const sections = await getSectionsForTrip(deps.db, tripId);
-  for (const sec of sections) {
+  for (let i = 0; i < sections.length; i++) {
+    const sec = sections[i]!;
     if (sec.id == null) continue;
     const costing = COSTING_FOR_MODE[effectiveMode(sec)];
-    if (!costing) continue;
+    if (!costing) {
+      // Not a road mode (train/boat/subway/…): a snap left over from an
+      // earlier pass — when this section was still `car` — is now wrong.
+      await updateSectionMatchedGeometry(deps.db, sec.id, null);
+      continue;
+    }
     // Match on raw fixes, not the resampled trace (same rationale as Pass 1).
-    const rawFixes = (await getPointsInRange(deps.db, sec.startTimeMs, sec.endTimeMs))
+    // Terminal sections reach into the adjacent stay for their anchor fix.
+    const fromMs = sec.startTimeMs - (i === 0 ? ANCHOR_MARGIN_MS : 0);
+    const toMs = sec.endTimeMs + (i === sections.length - 1 ? ANCHOR_MARGIN_MS : 0);
+    const rawFixes = (await getPointsInRange(deps.db, fromMs, toMs))
       .filter((p) => p.accuracyMeters <= maxAccM)
       .map((p) => [p.longitude, p.latitude] as [number, number]);
     const coords = rawFixes.length >= 2 ? rawFixes : coordsOf(sec.geojson);
@@ -252,7 +308,12 @@ async function mapMatchTripSections(
     await updateSectionMatchedGeometry(
       deps.db,
       sec.id,
-      ok ? JSON.stringify({ type: 'LineString', coordinates: res!.coords }) : null
+      ok
+        ? JSON.stringify({
+            type: 'LineString',
+            coordinates: spliceEndpoints(res!.coords, coords),
+          })
+        : null
     );
   }
 }
