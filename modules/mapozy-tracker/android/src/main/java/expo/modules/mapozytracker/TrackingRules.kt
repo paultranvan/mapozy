@@ -155,14 +155,18 @@ object TrackingRules {
     priority = Priority.PRIORITY_HIGH_ACCURACY,
   )
 
-  // Walking / still / unknown — the install default. 30 s interval lets the
-  // GPS chip duty-cycle between fixes for a modest battery saving (vs the
-  // 5 s TIGHT default that was used pre-split). HIGH priority is required for
-  // the chip to actually fire — see file-level note above.
+  // Walking / still / unknown — the install default. The interval still lets
+  // the GPS chip duty-cycle between fixes (vs the 5 s TIGHT default that was
+  // used pre-split), but 15 s / 10 m instead of the earlier 30 s / 20 m: at
+  // walking pace in a dense street grid, 30 s gaps (stretched to 80-160 s by
+  // the 20 m distance filter when the user slows or pauses) drew straight
+  // chords through building blocks and tanked Valhalla's pedestrian match
+  // confidence — the tester's "j'ai traversé les murs". HIGH priority is
+  // required for the chip to actually fire — see file-level note above.
   val WALK_PROFILE = LocationProfile(
     name = "walk",
-    distanceFilterM = 20f,
-    minIntervalMs = 30_000L,
+    distanceFilterM = 10f,
+    minIntervalMs = 15_000L,
     priority = Priority.PRIORITY_HIGH_ACCURACY,
   )
 
