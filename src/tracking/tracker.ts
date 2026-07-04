@@ -5,6 +5,7 @@ import type { Db } from '../db/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { shouldRunPipelineForForeground, shouldRunGivenMotion } from './foregroundTrigger';
 import { makeOverpassDeps } from './overpassDeps';
+import { runDraftEnrichment } from './refreshDrafts';
 import { markPipelineRunStart, markPipelineRunEnd } from './pipelineStatus';
 
 export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
@@ -46,9 +47,12 @@ export async function runPipelineAndInvalidate(
   markPipelineRunStart();
   let tripsInserted = 0;
   try {
+    // The run itself is local-only and fast: trips land as pending drafts.
     const r = await runPipeline(db, { transit: makeOverpassDeps(db) });
     tripsInserted = r.tripsInserted;
     if (r.tripsInserted > 0) {
+      // Invalidate NOW — new trips must show up (as "classifying…" drafts)
+      // the moment they exist, not after the network classification pass.
       await qc.invalidateQueries({ queryKey: ['trips'] });
       await qc.invalidateQueries({ queryKey: ['stats'] });
       await qc.invalidateQueries({ queryKey: ['places'] });
@@ -56,6 +60,9 @@ export async function runPipelineAndInvalidate(
   } finally {
     markPipelineRunEnd(tripsInserted);
   }
+  // Classify drafts in the background (single-flight, self-refreshing the UI
+  // per trip). Fire-and-forget: the pipeline chain must never wait on network.
+  void runDraftEnrichment(db, qc).catch(() => {});
 }
 
 /**

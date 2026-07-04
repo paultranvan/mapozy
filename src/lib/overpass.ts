@@ -1,5 +1,6 @@
 import type { Db } from '../db/client';
 import { haversineMeters } from './distance';
+import { externalFetch } from './net';
 
 export interface BBox {
   south: number;
@@ -22,6 +23,12 @@ export interface TransitStop {
 export interface RailwayWay {
   id: number;
   railway: string; // rail | light_rail | subway | tram | narrow_gauge
+  coords: Array<[number, number]>; // [lon, lat]
+}
+
+export interface WaterWay {
+  id: number;
+  water: string; // river | canal | fairway | ferry
   coords: Array<[number, number]>; // [lon, lat]
 }
 
@@ -117,7 +124,7 @@ async function rateLimit(minInterval: number): Promise<void> {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function overpassFetch(deps: OverpassDeps, query: string): Promise<any[]> {
-  const doFetch = deps.fetchFn ?? fetch;
+  const doFetch = deps.fetchFn ?? externalFetch;
   // Track failure kinds across endpoints so the thrown error (and hence the
   // draft reason) reflects what actually went wrong.
   let saw429 = false;
@@ -189,18 +196,37 @@ function parseStops(elements: any[]): TransitStop[] {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+function wayCoords(e: any): Array<[number, number]> {
+  if (!Array.isArray(e.geometry)) return [];
+  return e.geometry
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .filter((g: any) => g && typeof g.lat === 'number' && typeof g.lon === 'number')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .map((g: any) => [g.lon, g.lat] as [number, number]);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function parseWays(elements: any[]): RailwayWay[] {
   const out: RailwayWay[] = [];
   for (const e of elements) {
-    if (e.type !== 'way' || !Array.isArray(e.geometry)) continue;
+    if (e.type !== 'way') continue;
     const railway = e.tags?.railway;
     if (!railway) continue;
-    const coords = e.geometry
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .filter((g: any) => g && typeof g.lat === 'number' && typeof g.lon === 'number')
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((g: any) => [g.lon, g.lat] as [number, number]);
+    const coords = wayCoords(e);
     if (coords.length >= 2) out.push({ id: e.id, railway, coords });
+  }
+  return out;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseWaterWays(elements: any[]): WaterWay[] {
+  const out: WaterWay[] = [];
+  for (const e of elements) {
+    if (e.type !== 'way') continue;
+    const water = e.tags?.waterway ?? (e.tags?.route === 'ferry' ? 'ferry' : null);
+    if (!water) continue;
+    const coords = wayCoords(e);
+    if (coords.length >= 2) out.push({ id: e.id, water, coords });
   }
   return out;
 }
@@ -232,15 +258,20 @@ export async function getStopsNear(
 }
 
 const TILE_DEG = 0.05; // ~5.5 km latitude — dedup unit for railway geometry
-const TILE_CHUNK = 12; // max tiles per Overpass query (keeps responses small)
+// Max tiles per Overpass query. Chunks are merged into one bounding rect, so a
+// diagonal path turns a big chunk into a huge query area: measured on the
+// tester's Belgium trips, 12-tile rects returned multi-MB responses taking
+// 60-80 s (and often 429/504) on public instances. 6 halves the area — more
+// queries, but each fast and reliable, and every tile is cached either way.
+const TILE_CHUNK = 6;
 
 interface Tile {
   tx: number;
   ty: number;
 }
 
-function tileKey(t: Tile): string {
-  return `waystile:${t.tx}:${t.ty}`;
+function tileKey(prefix: string, t: Tile): string {
+  return `${prefix}:${t.tx}:${t.ty}`;
 }
 
 function tileBBox(t: Tile): BBox {
@@ -290,7 +321,7 @@ function bboxIntersects(a: BBox, b: BBox): boolean {
   return a.south <= b.north && a.north >= b.south && a.west <= b.east && a.east >= b.west;
 }
 
-function wayBBox(w: RailwayWay): BBox {
+function wayBBox(w: { coords: Array<[number, number]> }): BBox {
   let south = 90;
   let west = 180;
   let north = -90;
@@ -304,29 +335,34 @@ function wayBBox(w: RailwayWay): BBox {
   return { south, west, north, east };
 }
 
-function roundWay(w: RailwayWay): RailwayWay {
+function roundWay<W extends { coords: Array<[number, number]> }>(w: W): W {
   return { ...w, coords: w.coords.map(([lon, lat]) => [r5(lon), r5(lat)] as [number, number]) };
 }
 
 /**
- * Railway ways near a section's polyline, cached per fixed 0.05° tile so
- * near-identical trips share cache rows instead of re-querying (and
- * re-storing) whole per-trip bboxes. Missing tiles are fetched in chunks of
- * TILE_CHUNK via one bounding-rect query each; every fetched tile is cached,
- * empty ones included. Returned set is deduped by way id and may extend
- * slightly beyond the path's surroundings (harmless: callers measure
+ * Generic tiled way fetch: ways of some kind near a polyline, cached per fixed
+ * 0.05° tile so near-identical trips share cache rows instead of re-querying
+ * (and re-storing) whole per-trip bboxes. Missing tiles are fetched in chunks
+ * of TILE_CHUNK via one bounding-rect query each; every fetched tile is
+ * cached, empty ones included. Returned set is deduped by way id and may
+ * extend slightly beyond the path's surroundings (harmless: callers measure
  * point-to-way distance).
  */
-export async function getRailwaysNear(
+async function getWaysNearTiled<W extends { id: number; coords: Array<[number, number]> }>(
   deps: OverpassDeps,
-  coords: Array<[number, number]>
-): Promise<RailwayWay[]> {
+  coords: Array<[number, number]>,
+  keyPrefix: string,
+  cacheKind: string,
+  selectorFor: (b: BBox) => string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  parse: (elements: any[]) => W[]
+): Promise<W[]> {
   const now = (deps.nowMs ?? Date.now)();
   const tiles = tilesForPath(coords);
-  const byId = new Map<number, RailwayWay>();
+  const byId = new Map<number, W>();
   const missing: Tile[] = [];
   for (const t of tiles) {
-    const cached = await cacheGet<RailwayWay[]>(deps, tileKey(t), now);
+    const cached = await cacheGet<W[]>(deps, tileKey(keyPrefix, t), now);
     if (cached === null) missing.push(t);
     else for (const w of cached) byId.set(w.id, w);
   }
@@ -343,18 +379,52 @@ export async function getRailwaysNear(
       };
     }
     const q = padBBox(rect, PAD_DEG);
-    const query =
-      `[out:json][timeout:60];` +
-      `way["railway"~"^(rail|light_rail|subway|tram|narrow_gauge)$"](${q.south},${q.west},${q.north},${q.east});` +
-      `out geom;`;
-    const ways = parseWays(await overpassFetch(deps, query)).map(roundWay);
+    const query = `[out:json][timeout:60];(${selectorFor(q)});out geom;`;
+    const ways = parse(await overpassFetch(deps, query)).map(roundWay);
     for (const t of chunk) {
       // Pad the tile so border-hugging ways land in both neighbours.
       const padded = padBBox(tileBBox(t), PAD_DEG);
       const tileWays = ways.filter((w) => bboxIntersects(wayBBox(w), padded));
-      await cacheSet(deps, tileKey(t), 'ways', tileWays, now);
+      await cacheSet(deps, tileKey(keyPrefix, t), cacheKind, tileWays, now);
       for (const w of tileWays) byId.set(w.id, w);
     }
   }
   return [...byId.values()];
+}
+
+/** Railway ways near a section's polyline (see getWaysNearTiled). */
+export async function getRailwaysNear(
+  deps: OverpassDeps,
+  coords: Array<[number, number]>
+): Promise<RailwayWay[]> {
+  return getWaysNearTiled(
+    deps,
+    coords,
+    'waystile',
+    'ways',
+    (b) =>
+      `way["railway"~"^(rail|light_rail|subway|tram|narrow_gauge)$"](${b.south},${b.west},${b.north},${b.east});`,
+    parseWays
+  );
+}
+
+/**
+ * Navigable-water ways near a section's polyline: river/canal/fairway
+ * centerlines plus mapped ferry routes. Same tile cache mechanics as railways
+ * (distinct key prefix). Used by the boat classifier.
+ */
+export async function getWaterwaysNear(
+  deps: OverpassDeps,
+  coords: Array<[number, number]>
+): Promise<WaterWay[]> {
+  return getWaysNearTiled(
+    deps,
+    coords,
+    'watertile',
+    'waterways',
+    (b) =>
+      `way["waterway"~"^(river|canal|fairway)$"](${b.south},${b.west},${b.north},${b.east});` +
+      `way["route"="ferry"](${b.south},${b.west},${b.north},${b.east});`,
+    parseWaterWays
+  );
 }

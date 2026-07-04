@@ -26,6 +26,7 @@ import {
 import { MissingRawDataError } from '@/pipeline/recomputeRange';
 import { locateSplitPoint } from '@/pipeline/edits/locateSplitPoint';
 import { makeOverpassDeps } from '@/tracking/overpassDeps';
+import { runDraftEnrichment } from '@/tracking/refreshDrafts';
 import { geocodePlaceLazy } from '@/pipeline/geocoding';
 import { placeLabels } from '@/lib/placeLabel';
 import { useTripEndpointPois } from '@/queries/usePlaces';
@@ -224,6 +225,8 @@ export default function TripDetailScreen() {
             return;
           }
           await refresh();
+          // The rebuilt trip is a pending draft — classify it in background.
+          void runDraftEnrichment(db, qc).catch(() => {});
           // Reset deletes & rebuilds the trip with a fresh id, so the current
           // /trip/{id} route is now stale. Re-locate the rebuilt trip covering
           // the original start and stay on it instead of bouncing to the list.

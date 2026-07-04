@@ -14,7 +14,6 @@ import { findOrCreatePlace, getPlaceById } from '../db/places';
 import { haversineMeters } from '../lib/distance';
 import { insertTripWithSections } from '../db/trips';
 import { getSetting, setSetting, SETTING_KEYS } from '../db/settings';
-import { insertDiagnosticEvent } from '../db/diagnostics';
 import { accuracyFilter } from './accuracyFilter';
 import { segmentation } from './segmentation';
 import { smoothing } from './smoothing';
@@ -24,7 +23,6 @@ import { splitFlightRuns, buildFlightSection } from './flightSplit';
 import { assemble } from './assemble';
 import { groupIntoTrips, type TripLegGroup } from './tripGrouping';
 import { RULES } from './rules';
-import { enrichTripTransit } from './transit/transitEnrichment';
 import { runDbMaintenance } from '../db/maintenance';
 import type { OverpassDeps } from '../lib/overpass';
 
@@ -38,6 +36,14 @@ export interface RunPipelineResult {
   tripsInserted: number;
   pointsConsumed: number;
   activitiesConsumed: number;
+  /**
+   * Trips inserted as pending drafts because transit classification was
+   * requested. The pipeline itself stays fully local and fast — the caller is
+   * responsible for kicking the background draft-enrichment pass (see
+   * `runDraftEnrichment`), which walks these (and any older drafts) with the
+   * slow, network-bound Overpass/Valhalla calls.
+   */
+  pendingEnrichmentTripIds: number[];
 }
 
 // A carried-over seed place farther than this from a gap-trip's first GPS point
@@ -94,7 +100,12 @@ async function runPipelineLocked(
   const allPoints = await getAllUnconsumedPoints(db);
   const points = allPoints.filter((p) => p.timestampMs <= cutoff);
   if (points.length < 2) {
-    return { tripsInserted: 0, pointsConsumed: 0, activitiesConsumed: 0 };
+    return {
+      tripsInserted: 0,
+      pointsConsumed: 0,
+      activitiesConsumed: 0,
+      pendingEnrichmentTripIds: [],
+    };
   }
   const allActivities = await getAllUnconsumedActivities(db);
   const activities = allActivities.filter((a) => a.timestampMs <= cutoff);
@@ -107,6 +118,7 @@ async function runPipelineLocked(
       tripsInserted: 0,
       pointsConsumed: points.length,
       activitiesConsumed: activities.length,
+      pendingEnrichmentTripIds: [],
     };
   }
 
@@ -192,11 +204,11 @@ async function runPipelineLocked(
     );
 
     // When transit enrichment is requested, persist the trip as a draft up
-    // front. Enrichment runs *after* points are marked consumed (below), so if
-    // the process is killed during the slow Overpass calls the trip survives as
-    // a draft and `refreshDraftTrips` re-enriches it — instead of leaving an
-    // un-classified `car` trip whose points stay unconsumed and get re-inserted
-    // as a duplicate on the next run.
+    // front. Enrichment happens OUTSIDE this run (background draft pass), so
+    // however the process dies the trip survives as a draft and
+    // `refreshDraftTrips` re-enriches it — instead of leaving an un-classified
+    // `car` trip whose points stay unconsumed and get re-inserted as a
+    // duplicate on the next run.
     const tripId = await assembleAndPersist(
       db,
       group,
@@ -239,29 +251,13 @@ async function runPipelineLocked(
     );
   }
 
-  // Transit enrichment runs only now that points are consumed and the run is
-  // otherwise complete. It is best-effort and network-bound: a thrown error
-  // (or the process dying mid-call) leaves the trip as a draft for
-  // `refreshDraftTrips`, and can never cost us point-consumption tracking.
-  if (opts.transit) {
-    for (const tripId of enrichTargets) {
-      try {
-        await enrichTripTransit(opts.transit, tripId);
-      } catch (err) {
-        // Non-Overpass throw → trip stays a draft with no draftReason. Persist
-        // it (not just console.warn) so the next export can root-cause it.
-        console.warn('[runPipeline] transit enrichment failed', err);
-        await insertDiagnosticEvent(db, now, 'transit_enrich_error', {
-          source: 'runPipeline',
-          tripId,
-          message: String((err as Error)?.message ?? err),
-          stack: (err as Error)?.stack ?? null,
-        }).catch(() => {
-          /* diagnostics are best-effort */
-        });
-      }
-    }
-  }
+  // NOTE: transit enrichment deliberately does NOT run here. It is slow
+  // (network-bound: tens of seconds to minutes per trip on public Overpass
+  // instances) and this function runs inside the per-db serialization chain —
+  // enriching inline used to block every queued run (foreground triggers,
+  // "Force pipeline", recompute re-runs) for the whole duration. Trips were
+  // inserted above as drafts; callers kick `runDraftEnrichment` which walks
+  // drafts in the background and refreshes the UI per trip.
 
   // Post-run DB upkeep (raw retention, cache eviction, conditional VACUUM).
   // Throttled internally to once a day; best-effort — a failure must never
@@ -278,6 +274,7 @@ async function runPipelineLocked(
     tripsInserted,
     pointsConsumed: points.length,
     activitiesConsumed: activities.length,
+    pendingEnrichmentTripIds: enrichTargets,
   };
 }
 

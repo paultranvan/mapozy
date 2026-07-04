@@ -51,6 +51,7 @@ export function PipelineStatusBanner() {
 
   const state = derivePipelineBannerState({
     running: run.running,
+    enriching: run.enriching,
     isTracking,
     motionState,
     unconsumedCount: unconsumed,
@@ -67,6 +68,22 @@ export function PipelineStatusBanner() {
         <Text variant="label" onGround style={styles.label}>
           Calcul en cours…
         </Text>
+      </View>
+    );
+  }
+
+  if (state === 'classifying') {
+    return (
+      <View style={styles.banner}>
+        <ActivityIndicator size="small" color={colors.accent} />
+        <Text variant="label" onGround style={styles.label}>
+          Classification des trajets…
+        </Text>
+        {run.draftsPending > 0 ? (
+          <Text variant="label" onGround soft style={styles.detail}>
+            · {run.draftsPending} restant{run.draftsPending > 1 ? 's' : ''}
+          </Text>
+        ) : null}
       </View>
     );
   }

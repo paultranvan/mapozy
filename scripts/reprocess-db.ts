@@ -14,6 +14,7 @@
 import * as fs from 'fs';
 import { runMigrations } from '../src/db/migrations';
 import { runPipeline } from '../src/pipeline/runPipeline';
+import { refreshDraftTrips } from '../src/tracking/refreshDrafts';
 import { TRANSIT_CACHE_SCHEMA } from '../src/db/transitCacheDb';
 
 function makeAdapter(raw: any) {
@@ -91,7 +92,16 @@ async function main() {
     transit = { db, cacheDb: async () => cacheDb, fetchFn: fetch };
   }
   const res = await runPipeline(db, { upToMs: maxTs + 1, nowMs: maxTs, transit });
-  console.log('runPipeline result:', JSON.stringify(res), enrich ? '(enriched)' : '(offline)');
+  console.log('runPipeline result:', JSON.stringify(res), enrich ? '(enriching…)' : '(offline)');
+  if (enrich) {
+    // Enrichment no longer runs inside runPipeline (it's a background pass in
+    // the app); replicate it here so --enrich output matches the app's final
+    // state. refreshDraftTrips walks every pending draft the run just created.
+    const er = await refreshDraftTrips(db, transit, (remaining: number) => {
+      if (remaining % 5 === 0) console.log(`  drafts remaining: ${remaining}`);
+    });
+    console.log('enrichment result:', JSON.stringify(er));
+  }
 
   const trips = raw.prepare('SELECT COUNT(*) c FROM trips').get() as any;
   const sections = raw.prepare('SELECT COUNT(*) c FROM sections').get() as any;

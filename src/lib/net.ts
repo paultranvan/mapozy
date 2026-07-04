@@ -50,15 +50,46 @@ export async function setExternalApiAllowed(
 }
 
 /**
+ * Thrown when an external request exceeds EXTERNAL_FETCH_TIMEOUT_MS. Callers
+ * already treat any fetch rejection as "offline"/best-effort, so this mostly
+ * matters for logs — but the class makes timeouts distinguishable there.
+ */
+export class ExternalFetchTimeoutError extends Error {
+  constructor(ms: number) {
+    super(`External request timed out after ${ms} ms`);
+    this.name = 'ExternalFetchTimeoutError';
+  }
+}
+
+// Public Overpass instances legitimately take 30-60 s on heavy rail-geometry
+// queries (their server-side [timeout:] is 60 s), so the client bound sits just
+// above that. What it exists to kill is the *stalled* connection: React
+// Native's fetch has no read timeout, and one hung request used to wedge the
+// serialized pipeline chain forever (tester: "Calcul en cours…" for hours,
+// Force pipeline queued behind it doing nothing).
+export const EXTERNAL_FETCH_TIMEOUT_MS = 75_000;
+
+/**
  * Drop-in replacement for `fetch` that every external service must use. Throws
  * `ExternalApiDisabledError` when the toggle is off — callers that treat that as
  * "offline" degrade gracefully (Overpass drafts, geocoding returns null,
- * Valhalla keeps the raw trace).
+ * Valhalla keeps the raw trace). Every request carries a hard timeout so no
+ * stalled connection can hang a caller indefinitely.
  */
-export function externalFetch(
+export async function externalFetch(
   input: RequestInfo | URL,
-  init?: RequestInit
+  init?: RequestInit & { timeoutMs?: number }
 ): Promise<Response> {
-  if (!allowed) return Promise.reject(new ExternalApiDisabledError());
-  return fetch(input, init);
+  if (!allowed) throw new ExternalApiDisabledError();
+  const timeoutMs = init?.timeoutMs ?? EXTERNAL_FETCH_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (controller.signal.aborted) throw new ExternalFetchTimeoutError(timeoutMs);
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }

@@ -19,7 +19,7 @@ import { TopBar } from '@/ui/TopBar';
 import { Text } from '@/ui/Text';
 import { RecordingPill } from '@/ui/RecordingPill';
 import { useRecordingStatus } from '@/tracking/useRecordingStatus';
-import { refreshDraftTrips } from '@/tracking/refreshDrafts';
+import { runDraftEnrichment } from '@/tracking/refreshDrafts';
 import { runPipelineIfSafe } from '@/tracking/tracker';
 import { PipelineStatusBanner } from '@/ui/PipelineStatusBanner';
 import { TripSelectionBar } from '@/ui/TripSelectionBar';
@@ -154,6 +154,8 @@ export default function TripsScreen() {
           try {
             await recomputeForTrips(db, plan, Date.now(), makeOverpassDeps(db));
             await refreshAfterMutation();
+            // Rebuilt trips are pending drafts — classify them in background.
+            void runDraftEnrichment(db, qc).catch(() => {});
             exitSelect();
           } catch (e) {
             // Recompute is not atomic; refresh so any partial rebuild shows,
@@ -164,11 +166,13 @@ export default function TripsScreen() {
         },
       },
     ]);
-  }, [selected, db, refreshAfterMutation, exitSelect]);
+  }, [selected, db, qc, refreshAfterMutation, exitSelect]);
 
   const onRefresh = useCallback(async () => {
     await runPipelineIfSafe(db, qc);
-    const res = await refreshDraftTrips(db).catch(() => ({ enriched: 0, rateLimited: false }));
+    // Single-flight: if a background pass is already classifying drafts this
+    // joins it instead of double-hitting Overpass with a concurrent pass.
+    const res = await runDraftEnrichment(db, qc).catch(() => ({ enriched: 0, rateLimited: false }));
     if (res.rateLimited) {
       Alert.alert(
         'Transit lookup busy',

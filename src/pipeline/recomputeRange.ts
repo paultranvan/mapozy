@@ -141,7 +141,12 @@ export async function recomputeForTrips(
   transit?: OverpassDeps
 ): Promise<RunPipelineResult> {
   if (plan.inRangeTripIds.length === 0) {
-    return { tripsInserted: 0, pointsConsumed: 0, activitiesConsumed: 0 };
+    return {
+      tripsInserted: 0,
+      pointsConsumed: 0,
+      activitiesConsumed: 0,
+      pendingEnrichmentTripIds: [],
+    };
   }
 
   // Raw points for these trips were purged (90-day retention) or never

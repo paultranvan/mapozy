@@ -7,6 +7,7 @@ import { listTrips } from '../../db/trips';
 import { syntheticTrip } from './_fixtures';
 import { insertRawPoint } from '../../db/rawPoints';
 import { insertRawActivity } from '../../db/rawActivities';
+import { refreshDraftTrips } from '../../tracking/refreshDrafts';
 import type { OverpassDeps } from '../../lib/overpass';
 
 function fakeResponse(body: unknown) {
@@ -54,20 +55,30 @@ describe('recomputeForTrips — transit forwarding', () => {
     const before = (await listTrips(db, 10, 0))[0]!;
     expect(before.dominantMode).toBe('car');
 
-    // Recompute WITH a rail-returning transit dep: the drive must become train.
+    // Recompute WITH a rail-returning transit dep: the rebuilt trip lands as a
+    // pending draft (recompute itself stays local/fast), and the follow-up
+    // draft pass — which the UI kicks right after — turns the drive into train.
     const cacheDb = createMockDb();
     await ensureTransitCacheSchema(cacheDb);
-    const plan = await planRecompute(db, [before.id!], maxTs + 1);
-    await recomputeForTrips(db, plan, maxTs, {
+    const transit: OverpassDeps = {
       db,
       cacheDb: async () => cacheDb,
       fetchFn: railFetch(),
       nowMs: () => 1,
       minIntervalMs: 0,
-    });
+    };
+    const plan = await planRecompute(db, [before.id!], maxTs + 1);
+    const res = await recomputeForTrips(db, plan, maxTs, transit);
+
+    const rebuilt = (await listTrips(db, 10, 0))[0]!;
+    expect(rebuilt.draft).toBe(true);
+    expect(res.pendingEnrichmentTripIds).toEqual([rebuilt.id]);
+
+    await refreshDraftTrips(db, transit);
 
     const after = (await listTrips(db, 10, 0))[0]!;
     expect(after.dominantMode).toBe('train');
+    expect(after.draft).toBe(false);
   });
 
   it('leaves trips as-is when no transit dep is passed (offline default)', async () => {

@@ -177,9 +177,11 @@ describe('overpass — getRailwaysNear (tiled cache)', () => {
       calls++;
       return fakeResponse({ elements: [] });
     });
-    // 26 points 0.05° apart along lon → 26 tiles → ceil(26/12) = 3 queries.
+    // 26 points 0.05° apart along lon → 26 tiles → ceil(26/6) = 5 queries
+    // (TILE_CHUNK = 6 keeps each bounding-rect query small enough for loaded
+    // public instances — see the constant's comment).
     const coords = Array.from({ length: 26 }, (_, i) => [5.001 + i * 0.05, 45.001] as [number, number]);
     await getRailwaysNear(deps, coords);
-    expect(calls).toBe(3);
+    expect(calls).toBe(5);
   });
 });

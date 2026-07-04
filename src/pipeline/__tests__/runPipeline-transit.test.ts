@@ -6,6 +6,7 @@ import { listTrips } from '../../db/trips';
 import { syntheticTrip } from './_fixtures';
 import { insertRawPoint } from '../../db/rawPoints';
 import { insertRawActivity } from '../../db/rawActivities';
+import { refreshDraftTrips } from '../../tracking/refreshDrafts';
 import type { OverpassDeps } from '../../lib/overpass';
 
 function fakeResponse(body: unknown) {
@@ -57,18 +58,50 @@ describe('runPipeline transit enrichment (opt-in)', () => {
     expect(trip!.draft).toBe(false);
   });
 
-  it('with a rail-returning transit dep, the drive becomes train', async () => {
+  it('with a transit dep, the run stays local: trip lands as a pending draft', async () => {
     const db = createMockDb();
     await runMigrations(db);
     const opts = await seed(db);
 
     const cacheDb = createMockDb();
     await ensureTransitCacheSchema(cacheDb);
-    await runPipeline(db, {
+    let fetches = 0;
+    const countingFetch: OverpassDeps['fetchFn'] = async (url, init) => {
+      fetches++;
+      return railFetch()!(url, init);
+    };
+    const res = await runPipeline(db, {
       ...opts,
-      transit: { db, cacheDb: async () => cacheDb, fetchFn: railFetch(), nowMs: () => 1_000_000, minIntervalMs: 0 },
+      transit: { db, cacheDb: async () => cacheDb, fetchFn: countingFetch, nowMs: () => 1_000_000, minIntervalMs: 0 },
     });
 
+    // Enrichment is a separate background pass now — the run itself must not
+    // touch the network, and must surface the draft for that pass to pick up.
+    expect(fetches).toBe(0);
+    const [trip] = await listTrips(db, 10, 0);
+    expect(trip!.dominantMode).toBe('car');
+    expect(trip!.draft).toBe(true);
+    expect(res.pendingEnrichmentTripIds).toEqual([trip!.id]);
+  });
+
+  it('run + draft pass: the drive becomes train end-to-end', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    const opts = await seed(db);
+
+    const cacheDb = createMockDb();
+    await ensureTransitCacheSchema(cacheDb);
+    const transit: OverpassDeps = {
+      db,
+      cacheDb: async () => cacheDb,
+      fetchFn: railFetch(),
+      nowMs: () => 1_000_000,
+      minIntervalMs: 0,
+    };
+    await runPipeline(db, { ...opts, transit });
+    const er = await refreshDraftTrips(db, transit);
+
+    expect(er.enriched).toBe(1);
     const [trip] = await listTrips(db, 10, 0);
     expect(trip!.dominantMode).toBe('train');
     expect(trip!.draft).toBe(false);
