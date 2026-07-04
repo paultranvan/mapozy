@@ -8,6 +8,9 @@ export interface ModeBucket {
   co2G: number;
 }
 
+// Grouped by *effective* mode (user override wins over auto-detected —
+// SQL twin of pipeline/effectiveMode.ts), matching what the user sees on
+// trips and what the mode-filtered chart/KPI queries in periodStats.ts sum.
 export async function modeBreakdown(
   db: Db,
   startMs: number,
@@ -19,14 +22,14 @@ export async function modeBreakdown(
     dur: number;
     co2: number;
   }>(
-    `SELECT s.mode as mode,
+    `SELECT COALESCE(s.user_mode, s.mode) as mode,
             SUM(s.distance_m) as d,
             SUM(s.duration_s) as dur,
             SUM(s.co2_g) as co2
      FROM sections s
      JOIN trips t ON s.trip_id = t.id
      WHERE t.start_time_ms BETWEEN ? AND ?
-     GROUP BY s.mode
+     GROUP BY COALESCE(s.user_mode, s.mode)
      ORDER BY d DESC`,
     startMs,
     endMs

@@ -18,6 +18,7 @@ import {
 import { modeBreakdown } from '../stats/modeBreakdown';
 import { records } from '../stats/records';
 import type { PeriodKey } from '../lib/time';
+import type { Mode } from '../types';
 import { navigablePeriodRange, rangeForDayKey, dayKey } from '../lib/time';
 
 export function useTripsList(limit = 200) {
@@ -93,25 +94,32 @@ export function usePlace(id: number | null) {
   });
 }
 
-export function usePeriodKpi(period: PeriodKey, offset = 0) {
+// `mode` filters the totals down to sections of that effective mode
+// (user_mode ?? mode) — null means all modes.
+export function usePeriodKpi(period: PeriodKey, offset = 0, mode: Mode | null = null) {
   const db = useDb();
   const { start, end } = navigablePeriodRange(period, offset);
   return useQuery({
-    queryKey: ['stats', 'kpi', period, start, end],
-    queryFn: () => periodKpi(db, start, end),
+    queryKey: ['stats', 'kpi', period, start, end, mode],
+    queryFn: () => periodKpi(db, start, end, mode),
+    // Keep the previous total on screen while a mode-filter toggle refetches,
+    // so the hero card doesn't flash empty.
+    placeholderData: keepPreviousData,
   });
 }
 
-export function useDailyDistances(period: PeriodKey, offset = 0) {
+export function useDailyDistances(period: PeriodKey, offset = 0, mode: Mode | null = null) {
   const db = useDb();
   const { start, end } = navigablePeriodRange(period, offset);
   const granularity = bucketGranularityFor(period);
   return useQuery({
-    queryKey: ['stats', 'daily', period, start, end],
+    queryKey: ['stats', 'daily', period, start, end, mode],
     queryFn: async () =>
       granularity === 'hour'
-        ? hourlyDistances(db, start, end)
-        : aggregateDailyBuckets(await dailyDistances(db, start, end), granularity),
+        ? hourlyDistances(db, start, end, mode)
+        : aggregateDailyBuckets(await dailyDistances(db, start, end, mode), granularity),
+    // Same as above: no chart flash while toggling the mode filter.
+    placeholderData: keepPreviousData,
   });
 }
 

@@ -1,5 +1,6 @@
 import type { Db } from '../db/client';
 import type { PeriodKey } from '../lib/time';
+import type { Mode } from '../types';
 
 export interface PeriodKpi {
   totalDistanceM: number;
@@ -8,22 +9,50 @@ export interface PeriodKpi {
   totalDurationS: number;
 }
 
+// SQL twin of pipeline/effectiveMode.ts: the mode the user sees — override
+// wins over the auto-detected one. Every mode-filtered stat must use this so
+// per-leg user corrections are respected.
+const EFFECTIVE_MODE_SQL = `COALESCE(s.user_mode, s.mode)`;
+
+/**
+ * Period totals. When `mode` is given, distance/CO₂/duration come from the
+ * sections of that effective mode only (a mixed trip contributes just its
+ * matching legs), and tripsCount counts trips containing at least one such
+ * leg. Trips are attributed to the range by trip start time in both paths so
+ * the filtered total always matches the "By mode" row.
+ */
 export async function periodKpi(
   db: Db,
   startMs: number,
-  endMs: number
+  endMs: number,
+  mode: Mode | null = null
 ): Promise<PeriodKpi> {
-  const r = await db.getFirstAsync<{
-    d: number | null;
-    c: number;
-    co2: number | null;
-    dur: number | null;
-  }>(
-    `SELECT SUM(distance_m) as d, COUNT(*) as c, SUM(co2_g) as co2, SUM(duration_s) as dur
-     FROM trips WHERE start_time_ms BETWEEN ? AND ?`,
-    startMs,
-    endMs
-  );
+  const r = mode
+    ? await db.getFirstAsync<{
+        d: number | null;
+        c: number;
+        co2: number | null;
+        dur: number | null;
+      }>(
+        `SELECT SUM(s.distance_m) as d, COUNT(DISTINCT t.id) as c,
+                SUM(s.co2_g) as co2, SUM(s.duration_s) as dur
+         FROM sections s JOIN trips t ON s.trip_id = t.id
+         WHERE t.start_time_ms BETWEEN ? AND ? AND ${EFFECTIVE_MODE_SQL} = ?`,
+        startMs,
+        endMs,
+        mode
+      )
+    : await db.getFirstAsync<{
+        d: number | null;
+        c: number;
+        co2: number | null;
+        dur: number | null;
+      }>(
+        `SELECT SUM(distance_m) as d, COUNT(*) as c, SUM(co2_g) as co2, SUM(duration_s) as dur
+         FROM trips WHERE start_time_ms BETWEEN ? AND ?`,
+        startMs,
+        endMs
+      );
   return {
     totalDistanceM: r?.d ?? 0,
     tripsCount: r?.c ?? 0,
@@ -38,20 +67,39 @@ export interface DailyBucket {
   tripsCount: number;
 }
 
+/**
+ * Distance per local day. With a `mode` filter, each day sums only the
+ * sections of that effective mode; buckets stay keyed on the *trip* start day
+ * (same as the unfiltered chart) so the filtered buckets add up to the
+ * filtered periodKpi total.
+ */
 export async function dailyDistances(
   db: Db,
   startMs: number,
-  endMs: number
+  endMs: number,
+  mode: Mode | null = null
 ): Promise<DailyBucket[]> {
-  const rows = await db.getAllAsync<{ day_key: string; d: number; c: number }>(
-    `SELECT date(start_time_ms / 1000, 'unixepoch', 'localtime') as day_key,
-            SUM(distance_m) as d,
-            COUNT(*) as c
-     FROM trips WHERE start_time_ms BETWEEN ? AND ?
-     GROUP BY day_key ORDER BY day_key ASC`,
-    startMs,
-    endMs
-  );
+  const rows = mode
+    ? await db.getAllAsync<{ day_key: string; d: number; c: number }>(
+        `SELECT date(t.start_time_ms / 1000, 'unixepoch', 'localtime') as day_key,
+                SUM(s.distance_m) as d,
+                COUNT(DISTINCT t.id) as c
+         FROM sections s JOIN trips t ON s.trip_id = t.id
+         WHERE t.start_time_ms BETWEEN ? AND ? AND ${EFFECTIVE_MODE_SQL} = ?
+         GROUP BY day_key ORDER BY day_key ASC`,
+        startMs,
+        endMs,
+        mode
+      )
+    : await db.getAllAsync<{ day_key: string; d: number; c: number }>(
+        `SELECT date(start_time_ms / 1000, 'unixepoch', 'localtime') as day_key,
+                SUM(distance_m) as d,
+                COUNT(*) as c
+         FROM trips WHERE start_time_ms BETWEEN ? AND ?
+         GROUP BY day_key ORDER BY day_key ASC`,
+        startMs,
+        endMs
+      );
   return rows.map((r) => ({
     dayKey: r.day_key,
     distanceM: r.d,
@@ -126,21 +174,36 @@ function bucketFor(dayKey: string, g: BucketGranularity): { key: string; label: 
 /**
  * Distance per hour-of-day for a single-day range, zero-filled over 0–23 so
  * the chart keeps a stable time axis (spikes sit at the travel hours).
+ * With a `mode` filter, hours sum only the sections of that effective mode,
+ * still keyed on the trip's start hour (see dailyDistances).
  */
 export async function hourlyDistances(
   db: Db,
   startMs: number,
-  endMs: number
+  endMs: number,
+  mode: Mode | null = null
 ): Promise<DisplayBucket[]> {
-  const rows = await db.getAllAsync<{ hh: string; d: number; c: number }>(
-    `SELECT strftime('%H', start_time_ms / 1000, 'unixepoch', 'localtime') as hh,
-            SUM(distance_m) as d,
-            COUNT(*) as c
-     FROM trips WHERE start_time_ms BETWEEN ? AND ?
-     GROUP BY hh ORDER BY hh ASC`,
-    startMs,
-    endMs
-  );
+  const rows = mode
+    ? await db.getAllAsync<{ hh: string; d: number; c: number }>(
+        `SELECT strftime('%H', t.start_time_ms / 1000, 'unixepoch', 'localtime') as hh,
+                SUM(s.distance_m) as d,
+                COUNT(DISTINCT t.id) as c
+         FROM sections s JOIN trips t ON s.trip_id = t.id
+         WHERE t.start_time_ms BETWEEN ? AND ? AND ${EFFECTIVE_MODE_SQL} = ?
+         GROUP BY hh ORDER BY hh ASC`,
+        startMs,
+        endMs,
+        mode
+      )
+    : await db.getAllAsync<{ hh: string; d: number; c: number }>(
+        `SELECT strftime('%H', start_time_ms / 1000, 'unixepoch', 'localtime') as hh,
+                SUM(distance_m) as d,
+                COUNT(*) as c
+         FROM trips WHERE start_time_ms BETWEEN ? AND ?
+         GROUP BY hh ORDER BY hh ASC`,
+        startMs,
+        endMs
+      );
   const byHour = new Map(rows.map((r) => [Number(r.hh), r]));
   const out: DisplayBucket[] = [];
   for (let h = 0; h < 24; h++) {
