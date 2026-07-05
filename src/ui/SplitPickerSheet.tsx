@@ -8,6 +8,7 @@ import MapLibreGL, {
 } from '@maplibre/maplibre-react-native';
 import { useMemo, useState } from 'react';
 import { Text } from './Text';
+import { useI18n } from '@/i18n';
 import { colors, space, radii } from '@/theme/tokens';
 import { parseCoords } from '@/pipeline/edits/sectionGeometry';
 import { haversineMeters } from '@/lib/distance';
@@ -53,6 +54,7 @@ export function SplitPickerSheet({
   onConfirm: (point: [number, number]) => void;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   const lines = useMemo(
     () => geojsons.map(parseCoords).filter((c) => c.length >= 2),
     [geojsons]
@@ -123,7 +125,7 @@ export function SplitPickerSheet({
           </MapView>
         ) : (
           <View style={styles.center}>
-            <Text>No trace to split</Text>
+            <Text>{t('split.noTrace')}</Text>
           </View>
         )}
         <View style={styles.bar}>
@@ -132,18 +134,18 @@ export function SplitPickerSheet({
             {title}
           </Text>
           <Text variant="ribbon" soft style={styles.hint}>
-            Drag the marker along the route
+            {t('split.dragHint')}
           </Text>
           <View style={styles.buttons}>
             <Pressable style={[styles.btn, styles.cancel]} onPress={onClose}>
-              <Text variant="title">Cancel</Text>
+              <Text variant="title">{t('common.cancel')}</Text>
             </Pressable>
             <Pressable
               style={[styles.btn, styles.confirm]}
               onPress={() => current && onConfirm(current)}
             >
               <Text variant="title" style={{ color: colors.surface }}>
-                Cut here
+                {t('split.cutHere')}
               </Text>
             </Pressable>
           </View>

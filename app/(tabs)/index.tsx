@@ -27,8 +27,9 @@ import { deleteTrips } from '@/db/trips';
 import { planRecompute, recomputeForTrips } from '@/pipeline/recomputeRange';
 import { makeOverpassDeps } from '@/tracking/overpassDeps';
 import { colors, space } from '@/theme/tokens';
-import { dayKey } from '@/lib/time';
-import { WEEKDAYS, MONTHS_SHORT } from '@/lib/format';
+import { dayKey, dayKeyToMs } from '@/lib/time';
+import { formatDayHeader } from '@/lib/format';
+import { t as translate, useI18n } from '@/i18n';
 import type { Trip, Place } from '@/types';
 
 interface Section {
@@ -40,18 +41,9 @@ interface Section {
 function dayHeader(k: string): string {
   const todayKey = dayKey(Date.now());
   const yesterdayKey = dayKey(Date.now() - 86_400_000);
-  if (k === todayKey) return 'Today';
-  if (k === yesterdayKey) return 'Yesterday';
-  const parts = k.split('-').map((n) => Number(n));
-  const y = parts[0]!;
-  const m = parts[1]!;
-  const d = parts[2]!;
-  const date = new Date(y, m - 1, d);
-  const sameYear = date.getFullYear() === new Date().getFullYear();
-  const weekday = WEEKDAYS[date.getDay()];
-  return sameYear
-    ? `${weekday}, ${d} ${MONTHS_SHORT[m - 1]}`
-    : `${weekday}, ${d} ${MONTHS_SHORT[m - 1]} ${y}`;
+  if (k === todayKey) return translate('trips.today');
+  if (k === yesterdayKey) return translate('trips.yesterday');
+  return formatDayHeader(dayKeyToMs(k));
 }
 
 function groupByDay(trips: Trip[]): Section[] {
@@ -67,6 +59,7 @@ function groupByDay(trips: Trip[]): Section[] {
 }
 
 export default function TripsScreen() {
+  const { t, locale } = useI18n();
   const db = useDb();
   const qc = useQueryClient();
   const router = useRouter();
@@ -112,12 +105,12 @@ export default function TripsScreen() {
     const ids = Array.from(selected);
     if (ids.length === 0) return;
     Alert.alert(
-      `Delete ${ids.length} trip${ids.length > 1 ? 's' : ''}?`,
-      'This removes the trips and their sections. Raw GPS data is kept.',
+      t('trips.deleteTitle', { count: ids.length }),
+      t('trips.deleteBody'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Delete',
+          text: t('common.delete'),
           style: 'destructive',
           onPress: async () => {
             await deleteTrips(db, ids);
@@ -127,7 +120,7 @@ export default function TripsScreen() {
         },
       ]
     );
-  }, [selected, db, refreshAfterMutation, exitSelect]);
+  }, [selected, db, refreshAfterMutation, exitSelect, t]);
 
   const onRecompute = useCallback(async () => {
     const ids = Array.from(selected);
@@ -135,21 +128,19 @@ export default function TripsScreen() {
     const plan = await planRecompute(db, ids);
     if (plan.missingRawTripIds.length > 0) {
       Alert.alert(
-        "Can't recompute",
-        `Raw GPS data is missing for ${plan.missingRawTripIds.length} trip(s) in this range, so they can't be rebuilt.`
+        t('trips.cantRecomputeTitle'),
+        t('trips.cantRecomputeBody', { count: plan.missingRawTripIds.length })
       );
       return;
     }
-    let body = 'Re-run the pipeline on the raw data for these trips.';
+    let body = t('trips.recomputeBody');
     if (plan.extraCount > 0) {
-      body +=
-        ` This rebuilds the whole time range and will also recompute ` +
-        `${plan.extraCount} other trip(s) inside it.`;
+      body += ' ' + t('trips.recomputeExtra', { count: plan.extraCount });
     }
-    Alert.alert(`Recompute ${ids.length} trip${ids.length > 1 ? 's' : ''}?`, body, [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('trips.recomputeTitle', { count: ids.length }), body, [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Recompute',
+        text: t('trips.recompute'),
         onPress: async () => {
           try {
             await recomputeForTrips(db, plan, Date.now(), makeOverpassDeps(db));
@@ -161,12 +152,12 @@ export default function TripsScreen() {
             // Recompute is not atomic; refresh so any partial rebuild shows,
             // but stay in select mode so the user can retry.
             await refreshAfterMutation();
-            Alert.alert('Recompute failed', String(e));
+            Alert.alert(t('trips.recomputeFailed'), String(e));
           }
         },
       },
     ]);
-  }, [selected, db, qc, refreshAfterMutation, exitSelect]);
+  }, [selected, db, qc, refreshAfterMutation, exitSelect, t]);
 
   const onRefresh = useCallback(async () => {
     await runPipelineIfSafe(db, qc);
@@ -174,20 +165,19 @@ export default function TripsScreen() {
     // joins it instead of double-hitting Overpass with a concurrent pass.
     const res = await runDraftEnrichment(db, qc).catch(() => ({ enriched: 0, rateLimited: false }));
     if (res.rateLimited) {
-      Alert.alert(
-        'Transit lookup busy',
-        'OpenStreetMap rate-limited the request. Some trips are still draft — pull to refresh again in a moment.'
-      );
+      Alert.alert(t('trips.transitBusyTitle'), t('trips.transitBusyBody'));
     }
     await Promise.all([tripsQ.refetch(), placesQ.refetch(), recording.refresh()]);
     if (res.enriched > 0) {
       await qc.invalidateQueries({ queryKey: ['stats'] });
     }
-  }, [db, qc, tripsQ, placesQ, recording]);
+  }, [db, qc, tripsQ, placesQ, recording, t]);
 
   const sections = useMemo(
     () => (tripsQ.data ? groupByDay(tripsQ.data) : []),
-    [tripsQ.data]
+    // `locale` so day headers re-render in the new language.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tripsQ.data, locale]
   );
   const placeById = useMemo(() => {
     const m = new Map<number, (typeof placesQ.data)[number]>();
@@ -255,10 +245,10 @@ export default function TripsScreen() {
             color={colors.inkOnGroundSoft}
           />
           <Text variant="display" onGround align="center" style={styles.emptyTitle}>
-            No trips yet
+            {t('trips.emptyTitle')}
           </Text>
           <Text variant="body" onGround soft align="center">
-            Move around — trips will appear here.
+            {t('trips.emptyBody')}
           </Text>
         </View>
       ) : (

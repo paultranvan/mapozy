@@ -1,12 +1,14 @@
 import { StyleSheet } from 'react-native';
 import { Text } from './Text';
 import { colors, radii } from '@/theme/tokens';
+import { useI18n } from '@/i18n';
 
 /** Small letterpress-style "EDITED" pill — ink outline, mono, used by the ribbon. */
 export function EditedPill() {
+  const { t } = useI18n();
   return (
     <Text variant="ribbon" style={styles.pill}>
-      EDITED
+      {t('timeline.edited')}
     </Text>
   );
 }

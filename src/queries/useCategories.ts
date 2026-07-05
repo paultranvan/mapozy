@@ -4,7 +4,7 @@ import {
   getCustomCategories, createCustomCategory, deleteCustomCategory,
   type CustomCategoryInput,
 } from '../db/customCategories';
-import { PLACE_CATEGORIES, customToMeta, type CategoryMeta } from '../ui/placeCategories';
+import { builtinCategories, customToMeta, type CategoryMeta } from '../ui/placeCategories';
 
 export function useCustomCategories() {
   const db = useDb();
@@ -14,7 +14,7 @@ export function useCustomCategories() {
 /** Built-in categories followed by the user's custom ones, as CategoryMeta[]. */
 export function useCategories(): CategoryMeta[] {
   const custom = useCustomCategories();
-  return [...PLACE_CATEGORIES, ...(custom.data ?? []).map(customToMeta)];
+  return [...builtinCategories(), ...(custom.data ?? []).map(customToMeta)];
 }
 
 export function useCreateCustomCategory() {

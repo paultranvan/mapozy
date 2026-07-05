@@ -15,6 +15,8 @@ import { PeriodTabs } from '@/ui/PeriodTabs';
 import { AreaChart } from '@/ui/AreaChart';
 import { colors, radii, space } from '@/theme/tokens';
 import { formatDistance, formatDate } from '@/lib/format';
+import { useI18n } from '@/i18n';
+import { modeLabel } from '@/i18n/labels';
 import { navigablePeriodRange } from '@/lib/time';
 import { bucketGranularityFor } from '@/stats/periodStats';
 import type { PeriodKey } from '@/lib/time';
@@ -22,6 +24,7 @@ import type { DominantMode, Mode } from '@/types';
 import type { ModeBucket } from '@/stats/modeBreakdown';
 
 export default function StatsScreen() {
+  const { t } = useI18n();
   const [period, setPeriod] = useState<PeriodKey>('week');
   // 0 = current period; negative pages into the past. Reset whenever the period
   // granularity changes so we always land on the current week/month/etc.
@@ -89,18 +92,19 @@ export default function StatsScreen() {
   }, [dailyQ.data]);
 
   const BUCKET_TITLES: Record<string, string> = {
-    hour: 'By hour',
-    day: 'By day',
-    week: 'By week',
-    month: 'By month',
-    year: 'By year',
+    hour: t('stats.byHour'),
+    day: t('stats.byDay'),
+    week: t('stats.byWeek'),
+    month: t('stats.byMonth'),
+    year: t('stats.byYear'),
   };
-  const distanceBreakdownTitle = BUCKET_TITLES[bucketGranularityFor(period)] ?? 'By day';
-  const filterSuffix = modeFilter ? ` · ${capitalize(modeFilter)}` : '';
+  const distanceBreakdownTitle =
+    BUCKET_TITLES[bucketGranularityFor(period)] ?? t('stats.byDay');
+  const filterSuffix = modeFilter ? ` · ${modeLabel(modeFilter)}` : '';
 
   return (
     <View style={styles.root}>
-      <TopBar title="Stats" />
+      <TopBar title={t('stats.title')} />
       <ScrollView contentContainerStyle={styles.scroll}>
         <PeriodTabs value={period} onChange={changePeriod} />
 
@@ -138,8 +142,8 @@ export default function StatsScreen() {
         {/* Hero KPI */}
         <Card padded="lg" style={styles.section}>
           <Text variant="ribbon" soft>
-            DISTANCE {range.label.toUpperCase()}
-            {modeFilter ? ` · ${modeFilter.toUpperCase()}` : ''}
+            {t('stats.distance').toUpperCase()} {range.label.toUpperCase()}
+            {modeFilter ? ` · ${modeLabel(modeFilter).toUpperCase()}` : ''}
           </Text>
           <View style={styles.heroRow}>
             <Text variant="displayXL">{distValue}</Text>
@@ -148,18 +152,18 @@ export default function StatsScreen() {
             </Text>
           </View>
           <Text variant="meta" soft>
-            across {tripCount} {tripCount === 1 ? 'trip' : 'trips'}
+            {t('stats.acrossTrips', { count: tripCount })}
           </Text>
         </Card>
 
         {/* By mode */}
         <Text variant="display" onGround style={styles.sectionTitle}>
-          By mode
+          {t('stats.byMode')}
         </Text>
         <Card style={styles.section}>
           {modeRows.length === 0 ? (
             <Text variant="body" soft>
-              No data yet.
+              {t('stats.noData')}
             </Text>
           ) : (
             <>
@@ -175,7 +179,7 @@ export default function StatsScreen() {
                       }
                       accessibilityRole="button"
                       accessibilityState={{ selected: active }}
-                      accessibilityHint="Filters the distance chart to this mode"
+                      accessibilityHint={t('stats.filterHint')}
                       style={[
                         styles.legendRow,
                         active && styles.legendRowActive,
@@ -189,7 +193,7 @@ export default function StatsScreen() {
                         ]}
                       />
                       <Text variant="body" style={styles.legendLabel}>
-                        {capitalize(r.mode)}
+                        {modeLabel(r.mode)}
                       </Text>
                       <Text variant="numberS" style={styles.legendValue}>
                         {formatDistance(r.distanceM)}
@@ -203,7 +207,7 @@ export default function StatsScreen() {
               </View>
               {modeFilter !== null ? (
                 <Text variant="meta" soft style={styles.legendHint}>
-                  Showing {capitalize(modeFilter)} only — tap again for all modes.
+                  {t('stats.showingOnly', { mode: modeLabel(modeFilter) })}
                 </Text>
               ) : null}
             </>
@@ -218,7 +222,7 @@ export default function StatsScreen() {
         <Card style={styles.section}>
           {dailyData.length === 0 ? (
             <Text variant="body" soft>
-              No data yet.
+              {t('stats.noData')}
             </Text>
           ) : (
             <AreaChart data={dailyData} height={160} yLabelSuffix=" km" />
@@ -227,11 +231,11 @@ export default function StatsScreen() {
 
         {/* Records */}
         <Text variant="display" onGround style={styles.sectionTitle}>
-          Records
+          {t('stats.records')}
         </Text>
         <Card style={styles.section}>
           <RecordRow
-            title="Longest trip"
+            title={t('stats.longestTrip')}
             value={
               recordsQ.data?.longestTripDateMs
                 ? formatDistance(recordsQ.data.longestTripDistanceM)
@@ -245,7 +249,7 @@ export default function StatsScreen() {
           />
           <Divider />
           <RecordRow
-            title="Best day"
+            title={t('stats.bestDay')}
             value={
               recordsQ.data?.bestDayMs
                 ? formatDistance(recordsQ.data.bestDayDistanceM)
@@ -255,10 +259,10 @@ export default function StatsScreen() {
           />
           <Divider />
           <RecordRow
-            title="Current streak"
-            value={`${recordsQ.data?.currentStreakDays ?? 0} ${
-              (recordsQ.data?.currentStreakDays ?? 0) === 1 ? 'day' : 'days'
-            }`}
+            title={t('stats.currentStreak')}
+            value={t('stats.streakDays', {
+              count: recordsQ.data?.currentStreakDays ?? 0,
+            })}
             sub={null}
           />
         </Card>
@@ -293,10 +297,6 @@ function RecordRow({
 
 function Divider() {
   return <View style={styles.divider} />;
-}
-
-function capitalize(s: string): string {
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 }
 
 const styles = StyleSheet.create({

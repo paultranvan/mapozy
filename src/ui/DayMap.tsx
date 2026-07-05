@@ -1,5 +1,7 @@
 import { useMemo } from 'react';
 import { View, StyleSheet, Text } from 'react-native';
+import { Text as AppText } from '@/ui/Text';
+import { t } from '@/i18n';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import MapLibreGL, {
   MapView,
@@ -172,7 +174,7 @@ export function DayMap({
   if (!bounds) {
     return (
       <View style={[styles.container, styles.empty]}>
-        <Text>No GPS traces for this day</Text>
+        <AppText variant="body">{t('map.noTracesDay')}</AppText>
       </View>
     );
   }
@@ -254,8 +256,9 @@ const styles = StyleSheet.create({
   },
   numText: {
     color: themeColors.surface,
+    fontFamily: 'Inter_600SemiBold',
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '600',
     lineHeight: 14,
   },
   placeWrap: {
@@ -290,8 +293,9 @@ const styles = StyleSheet.create({
   },
   numCornerText: {
     color: themeColors.surface,
+    fontFamily: 'Inter_600SemiBold',
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '600',
     lineHeight: 12,
   },
 });

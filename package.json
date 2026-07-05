@@ -17,9 +17,7 @@
     "release": "bash scripts/release.sh"
   },
   "dependencies": {
-    "@expo-google-fonts/fraunces": "^0.4.1",
     "@expo-google-fonts/inter": "^0.4.2",
-    "@expo-google-fonts/jetbrains-mono": "^0.4.1",
     "@expo/vector-icons": "^14.0.4",
     "@gorhom/bottom-sheet": "^5.0.6",
     "@maplibre/maplibre-react-native": "^10.0.0",
@@ -35,6 +33,7 @@
     "expo-font": "~13.0.4",
     "expo-linear-gradient": "~14.0.0",
     "expo-linking": "~7.0.3",
+    "expo-localization": "~16.0.1",
     "expo-mail-composer": "~14.0.2",
     "expo-router": "~4.0.9",
     "expo-sharing": "~13.0.1",

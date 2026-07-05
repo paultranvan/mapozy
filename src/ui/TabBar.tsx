@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { colors, space } from '@/theme/tokens';
+import { useI18n, type TranslationKey } from '@/i18n';
 import { Text } from './Text';
 
 const TAB_ICONS: Record<string, { active: keyof typeof MaterialCommunityIcons.glyphMap; inactive: keyof typeof MaterialCommunityIcons.glyphMap }> = {
@@ -13,11 +14,11 @@ const TAB_ICONS: Record<string, { active: keyof typeof MaterialCommunityIcons.gl
   settings: { active: 'cog', inactive: 'cog-outline' },
 };
 
-const TAB_LABELS: Record<string, string> = {
-  index: 'Trips',
-  stats: 'Stats',
-  places: 'Places',
-  settings: 'Settings',
+const TAB_LABEL_KEYS: Record<string, TranslationKey> = {
+  index: 'tabs.trips',
+  stats: 'tabs.stats',
+  places: 'tabs.places',
+  settings: 'tabs.settings',
 };
 
 export function TabBar({ state, navigation }: BottomTabBarProps) {
@@ -63,8 +64,10 @@ function TabItem({
   isFocused: boolean;
   onPress: () => void;
 }) {
+  const { t } = useI18n();
   const icons = TAB_ICONS[name] ?? { active: 'circle', inactive: 'circle-outline' };
-  const label = TAB_LABELS[name] ?? name;
+  const labelKey = TAB_LABEL_KEYS[name];
+  const label = labelKey ? t(labelKey) : name;
   const iconLift = useRef(new Animated.Value(isFocused ? 1 : 0)).current;
 
   useEffect(() => {

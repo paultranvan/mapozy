@@ -12,6 +12,7 @@ import MapLibreGL, {
 } from '@maplibre/maplibre-react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, space } from '@/theme/tokens';
+import { useI18n } from '@/i18n';
 import { OSM_STYLE } from '@/ui/mapStyle';
 import { Text } from '@/ui/Text';
 import { PlaceBadge } from '@/ui/PlaceBadge';
@@ -42,6 +43,7 @@ export default function PlaceEditor() {
     name?: string;
   }>();
   const router = useRouter();
+  const { t } = useI18n();
   // Only mount the MapLibre MapView while focused — see app/day/[date].tsx.
   // Keeps a single live MapView when this screen stacks over a map-bearing one.
   const isFocused = useIsFocused();
@@ -136,7 +138,7 @@ export default function PlaceEditor() {
   const onSave = async () => {
     const trimmed = name.trim();
     if (!trimmed) {
-      Alert.alert('Name required', 'Give this place a name before saving.');
+      Alert.alert(t('place.nameRequiredTitle'), t('place.nameRequiredBody'));
       return;
     }
     const input = {
@@ -152,7 +154,7 @@ export default function PlaceEditor() {
       else if (editId !== null) await update.mutateAsync({ id: editId, input });
       router.back();
     } catch {
-      Alert.alert('Error', "Could not save the place.");
+      Alert.alert(t('common.error'), t('place.saveError'));
     }
   };
 
@@ -162,7 +164,7 @@ export default function PlaceEditor() {
       await remove.mutateAsync(editId);
       router.back();
     } catch {
-      Alert.alert('Error', 'Could not delete the place.');
+      Alert.alert(t('common.error'), t('place.deleteError'));
     }
   };
 
@@ -175,32 +177,32 @@ export default function PlaceEditor() {
       <View style={styles.bar}>
         <Pressable onPress={() => router.back()}>
           <Text variant="body" color={colors.inkSoft}>
-            Cancel
+            {t('common.cancel')}
           </Text>
         </Pressable>
         <Text variant="body" color={colors.ink}>
-          {isNew ? 'New place' : 'Edit'}
+          {isNew ? t('place.newPlace') : t('common.edit')}
         </Text>
         <Pressable onPress={onSave}>
           <Text variant="body" color={name.trim() ? colors.accent : colors.inkSoft}>
-            Save
+            {t('common.save')}
           </Text>
         </Pressable>
       </View>
 
       <Text variant="label" color={colors.inkSoft} style={styles.sec}>
-        NAME
+        {t('place.sectionName')}
       </Text>
       <TextInput
         value={name}
         onChangeText={setName}
-        placeholder="Place name (e.g. Basic-Fit)"
+        placeholder={t('place.namePlaceholder')}
         placeholderTextColor={colors.inkSoft}
         style={styles.input}
       />
 
       <Text variant="label" color={colors.inkSoft} style={styles.sec}>
-        LOCATION
+        {t('place.sectionLocation')}
       </Text>
 
       <View style={styles.searchBar}>
@@ -209,7 +211,7 @@ export default function PlaceEditor() {
           value={query}
           onChangeText={setQuery}
           onFocus={() => setFocused(true)}
-          placeholder="Search an address"
+          placeholder={t('place.searchPlaceholder')}
           placeholderTextColor={colors.inkSoft}
           style={styles.searchInput}
         />
@@ -282,7 +284,7 @@ export default function PlaceEditor() {
 
       <View style={styles.radiusRow}>
         <View style={styles.radiusLabel}>
-          <Text variant="label" color={colors.inkSoft}>Radius</Text>
+          <Text variant="label" color={colors.inkSoft}>{t('place.radius')}</Text>
           <Pressable onPress={() => setShowRadiusHelp((v) => !v)} hitSlop={8}>
             <MaterialCommunityIcons name="information-outline" size={15} color={colors.inkSoft} />
           </Pressable>
@@ -303,12 +305,12 @@ export default function PlaceEditor() {
       </View>
       {showRadiusHelp && (
         <Text variant="label" color={colors.inkSoft} style={styles.radiusCaption}>
-          A trip that starts or ends within this radius is linked to this place.
+          {t('place.radiusHelp')}
         </Text>
       )}
 
       <Text variant="label" color={colors.inkSoft} style={styles.sec}>
-        CATEGORY
+        {t('place.sectionCategory')}
       </Text>
       <View style={styles.grid}>
         {categories.map((c) => {
@@ -322,14 +324,14 @@ export default function PlaceEditor() {
         })}
         <Pressable onPress={() => router.push('/category/new')} style={[styles.chip, styles.chipAdd]}>
           <MaterialCommunityIcons name="plus" size={20} color={colors.inkSoft} />
-          <Text variant="label" color={colors.inkSoft} numberOfLines={1}>New</Text>
+          <Text variant="label" color={colors.inkSoft} numberOfLines={1}>{t('place.newCategoryChip')}</Text>
         </Pressable>
       </View>
 
       {!isNew && (
         <Pressable onPress={onDelete} style={styles.del}>
           <Text variant="body" color={colors.danger}>
-            Delete this place
+            {t('place.deletePlace')}
           </Text>
         </Pressable>
       )}

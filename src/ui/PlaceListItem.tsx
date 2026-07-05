@@ -1,5 +1,6 @@
 import { Pressable, View, StyleSheet } from 'react-native';
 import { colors, space } from '@/theme/tokens';
+import { useI18n } from '@/i18n';
 import { Text } from './Text';
 import { PlaceBadge } from './PlaceBadge';
 import type { Place } from '@/types';
@@ -13,13 +14,14 @@ export function PlaceListItem({
   visitCount: number;
   onPress: () => void;
 }) {
-  const address = place.displayName ?? 'No address';
+  const { t } = useI18n();
+  const address = place.displayName ?? t('placeItem.noAddress');
   return (
     <Pressable onPress={onPress} style={styles.row}>
       <PlaceBadge category={place.category} />
       <View style={styles.info}>
         <Text variant="body" color={colors.ink}>
-          {place.name ?? 'Unnamed'}
+          {place.name ?? t('placeItem.unnamed')}
         </Text>
         <Text variant="label" color={colors.inkSoft} numberOfLines={1}>
           {address}

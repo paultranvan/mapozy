@@ -38,11 +38,22 @@ import { colors, space, radii } from '@/theme/tokens';
 import { useTrackingHealth } from '@/tracking/useTrackingHealth';
 import { getInterruptions, type Interruption } from '@/tracking/interruptions';
 import { format } from 'date-fns';
+import { fr as dateFnsFr } from 'date-fns/locale';
+import { t, useI18n, type LanguagePref } from '@/i18n';
+
+const LANGUAGE_OPTIONS: Array<{ pref: LanguagePref; labelKey: Parameters<typeof t>[0] }> = [
+  { pref: 'system', labelKey: 'settings.langSystem' },
+  // Language names stay in their own language on purpose — a French speaker
+  // stuck on an English UI must still recognize « Français ».
+  { pref: 'en', labelKey: 'settings.langEnglish' },
+  { pref: 'fr', labelKey: 'settings.langFrench' },
+];
 
 export default function SettingsScreen() {
   const db = useDb();
   const qc = useQueryClient();
   const router = useRouter();
+  const { t, locale, language, setLanguage } = useI18n();
 
   const [trackingOn, setTrackingOn] = useState(false);
   const [tripCount, setTripCount] = useState(0);
@@ -87,6 +98,12 @@ export default function SettingsScreen() {
     }, [refreshCounts])
   );
 
+  // "Jun 5 14:02" / "5 juin 14:02" — interruption timestamps.
+  const formatInterruptionDate = (ms: number) =>
+    locale === 'fr'
+      ? format(ms, 'd MMM HH:mm', { locale: dateFnsFr })
+      : format(ms, 'MMM d HH:mm');
+
   async function requestBatteryExemption() {
     await MapozyTracker.requestIgnoreBatteryOptimizations();
     setTimeout(async () => {
@@ -104,7 +121,7 @@ export default function SettingsScreen() {
       await setSetting(db, SETTING_KEYS.TRACKING_ENABLED, value ? '1' : '0');
       setTrackingOn(value);
     } catch (e) {
-      Alert.alert('Error', String(e));
+      Alert.alert(t('common.error'), String(e));
     }
   }
 
@@ -119,9 +136,9 @@ export default function SettingsScreen() {
     try {
       await runPipelineAndInvalidate(db, qc);
       await refreshCounts();
-      Alert.alert('Pipeline complete', 'Trips have been refreshed.');
+      Alert.alert(t('settings.pipelineDone'), t('settings.pipelineDoneMsg'));
     } catch (e) {
-      Alert.alert('Pipeline failed', String(e));
+      Alert.alert(t('settings.pipelineFailed'), String(e));
     } finally {
       setPipelineBusy(false);
     }
@@ -131,7 +148,7 @@ export default function SettingsScreen() {
     try {
       await sendDbToPaul(db);
     } catch (e) {
-      Alert.alert('Could not send data', String(e));
+      Alert.alert(t('settings.sendDataFailed'), String(e));
     }
   }
 
@@ -139,7 +156,7 @@ export default function SettingsScreen() {
     try {
       await shareDb(db);
     } catch (e) {
-      Alert.alert('Could not share database', String(e));
+      Alert.alert(t('settings.shareDbFailed'), String(e));
     }
   }
 
@@ -153,17 +170,16 @@ export default function SettingsScreen() {
       if (result.canceled) return;
       picked = result.assets[0]!;
     } catch (e) {
-      Alert.alert('Could not pick file', String(e));
+      Alert.alert(t('settings.pickFileFailed'), String(e));
       return;
     }
     Alert.alert(
-      'Replace database?',
-      `Overwrite the current Mapozy database with "${picked.name}"? ` +
-        `Your existing data is backed up to mapozy.db.preimport but the app needs to be closed and reopened to load the new file.`,
+      t('settings.replaceDbTitle'),
+      t('settings.replaceDbMsg', { name: picked.name }),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Replace',
+          text: t('settings.replace'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -177,15 +193,15 @@ export default function SettingsScreen() {
               }
               const r = await importDb(picked.uri);
               Alert.alert(
-                'Imported',
-                `Wrote ${Math.round(r.sourceSize / 1024)} KB. Close the app from recents and reopen it to see the new data.`
+                t('settings.importedTitle'),
+                t('settings.importedMsg', { kb: Math.round(r.sourceSize / 1024) })
               );
             } catch (e) {
               const msg =
                 e instanceof InvalidDatabaseError
                   ? e.message
-                  : `Import failed: ${String(e)}`;
-              Alert.alert('Import failed', msg);
+                  : t('settings.importFailedMsg', { error: String(e) });
+              Alert.alert(t('settings.importFailed'), msg);
             }
           },
         },
@@ -195,12 +211,12 @@ export default function SettingsScreen() {
 
   function confirmClearAll() {
     Alert.alert(
-      'Clear all data?',
-      'This deletes every trip stored on this device. Cannot be undone.',
+      t('settings.clearAllTitle'),
+      t('settings.clearAllMsg'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Delete',
+          text: t('common.delete'),
           style: 'destructive',
           onPress: async () => {
             await deleteAllTrips(db);
@@ -235,16 +251,16 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.root}>
-      <TopBar title="Settings" />
+      <TopBar title={t('settings.title')} />
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text variant="display" onGround style={styles.section}>
-          Tracking
+          {t('settings.sectionTracking')}
         </Text>
         <Card style={styles.card}>
           <View style={styles.row}>
             <View style={{ flex: 1 }}>
               <Text variant="title">
-                {trackingOn ? 'Tracking active' : 'Paused'}
+                {trackingOn ? t('settings.trackingActive') : t('settings.trackingPaused')}
               </Text>
             </View>
             <Switch
@@ -269,13 +285,13 @@ export default function SettingsScreen() {
             <View style={{ flex: 1 }}>
               <Text variant="title">
                 {batteryUnrestricted
-                  ? 'Battery optimization disabled'
-                  : 'Disable battery optimization'}
+                  ? t('settings.batteryDisabled')
+                  : t('settings.batteryDisable')}
               </Text>
               <Text variant="meta" soft>
                 {batteryUnrestricted
-                  ? 'The OS is allowed to keep tracking alive in the background'
-                  : 'Required on OnePlus/aggressive OEMs to avoid data gaps'}
+                  ? t('settings.batteryOkHint')
+                  : t('settings.batteryRequiredHint')}
               </Text>
             </View>
             {!batteryUnrestricted && (
@@ -289,16 +305,49 @@ export default function SettingsScreen() {
         </Card>
 
         <Text variant="display" onGround style={styles.section}>
-          Tracking interruptions
+          {t('settings.sectionLanguage')}
+        </Text>
+        <Card style={styles.card}>
+          {LANGUAGE_OPTIONS.map((opt, idx) => (
+            <View key={opt.pref}>
+              {idx > 0 && <View style={styles.divider} />}
+              <Pressable
+                style={styles.actionRow}
+                onPress={() => setLanguage(opt.pref)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: language === opt.pref }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text variant="title">{t(opt.labelKey)}</Text>
+                  {opt.pref === 'system' ? (
+                    <Text variant="meta" soft>
+                      {t('settings.langSystemHint')}
+                    </Text>
+                  ) : null}
+                </View>
+                {language === opt.pref && (
+                  <MaterialCommunityIcons
+                    name="check"
+                    size={22}
+                    color={colors.accent}
+                  />
+                )}
+              </Pressable>
+            </View>
+          ))}
+        </Card>
+
+        <Text variant="display" onGround style={styles.section}>
+          {t('settings.sectionInterruptions')}
         </Text>
         <Card style={styles.card}>
           {interruptions === null ? (
             <Text variant="meta" soft>
-              Loading…
+              {t('common.loading')}
             </Text>
           ) : interruptions.length === 0 ? (
             <Text variant="meta" soft>
-              No interruptions in the last 14 days.
+              {t('settings.noInterruptions')}
             </Text>
           ) : (
             interruptions.slice(0, 5).map((item, idx) => (
@@ -307,7 +356,7 @@ export default function SettingsScreen() {
                 <View style={styles.row}>
                   <View style={{ flex: 1 }}>
                     <Text variant="title">
-                      {format(item.startMs, 'MMM d HH:mm')}
+                      {formatInterruptionDate(item.startMs)}
                       {' – '}
                       {format(item.endMs, 'HH:mm')}
                       {' · '}
@@ -324,23 +373,23 @@ export default function SettingsScreen() {
         </Card>
 
         <Text variant="display" onGround style={styles.section}>
-          Network &amp; privacy
+          {t('settings.sectionNetwork')}
         </Text>
         <Card style={styles.card}>
           <View style={styles.row}>
             <View style={{ flex: 1, marginRight: space[2] }}>
-              <Text variant="title">Allow external API</Text>
+              <Text variant="title">{t('settings.allowExternalApi')}</Text>
               <Text variant="meta" soft>
                 {allowExternalApi
-                  ? 'Trips are enriched via OpenStreetMap (transit, map-matching, place names).'
-                  : 'Off: no data leaves your device. Trips are processed locally.'}
+                  ? t('settings.externalApiOnHint')
+                  : t('settings.externalApiOffHint')}
               </Text>
             </View>
             <Pressable
               onPress={() => setNetworkInfoVisible(true)}
               hitSlop={10}
               style={styles.infoBtn}
-              accessibilityLabel="What does the external API toggle affect?"
+              accessibilityLabel={t('settings.externalApiInfoA11y')}
             >
               <MaterialCommunityIcons
                 name="information-outline"
@@ -358,22 +407,25 @@ export default function SettingsScreen() {
         </Card>
 
         <Text variant="display" onGround style={styles.section}>
-          Data
+          {t('settings.sectionData')}
         </Text>
         <Card style={styles.card}>
           <View style={styles.row}>
             <MaterialCommunityIcons name="database-outline" size={22} color={colors.inkSoft} />
             <View style={{ flex: 1, marginLeft: space[3] }}>
               <Text variant="title">
-                {tripCount} {tripCount === 1 ? 'trip' : 'trips'} stored
+                {t(tripCount === 1 ? 'settings.tripStored' : 'settings.tripsStored', {
+                  count: tripCount,
+                })}
               </Text>
               <Text variant="meta" soft>
-                {rawCount} unprocessed {rawCount === 1 ? 'point' : 'points'}
+                {t(rawCount === 1 ? 'settings.pointUnprocessed' : 'settings.pointsUnprocessed', {
+                  count: rawCount,
+                })}
               </Text>
               {rawCount > 0 ? (
                 <Text variant="meta" soft style={styles.unprocessedHint}>
-                  Points from a trip in progress stay here until you arrive
-                  somewhere — the count drops once the trip closes.
+                  {t('settings.unprocessedHint')}
                 </Text>
               ) : null}
             </View>
@@ -381,16 +433,16 @@ export default function SettingsScreen() {
           <View style={styles.buttonRow}>
             <SecondaryButton
               onPress={runPipeline}
-              label="Force pipeline"
+              label={t('settings.forcePipeline')}
               busy={pipelineBusy}
             />
           </View>
           <View style={styles.divider} />
           <Pressable style={styles.actionRow} onPress={onShareDb}>
             <View style={{ flex: 1 }}>
-              <Text variant="title">Share database file…</Text>
+              <Text variant="title">{t('settings.shareDb')}</Text>
               <Text variant="meta" soft>
-                Opens the system share sheet so you can send the DB anywhere (Claude, Drive, email).
+                {t('settings.shareDbHint')}
               </Text>
             </View>
             <MaterialCommunityIcons name="chevron-right" size={22} color={colors.inkSoft} />
@@ -398,9 +450,9 @@ export default function SettingsScreen() {
           <View style={styles.divider} />
           <Pressable style={styles.actionRow} onPress={onSendDataToPaul}>
             <View style={{ flex: 1 }}>
-              <Text variant="title">Send data to Paul</Text>
+              <Text variant="title">{t('settings.sendToPaul')}</Text>
               <Text variant="meta" soft>
-                Attaches your full Mapozy database to an email for debugging help.
+                {t('settings.sendToPaulHint')}
               </Text>
             </View>
             <MaterialCommunityIcons name="chevron-right" size={22} color={colors.inkSoft} />
@@ -408,9 +460,9 @@ export default function SettingsScreen() {
           <View style={styles.divider} />
           <Pressable style={styles.actionRow} onPress={onImportDb}>
             <View style={{ flex: 1 }}>
-              <Text variant="title">Import database…</Text>
+              <Text variant="title">{t('settings.importDb')}</Text>
               <Text variant="meta" soft>
-                Replace the current database with a .db file picked from the device. Used for restoring backups and debugging.
+                {t('settings.importDbHint')}
               </Text>
             </View>
             <MaterialCommunityIcons name="chevron-right" size={22} color={colors.inkSoft} />
@@ -418,7 +470,7 @@ export default function SettingsScreen() {
         </Card>
 
         <Text variant="display" onGround style={styles.section}>
-          Debug
+          {t('settings.sectionDebug')}
         </Text>
         <Card style={styles.card}>
           <Pressable
@@ -428,43 +480,45 @@ export default function SettingsScreen() {
               setTripCount(await countTrips(db));
               setRawCount(await countUnconsumedPoints(db));
               await qc.invalidateQueries();
-              Alert.alert('Demo trip inserted', 'Check the Trips tab.');
+              Alert.alert(t('settings.demoInserted'), t('settings.demoInsertedMsg'));
             }}
           >
             <View style={{ flex: 1 }}>
-              <Text variant="title">Inject demo trip</Text>
+              <Text variant="title">{t('settings.injectDemo')}</Text>
               <Text variant="meta" soft>
-                Adds a synthetic walk → drive → walk trip
+                {t('settings.injectDemoHint')}
               </Text>
             </View>
             <MaterialCommunityIcons name="chevron-right" size={22} color={colors.inkSoft} />
           </Pressable>
           <View style={styles.divider} />
           <Pressable style={styles.actionRow} onPress={resetOnboarding}>
-            <Text variant="title">Reset onboarding</Text>
+            <Text variant="title">{t('settings.resetOnboarding')}</Text>
             <MaterialCommunityIcons name="chevron-right" size={22} color={colors.inkSoft} />
           </Pressable>
         </Card>
 
         <Text variant="display" onGround style={styles.section}>
-          About
+          {t('settings.sectionAbout')}
         </Text>
         <Card style={styles.card}>
           <View style={styles.row}>
             <View style={{ flex: 1 }}>
               <Text variant="title">Mapozy</Text>
               <Text variant="meta" soft>
-                Version {Constants.expoConfig?.version ?? 'unknown'} · All data stays on your device.
+                {t('settings.versionLine', {
+                  version: Constants.expoConfig?.version ?? t('settings.versionUnknown'),
+                })}
               </Text>
             </View>
           </View>
         </Card>
 
         <Text variant="display" onGround style={[styles.section, styles.dangerTitle]}>
-          Danger zone
+          {t('settings.sectionDanger')}
         </Text>
         <Card style={[styles.card, styles.dangerCard]}>
-          <DangerButton onPress={confirmClearAll} label="Clear all data" />
+          <DangerButton onPress={confirmClearAll} label={t('settings.clearAll')} />
         </Card>
       </ScrollView>
       <NetworkInfoModal
@@ -477,27 +531,27 @@ export default function SettingsScreen() {
 
 const NETWORK_SERVICES: Array<{
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  title: string;
-  what: string;
-  offConsequence: string;
+  titleKey: Parameters<typeof t>[0];
+  whatKey: Parameters<typeof t>[0];
+  offKey: Parameters<typeof t>[0];
 }> = [
   {
     icon: 'bus',
-    title: 'Transit detection',
-    what: 'Queries OpenStreetMap (Overpass) for nearby railways and stops to tell buses, trains, trams and subways apart from car trips.',
-    offConsequence: 'Motorized trips stay labelled “Car”.',
+    titleKey: 'settings.netTransitTitle',
+    whatKey: 'settings.netTransitWhat',
+    offKey: 'settings.netTransitOff',
   },
   {
     icon: 'vector-polyline',
-    title: 'Map-matching',
-    what: 'Sends a trip’s GPS trace to Valhalla (OpenStreetMap community server) to snap the route onto real streets and paths.',
-    offConsequence: 'The raw GPS trace is shown — lines may drift off the road.',
+    titleKey: 'settings.netMatchTitle',
+    whatKey: 'settings.netMatchWhat',
+    offKey: 'settings.netMatchOff',
   },
   {
     icon: 'map-marker-outline',
-    title: 'Place names',
-    what: 'Asks Nominatim (OpenStreetMap) for the street address at a trip’s start and end points.',
-    offConsequence: 'Places are shown as raw latitude/longitude coordinates.',
+    titleKey: 'settings.netPlacesTitle',
+    whatKey: 'settings.netPlacesWhat',
+    offKey: 'settings.netPlacesOff',
   },
 ];
 
@@ -508,6 +562,7 @@ function NetworkInfoModal({
   visible: boolean;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <Modal
       visible={visible}
@@ -518,14 +573,12 @@ function NetworkInfoModal({
       <View style={styles.modalBackdrop}>
         <View style={styles.modalCard}>
           <ScrollView contentContainerStyle={styles.modalScroll}>
-            <Text variant="display">Allow external API</Text>
+            <Text variant="display">{t('settings.allowExternalApi')}</Text>
             <Text variant="meta" soft style={styles.modalIntro}>
-              When on, Mapozy may contact the following OpenStreetMap services to
-              enrich your trips. Turn it off to keep everything on-device — no
-              network calls, no trip data ever leaves your phone:
+              {t('settings.netModalIntro')}
             </Text>
             {NETWORK_SERVICES.map((s) => (
-              <View key={s.title} style={styles.modalServiceRow}>
+              <View key={s.titleKey} style={styles.modalServiceRow}>
                 <MaterialCommunityIcons
                   name={s.icon}
                   size={22}
@@ -533,24 +586,22 @@ function NetworkInfoModal({
                   style={styles.modalServiceIcon}
                 />
                 <View style={{ flex: 1 }}>
-                  <Text variant="title">{s.title}</Text>
+                  <Text variant="title">{t(s.titleKey)}</Text>
                   <Text variant="meta" soft style={styles.modalServiceText}>
-                    {s.what}
+                    {t(s.whatKey)}
                   </Text>
                   <Text variant="meta" soft style={styles.modalConsequence}>
-                    Off: {s.offConsequence}
+                    {t('settings.netOffPrefix', { consequence: t(s.offKey) })}
                   </Text>
                 </View>
               </View>
             ))}
             <Text variant="meta" soft style={styles.modalIntro}>
-              These are public OpenStreetMap community servers. No account is
-              used, but your trip’s coordinates do transit through them while
-              offline mode is off.
+              {t('settings.netModalOutro')}
             </Text>
           </ScrollView>
           <Pressable style={styles.modalCloseBtn} onPress={onClose}>
-            <Text variant="label">Got it</Text>
+            <Text variant="label">{t('settings.gotIt')}</Text>
           </Pressable>
         </View>
       </View>
@@ -579,7 +630,7 @@ function SecondaryButton({
       ]}
     >
       {busy ? <ActivityIndicator size="small" color={colors.ink} /> : null}
-      <Text variant="label">{busy ? 'Working…' : label}</Text>
+      <Text variant="label">{busy ? t('common.working') : label}</Text>
     </Pressable>
   );
 }
@@ -612,13 +663,13 @@ function formatDuration(ms: number): string {
 function causeLabel(cause: Interruption['cause']): string {
   switch (cause) {
     case 'device_off':
-      return 'Phone was off';
+      return t('settings.causeDeviceOff');
     case 'killed_recovered':
-      return 'Phone stopped the app (recovered)';
+      return t('settings.causeKilledRecovered');
     case 'killed_until_reopen':
-      return 'Phone stopped the app until reopened';
+      return t('settings.causeKilledUntilReopen');
     case 'ongoing':
-      return 'Tracking currently interrupted';
+      return t('settings.causeOngoing');
   }
 }
 

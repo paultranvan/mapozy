@@ -7,19 +7,22 @@ import type { AppStateStatus } from 'react-native';
 import { useEffect, useState } from 'react';
 import {
   useFonts,
-  Fraunces_400Regular,
-  Fraunces_500Medium,
-} from '@expo-google-fonts/fraunces';
-import {
   Inter_400Regular,
   Inter_500Medium,
   Inter_600SemiBold,
 } from '@expo-google-fonts/inter';
-import { JetBrainsMono_500Medium } from '@expo-google-fonts/jetbrains-mono';
 import { adriaticTheme } from '@/theme/paperTheme';
 import { colors } from '@/theme/tokens';
 import { openDb, type Db } from '@/db/client';
 import { DbProvider } from '@/db/DbContext';
+import { getSetting, SETTING_KEYS } from '@/db/settings';
+import {
+  I18nProvider,
+  normalizeLanguagePref,
+  resolveLocale,
+  setCurrentLocale,
+  type LanguagePref,
+} from '@/i18n';
 import {
   runPipelineForForeground,
   isTracking,
@@ -40,14 +43,14 @@ const queryClient = new QueryClient({
 export default function RootLayout() {
   const [db, setDb] = useState<Db | null>(null);
   const [dbError, setDbError] = useState<string | null>(null);
+  // Resolved before first render of the app tree (we already gate on `db`),
+  // so no flash of the wrong language.
+  const [language, setLanguage] = useState<LanguagePref | null>(null);
 
   const [fontsLoaded] = useFonts({
-    Fraunces_400Regular,
-    Fraunces_500Medium,
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
-    JetBrainsMono_500Medium,
   });
 
   useEffect(() => {
@@ -55,7 +58,14 @@ export default function RootLayout() {
     (async () => {
       try {
         const handle = await openDb();
-        if (mounted) setDb(handle);
+        const pref = normalizeLanguagePref(
+          await getSetting(handle, SETTING_KEYS.LANGUAGE)
+        );
+        setCurrentLocale(resolveLocale(pref));
+        if (mounted) {
+          setLanguage(pref);
+          setDb(handle);
+        }
       } catch (e) {
         if (mounted) setDbError(String(e));
       }
@@ -113,7 +123,7 @@ export default function RootLayout() {
     return () => sub.remove();
   }, [db]);
 
-  if (!db || !fontsLoaded) {
+  if (!db || !fontsLoaded || language === null) {
     return (
       <PaperProvider theme={adriaticTheme}>
         <StatusBar barStyle="dark-content" backgroundColor={colors.ground} />
@@ -140,6 +150,7 @@ export default function RootLayout() {
       <PaperProvider theme={adriaticTheme}>
         <QueryClientProvider client={queryClient}>
           <DbProvider db={db}>
+            <I18nProvider db={db} initialLanguage={language}>
             <Stack
               screenOptions={{
                 headerShown: false,
@@ -156,6 +167,7 @@ export default function RootLayout() {
                 }}
               />
             </Stack>
+            </I18nProvider>
           </DbProvider>
         </QueryClientProvider>
       </PaperProvider>

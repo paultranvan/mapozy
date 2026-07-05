@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapLibreGL, { MapView, Camera, PointAnnotation } from '@maplibre/maplibre-react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, space } from '@/theme/tokens';
+import { useI18n } from '@/i18n';
 import { OSM_STYLE } from '@/ui/mapStyle';
 import { Text } from '@/ui/Text';
 import { PlaceListItem } from '@/ui/PlaceListItem';
@@ -37,7 +38,8 @@ const styles = StyleSheet.create({
 });
 
 function EmptyPlaces() {
-  return <Text variant="body" color={colors.inkSoft} style={styles.empty}>No places yet. Tap ＋ to add one.</Text>;
+  const { t } = useI18n();
+  return <Text variant="body" color={colors.inkSoft} style={styles.empty}>{t('places.empty')}</Text>;
 }
 
 function GhostBadge({ category = null }: { category?: PlaceCategory | null }) {
@@ -59,6 +61,7 @@ function GhostBadge({ category = null }: { category?: PlaceCategory | null }) {
 export default function PlacesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { t } = useI18n();
   // Unmount this map while a map-bearing screen (place/[id]) is pushed on top —
   // two live MapViews crash the app natively on Android. See app/day/[date].tsx.
   const isFocused = useIsFocused();
@@ -93,16 +96,18 @@ export default function PlacesScreen() {
 
   const suggestionsBlock = sortedSuggestions.length > 0 ? (
     <View>
-      <Text variant="label" color={colors.inkSoft} style={styles.sugLabel}>💡 SUGGESTIONS</Text>
+      <Text variant="label" color={colors.inkSoft} style={styles.sugLabel}>{t('places.suggestionsHeader')}</Text>
       {visibleSuggestions.map(({ cluster: c, cat }) => (
         <View key={c.id} style={styles.sugRow}>
           <Pressable style={styles.sugMain} onPress={() => openSuggestion(c, cat)}>
             <GhostBadge category={cat} />
             <View style={styles.sugInfo}>
               <Text variant="body" color={colors.ink} numberOfLines={1}>
-                {cat ? `Likely ${categoryMeta(cat).label.toLowerCase()}` : (c.displayName ?? 'Frequent place')}
+                {cat
+                  ? t('places.likelyCategory', { category: categoryMeta(cat).label.toLowerCase() })
+                  : (c.displayName ?? t('places.frequentPlace'))}
               </Text>
-              <Text variant="label" color={colors.inkSoft}>{c.visitCount} visits</Text>
+              <Text variant="label" color={colors.inkSoft}>{t('places.visitCount', { count: c.visitCount })}</Text>
             </View>
           </Pressable>
           <Pressable onPress={() => openSuggestion(c, cat)} hitSlop={6} style={styles.sugAdd}>
@@ -115,21 +120,21 @@ export default function PlacesScreen() {
       ))}
       {sortedSuggestions.length > 3 && !showAllSuggestions && (
         <Pressable onPress={() => setShowAllSuggestions(true)} style={styles.sugMore}>
-          <Text variant="label" color={colors.accent}>See more suggestions ({sortedSuggestions.length - 3})</Text>
+          <Text variant="label" color={colors.accent}>{t('places.seeMoreSuggestions', { count: sortedSuggestions.length - 3 })}</Text>
         </Pressable>
       )}
-      <Text variant="label" color={colors.inkSoft} style={styles.sugLabel}>MY PLACES</Text>
+      <Text variant="label" color={colors.inkSoft} style={styles.sugLabel}>{t('places.myPlacesHeader')}</Text>
     </View>
   ) : null;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + space[2] }]}>
       <View style={styles.header}>
-        <Text variant="title" color={colors.ink}>My places</Text>
+        <Text variant="title" color={colors.ink}>{t('places.title')}</Text>
         <View style={styles.toggle}>
           {(['list', 'map'] as const).map((v) => (
             <Pressable key={v} onPress={() => setView(v)} style={[styles.tg, view === v && styles.tgOn]}>
-              <Text variant="label" color={view === v ? colors.ground : colors.inkSoft}>{v === 'list' ? 'List' : 'Map'}</Text>
+              <Text variant="label" color={view === v ? colors.ground : colors.inkSoft}>{v === 'list' ? t('places.list') : t('places.map')}</Text>
             </Pressable>
           ))}
         </View>

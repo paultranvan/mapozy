@@ -1,6 +1,7 @@
 import type { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { PlaceCategory } from '../types';
 import type { CustomCategory } from '../db/customCategories';
+import { t, type TranslationKey } from '@/i18n';
 
 export interface CategoryMeta {
   key: string;
@@ -11,21 +12,29 @@ export interface CategoryMeta {
 
 // Colors are the exact coachCO2 purpose palette; icons are the closest
 // MaterialCommunityIcons glyphs (Mapozy already uses MCI everywhere).
-export const PLACE_CATEGORIES: CategoryMeta[] = [
-  { key: 'home', label: 'Home', icon: 'home', color: '#C9883F' },
-  { key: 'work', label: 'Work', icon: 'briefcase', color: '#8978FF' },
-  { key: 'sport', label: 'Sport', icon: 'dumbbell', color: '#B3BF26' },
-  { key: 'shopping', label: 'Shopping', icon: 'cart', color: '#FF7B5E' },
-  { key: 'family', label: 'Family', icon: 'account-group', color: '#1CAAE8' },
-  { key: 'entertainment', label: 'Leisure', icon: 'glass-cocktail', color: '#F85AA8' },
-  { key: 'travel', label: 'Travel', icon: 'image-filter-hdr', color: '#15CACD' },
-  { key: 'other', label: 'Other', icon: 'map-marker', color: '#A4A7AC' },
+// Labels are resolved through i18n at call time (see builtinCategories) so
+// they follow the app language; custom categories keep their user-given name.
+const BASE: Omit<CategoryMeta, 'label'>[] = [
+  { key: 'home', icon: 'home', color: '#C9883F' },
+  { key: 'work', icon: 'briefcase', color: '#8978FF' },
+  { key: 'sport', icon: 'dumbbell', color: '#B3BF26' },
+  { key: 'shopping', icon: 'cart', color: '#FF7B5E' },
+  { key: 'family', icon: 'account-group', color: '#1CAAE8' },
+  { key: 'entertainment', icon: 'glass-cocktail', color: '#F85AA8' },
+  { key: 'travel', icon: 'image-filter-hdr', color: '#15CACD' },
+  { key: 'other', icon: 'map-marker', color: '#A4A7AC' },
 ];
 
-const BY_KEY = new Map(PLACE_CATEGORIES.map((c) => [c.key, c]));
+export function builtinCategories(): CategoryMeta[] {
+  return BASE.map((c) => ({
+    ...c,
+    label: t(`category.${c.key}` as TranslationKey),
+  }));
+}
 
 export function categoryMeta(category: PlaceCategory | string | null): CategoryMeta {
-  return (category ? BY_KEY.get(category) : undefined) ?? BY_KEY.get('other')!;
+  const all = builtinCategories();
+  return (category ? all.find((c) => c.key === category) : undefined) ?? all[all.length - 1]!;
 }
 
 export function customToMeta(c: CustomCategory): CategoryMeta {

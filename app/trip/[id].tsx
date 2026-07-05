@@ -29,6 +29,8 @@ import { makeOverpassDeps } from '@/tracking/overpassDeps';
 import { runDraftEnrichment } from '@/tracking/refreshDrafts';
 import { geocodePlaceLazy } from '@/pipeline/geocoding';
 import { placeLabels } from '@/lib/placeLabel';
+import { useI18n } from '@/i18n';
+import { weekdays } from '@/i18n/dates';
 import { useTripEndpointPois } from '@/queries/usePlaces';
 import { TripMap } from '@/ui/TripMap';
 import { Text } from '@/ui/Text';
@@ -55,20 +57,11 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 
 type SplitTarget = { kind: 'leg'; section: Section } | { kind: 'trip' };
 
-const WEEKDAY_UPPER = [
-  'SUNDAY',
-  'MONDAY',
-  'TUESDAY',
-  'WEDNESDAY',
-  'THURSDAY',
-  'FRIDAY',
-  'SATURDAY',
-];
-
 export default function TripDetailScreen() {
   const params = useLocalSearchParams<{ id: string }>();
   const id = Number(params.id);
   const router = useRouter();
+  const { t } = useI18n();
   const db = useDb();
   const qc = useQueryClient();
   const tripQ = useTrip(id);
@@ -175,7 +168,7 @@ export default function TripDetailScreen() {
     const acts: SheetAction[] = [];
     if (trip.sections.some((s: Section) => sectionVertexCount(s) >= 3)) {
       acts.push({
-        label: 'Split this trip',
+        label: t('trip.splitThisTrip'),
         icon: 'call-split',
         onPress: () => setSplitTarget({ kind: 'trip' }),
       });
@@ -185,7 +178,7 @@ export default function TripDetailScreen() {
         // The trip list is ordered newest-first, so the chronologically
         // *previous* (earlier) trip sits visually *below* this one — hence the
         // down arrow. (Was arrow-up, which read backwards to testers.)
-        label: 'Merge with previous trip',
+        label: t('trip.mergeWithPrevious'),
         icon: 'arrow-down',
         onPress: async () => {
           const prevId = prev.id!;
@@ -199,7 +192,7 @@ export default function TripDetailScreen() {
       acts.push({
         // Newest-first list: the chronologically *next* (later) trip sits
         // visually *above* this one — hence the up arrow.
-        label: 'Merge with next trip',
+        label: t('trip.mergeWithNext'),
         icon: 'arrow-up',
         onPress: async () => {
           await mergeTrips(db, id, next.id!);
@@ -209,7 +202,7 @@ export default function TripDetailScreen() {
     }
     if (trip.edited) {
       acts.push({
-        label: 'Reset to auto-detected',
+        label: t('trip.resetToAuto'),
         icon: 'backup-restore',
         onPress: async () => {
           const origStartMs = trip.startTimeMs;
@@ -217,9 +210,9 @@ export default function TripDetailScreen() {
             await resetTripToAuto(db, id, Date.now(), makeOverpassDeps(db));
           } catch (e) {
             Alert.alert(
-              "Can't reset",
+              t('trip.cantResetTitle'),
               e instanceof MissingRawDataError
-                ? 'The raw GPS data behind this trip has been cleaned up (90-day retention), so it can no longer be rebuilt.'
+                ? t('trip.cantResetBody')
                 : String(e)
             );
             return;
@@ -242,7 +235,7 @@ export default function TripDetailScreen() {
       });
     }
     acts.push({
-      label: 'Delete trip',
+      label: t('trip.deleteTrip'),
       icon: 'trash-can-outline',
       destructive: true,
       onPress: async () => {
@@ -261,11 +254,12 @@ export default function TripDetailScreen() {
       id: 'new', lat: String(autoPlace.latitude), lon: String(autoPlace.longitude),
     } });
   };
-  const startLabels = placeLabels(startPlaceQ.data, 'Start', startPoi);
-  const endLabels = placeLabels(endPlaceQ.data, 'End', endPoi);
+  const startLabels = placeLabels(startPlaceQ.data, t('trip.start'), startPoi);
+  const endLabels = placeLabels(endPlaceQ.data, t('trip.end'), endPoi);
 
   const start = new Date(trip.startTimeMs);
-  const ribbon = `${WEEKDAY_UPPER[start.getDay()]} · ${formatTime(
+  // The `ribbon` text variant uppercases via textTransform.
+  const ribbon = `${weekdays()[start.getDay()]} · ${formatTime(
     trip.startTimeMs
   )} → ${formatTime(trip.endTimeMs)}`;
 
@@ -313,11 +307,11 @@ export default function TripDetailScreen() {
             {trip.edited ? <EditedPill /> : null}
           </View>
           <Text variant="label" soft numberOfLines={1} style={styles.fromCaption}>
-            from {startLabels.full}
+            {t('trip.fromPlace', { place: startLabels.full })}
           </Text>
           {!startPoi && startPlaceQ.data && (
             <Pressable onPress={() => nameThisPlace(startPlaceQ.data)} hitSlop={6} style={styles.namePlace}>
-              <Text variant="label" color={colors.accent}>＋ Name this place</Text>
+              <Text variant="label" color={colors.accent}>{t('trip.namePlace')}</Text>
             </Pressable>
           )}
           <Text variant="display" numberOfLines={1} style={styles.destination}>
@@ -325,7 +319,7 @@ export default function TripDetailScreen() {
           </Text>
           {!endPoi && endPlaceQ.data && (
             <Pressable onPress={() => nameThisPlace(endPlaceQ.data)} hitSlop={6} style={styles.namePlace}>
-              <Text variant="label" color={colors.accent}>＋ Name this place</Text>
+              <Text variant="label" color={colors.accent}>{t('trip.namePlace')}</Text>
             </Pressable>
           )}
           <Text variant="meta" soft style={styles.stats}>
@@ -357,7 +351,7 @@ export default function TripDetailScreen() {
       </BottomSheet>
       <ActionSheet
         visible={menuOpen}
-        title="Edit trip"
+        title={t('trip.editTrip')}
         actions={menuActions}
         onClose={() => setMenuOpen(false)}
       />
@@ -365,8 +359,8 @@ export default function TripDetailScreen() {
         visible={splitTarget !== null}
         title={
           splitTarget?.kind === 'trip'
-            ? 'Where did this trip split?'
-            : 'Where does this leg change?'
+            ? t('trip.splitTripTitle')
+            : t('trip.splitLegTitle')
         }
         geojsons={
           splitTarget?.kind === 'leg'

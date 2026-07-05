@@ -1,3 +1,6 @@
+import { getCurrentLocale, t } from '@/i18n';
+import { monthsShort } from '@/i18n/dates';
+
 export function startOfDayMs(timestampMs: number): number {
   const d = new Date(timestampMs);
   d.setHours(0, 0, 0, 0);
@@ -34,10 +37,11 @@ export function shiftDayKey(key: string, deltaDays: number): string {
 
 export type PeriodKey = 'today' | 'week' | 'month' | 'year' | 'all';
 
-const MONTHS = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-];
+// "Jun 3" / "3 juin" — locale-aware month-day label for period navigation.
+function monthDay(month: number, day: number): string {
+  const m = monthsShort()[month];
+  return getCurrentLocale() === 'fr' ? `${day} ${m?.toLowerCase()}` : `${m} ${day}`;
+}
 
 // Monday-aligned start of the local week containing `d`.
 function startOfWeek(d: Date): Date {
@@ -70,16 +74,16 @@ export function navigablePeriodRange(
   const now = new Date(nowMs);
   switch (period) {
     case 'all':
-      return { start: 0, end: endOfDayMs(nowMs), label: 'all time', canGoForward: false };
+      return { start: 0, end: endOfDayMs(nowMs), label: t('period.allTime'), canGoForward: false };
     case 'today': {
       const base = new Date(nowMs);
       base.setDate(base.getDate() + offset);
       const label =
         offset === 0
-          ? 'today'
+          ? t('period.today')
           : offset === -1
-            ? 'yesterday'
-            : `${MONTHS[base.getMonth()]} ${base.getDate()}`;
+            ? t('period.yesterday')
+            : monthDay(base.getMonth(), base.getDate());
       return {
         start: startOfDayMs(base.getTime()),
         end: endOfDayMs(base.getTime()),
@@ -95,10 +99,12 @@ export function navigablePeriodRange(
       const sameMonth = ws.getMonth() === we.getMonth();
       const label =
         offset === 0
-          ? 'this week'
+          ? t('period.thisWeek')
           : sameMonth
-            ? `${MONTHS[ws.getMonth()]} ${ws.getDate()}–${we.getDate()}`
-            : `${MONTHS[ws.getMonth()]} ${ws.getDate()} – ${MONTHS[we.getMonth()]} ${we.getDate()}`;
+            ? getCurrentLocale() === 'fr'
+              ? `${ws.getDate()}–${we.getDate()} ${monthsShort()[ws.getMonth()]?.toLowerCase()}`
+              : `${monthsShort()[ws.getMonth()]} ${ws.getDate()}–${we.getDate()}`
+            : `${monthDay(ws.getMonth(), ws.getDate())} – ${monthDay(we.getMonth(), we.getDate())}`;
       return {
         start: ws.getTime(),
         end: endOfDayMs(we.getTime()),
@@ -110,14 +116,16 @@ export function navigablePeriodRange(
       const m = new Date(now.getFullYear(), now.getMonth() + offset, 1);
       const next = new Date(now.getFullYear(), now.getMonth() + offset + 1, 1);
       const label =
-        offset === 0 ? 'this month' : `${MONTHS[m.getMonth()]} ${m.getFullYear()}`;
+        offset === 0
+          ? t('period.thisMonth')
+          : `${monthsShort()[m.getMonth()]} ${m.getFullYear()}`;
       return { start: m.getTime(), end: next.getTime() - 1, label, canGoForward: offset < 0 };
     }
     case 'year': {
       const y = now.getFullYear() + offset;
       const start = new Date(y, 0, 1).getTime();
       const end = new Date(y + 1, 0, 1).getTime() - 1;
-      const label = offset === 0 ? 'this year' : String(y);
+      const label = offset === 0 ? t('period.thisYear') : String(y);
       return { start, end, label, canGoForward: offset < 0 };
     }
   }

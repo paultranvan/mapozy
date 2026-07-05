@@ -6,6 +6,7 @@ import { setSetting, SETTING_KEYS } from '@/db/settings';
 import { useDb } from '@/db/DbContext';
 import { Text } from '@/ui/Text';
 import { colors, space, radii } from '@/theme/tokens';
+import { useI18n, type TranslationKey } from '@/i18n';
 import type { HealthSnapshot, HealthState } from '@/tracking/health';
 
 interface Props {
@@ -33,8 +34,8 @@ function formatClock(ms: number): string {
 
 interface Visual {
   dotColor: string;
-  headline: string;
-  subtitle: string | null;
+  headlineKey: TranslationKey;
+  subtitleKey: TranslationKey | null;
   showRestart: boolean;
 }
 
@@ -43,49 +44,50 @@ function visualFor(state: HealthState): Visual {
     case 'off':
       return {
         dotColor: colors.divider,
-        headline: 'Tracking is paused',
-        subtitle: 'Enable the toggle below to resume',
+        headlineKey: 'trackingHealth.pausedTitle',
+        subtitleKey: 'trackingHealth.pausedSubtitle',
         showRestart: false,
       };
     case 'stopped':
       return {
         dotColor: '#C0392B',
-        headline: 'Tracking stopped',
-        subtitle: 'OS killed the service — restart to resume',
+        headlineKey: 'trackingHealth.stoppedTitle',
+        subtitleKey: 'trackingHealth.stoppedSubtitle',
         showRestart: true,
       };
     case 'ar_silence_alert':
       return {
         dotColor: '#E67E22',
-        headline: 'Activity recognition died',
-        subtitle: 'Restart to re-subscribe AR',
+        headlineKey: 'trackingHealth.arSilenceTitle',
+        subtitleKey: 'trackingHealth.arSilenceSubtitle',
         showRestart: true,
       };
     case 'stale':
       return {
         dotColor: '#E67E22',
-        headline: 'Tracking — no recent data',
-        subtitle: 'Restart to reset both streams',
+        headlineKey: 'trackingHealth.staleTitle',
+        subtitleKey: 'trackingHealth.staleSubtitle',
         showRestart: true,
       };
     case 'quiet':
       return {
         dotColor: '#E1B91D',
-        headline: 'Tracking · quiet stream',
-        subtitle: 'Long stop, or starting to lag',
+        headlineKey: 'trackingHealth.quietTitle',
+        subtitleKey: 'trackingHealth.quietSubtitle',
         showRestart: false,
       };
     case 'healthy':
       return {
         dotColor: '#2ECC71',
-        headline: 'Tracking healthy',
-        subtitle: null,
+        headlineKey: 'trackingHealth.healthyTitle',
+        subtitleKey: null,
         showRestart: false,
       };
   }
 }
 
 export function TrackingHealth({ snapshot, pointsToday, onRefresh }: Props) {
+  const { t } = useI18n();
   const db = useDb();
   const visual = useMemo(
     () => (snapshot ? visualFor(snapshot.state) : null),
@@ -105,18 +107,22 @@ export function TrackingHealth({ snapshot, pointsToday, onRefresh }: Props) {
         String(Date.now())
       );
     } catch (e) {
-      Alert.alert('Could not restart tracking', String(e));
+      Alert.alert(t('trackingHealth.restartFailedTitle'), String(e));
     }
     await onRefresh();
   }
 
   function confirmRestart() {
     Alert.alert(
-      'Restart tracking?',
-      'This will stop the current GPS session and start a fresh one.',
+      t('trackingHealth.restartConfirmTitle'),
+      t('trackingHealth.restartConfirmMessage'),
       [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Restart', style: 'default', onPress: () => void doRestart() },
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('trackingHealth.restart'),
+          style: 'default',
+          onPress: () => void doRestart(),
+        },
       ]
     );
   }
@@ -126,10 +132,10 @@ export function TrackingHealth({ snapshot, pointsToday, onRefresh }: Props) {
       <View style={styles.headerRow}>
         <View style={[styles.dot, { backgroundColor: visual.dotColor }]} />
         <View style={{ flex: 1 }}>
-          <Text variant="title">{visual.headline}</Text>
-          {visual.subtitle != null && (
+          <Text variant="title">{t(visual.headlineKey)}</Text>
+          {visual.subtitleKey != null && (
             <Text variant="meta" soft>
-              {visual.subtitle}
+              {t(visual.subtitleKey)}
             </Text>
           )}
         </View>
@@ -142,28 +148,34 @@ export function TrackingHealth({ snapshot, pointsToday, onRefresh }: Props) {
             ]}
           >
             <Text variant="label" color={colors.surface}>
-              Restart
+              {t('trackingHealth.restart')}
             </Text>
           </Pressable>
         ) : (
           <Text variant="meta" soft style={styles.pointsToday}>
-            {pointsToday} pts today
+            {t('trackingHealth.pointsToday', { count: pointsToday })}
           </Text>
         )}
       </View>
       <View style={styles.chipsRow}>
         <Chip
           icon="crosshairs-gps"
-          label={`GPS · ${formatAge(snapshot.gpsAge)}`}
+          label={t('trackingHealth.gpsChip', {
+            age: formatAge(snapshot.gpsAge),
+          })}
         />
         <Chip
           icon="walk"
-          label={`Activity · ${formatAge(snapshot.activityAge)}`}
+          label={t('trackingHealth.activityChip', {
+            age: formatAge(snapshot.activityAge),
+          })}
         />
         {snapshot.recentlyRestarted && snapshot.restartedAt != null && (
           <Chip
             icon="restart"
-            label={`Restored at ${formatClock(snapshot.restartedAt)}`}
+            label={t('trackingHealth.restoredAt', {
+              time: formatClock(snapshot.restartedAt),
+            })}
           />
         )}
       </View>

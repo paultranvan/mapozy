@@ -12,10 +12,12 @@ import {
 import { startTracking } from '@/tracking/tracker';
 import { MapozyTracker } from 'mapozy-tracker';
 import { Text } from '@/ui/Text';
+import { useI18n } from '@/i18n';
 import { colors, radii, space } from '@/theme/tokens';
 
 export default function OnboardingScreen() {
   const router = useRouter();
+  const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const db = useDb();
   const [step, setStep] = useState(0);
@@ -99,13 +101,13 @@ export default function OnboardingScreen() {
             color={colors.inkOnGround}
           />
           <Text variant="displayL" onGround align="center" style={styles.title}>
-            Welcome to Mapozy
+            {t('onboarding.welcomeTitle')}
           </Text>
           <Text variant="body" onGround soft align="center" style={styles.body}>
-            Track your trips and explore your stats — all on your device, nothing leaves your phone.
+            {t('onboarding.welcomeBody')}
           </Text>
-          <PrimaryButton label="Get started" onPress={() => setStep(1)} />
-          <TextLink label="Skip" onPress={onSkip} />
+          <PrimaryButton label={t('onboarding.getStarted')} onPress={() => setStep(1)} />
+          <TextLink label={t('onboarding.skip')} onPress={onSkip} />
         </View>
       )}
 
@@ -117,29 +119,33 @@ export default function OnboardingScreen() {
             color={colors.inkOnGround}
           />
           <Text variant="displayL" onGround align="center" style={styles.title}>
-            Permissions
+            {t('onboarding.permissionsTitle')}
           </Text>
           <View style={styles.permList}>
-            <PermissionRow icon="crosshairs-gps" label="Location" body="To record your trips." />
+            <PermissionRow
+              icon="crosshairs-gps"
+              label={t('onboarding.permLocation')}
+              body={t('onboarding.permLocationBody')}
+            />
             <PermissionRow
               icon="run"
-              label="Physical activity"
-              body="To detect walking / cycling / driving."
+              label={t('onboarding.permActivity')}
+              body={t('onboarding.permActivityBody')}
             />
             <PermissionRow
               icon="bell-outline"
-              label="Notifications"
-              body="Required by Android for background tracking."
+              label={t('onboarding.permNotifications')}
+              body={t('onboarding.permNotificationsBody')}
             />
           </View>
           <PrimaryButton
-            label={requesting ? 'Requesting…' : 'Grant'}
+            label={requesting ? t('onboarding.requesting') : t('onboarding.grant')}
             onPress={onGrantPermissions}
             disabled={requesting}
           />
           {permResult && !permResult.fineLocation && (
             <Text variant="meta" onGround style={styles.error}>
-              Location was denied. Re-launch the dialog or grant it in Android settings.
+              {t('onboarding.locationDenied')}
             </Text>
           )}
         </View>
@@ -153,24 +159,24 @@ export default function OnboardingScreen() {
             color={colors.inkOnGround}
           />
           <Text variant="displayL" onGround align="center" style={styles.title}>
-            Battery
+            {t('onboarding.batteryTitle')}
           </Text>
           <Text variant="body" onGround soft align="center" style={styles.body}>
-            To keep tracking running in the background, allow Mapozy to ignore battery optimization. Without this, your phone may stop tracking when the screen is off.
+            {t('onboarding.batteryBody')}
           </Text>
           {batteryExempt && (
             <Text variant="meta" onGround align="center" style={styles.body}>
-              Already granted — you're all set.
+              {t('onboarding.batteryGranted')}
             </Text>
           )}
           {!batteryExempt && (
             <PrimaryButton
-              label={requesting ? 'Requesting…' : 'Allow battery exemption'}
+              label={requesting ? t('onboarding.requesting') : t('onboarding.allowBatteryExemption')}
               onPress={onRequestBatteryExemption}
               disabled={requesting}
             />
           )}
-          <TextLink label="Continue" onPress={() => setStep(3)} />
+          <TextLink label={t('onboarding.continue')} onPress={() => setStep(3)} />
         </View>
       )}
 
@@ -182,17 +188,17 @@ export default function OnboardingScreen() {
             color={colors.inkOnGround}
           />
           <Text variant="displayL" onGround align="center" style={styles.title}>
-            Ready
+            {t('onboarding.readyTitle')}
           </Text>
           <Text variant="body" onGround soft align="center" style={styles.body}>
-            Tracking starts now. A persistent notification keeps it alive in the background.
+            {t('onboarding.readyBody')}
           </Text>
           {permResult && !permResult.backgroundLocation && (
             <Text variant="meta" onGround align="center" style={styles.error}>
-              Background location was not granted. Tracking will pause when the app is backgrounded. Grant "Allow all the time" in Android settings for full coverage.
+              {t('onboarding.backgroundDenied')}
             </Text>
           )}
-          <PrimaryButton label="Start tracking" onPress={onStartTracking} />
+          <PrimaryButton label={t('onboarding.startTracking')} onPress={onStartTracking} />
         </View>
       )}
     </ScrollView>

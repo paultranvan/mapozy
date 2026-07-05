@@ -1,6 +1,7 @@
 import type { Db } from '../db/client';
 import type { PeriodKey } from '../lib/time';
 import type { Mode } from '../types';
+import { monthsShort } from '@/i18n/dates';
 
 export interface PeriodKpi {
   totalDistanceM: number;
@@ -141,11 +142,6 @@ export interface DisplayBucket {
   tripsCount: number;
 }
 
-const MONTHS_SHORT = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-];
-
 function parseDayKey(dayKey: string): { y: number; m: number; d: number } {
   const [y, m, d] = dayKey.split('-').map(Number);
   return { y: y!, m: m!, d: d! };
@@ -160,7 +156,7 @@ function pad2(n: number): string {
 function bucketFor(dayKey: string, g: BucketGranularity): { key: string; label: string } {
   const { y, m, d } = parseDayKey(dayKey);
   if (g === 'year') return { key: String(y), label: String(y) };
-  if (g === 'month') return { key: `${y}-${pad2(m)}`, label: MONTHS_SHORT[m - 1]! };
+  if (g === 'month') return { key: `${y}-${pad2(m)}`, label: monthsShort()[m - 1]! };
   // week: snap back to Monday
   const date = new Date(y, m - 1, d);
   const dow = (date.getDay() + 6) % 7; // Mon=0 … Sun=6
@@ -168,7 +164,7 @@ function bucketFor(dayKey: string, g: BucketGranularity): { key: string; label: 
   const wy = date.getFullYear();
   const wm = date.getMonth() + 1;
   const wd = date.getDate();
-  return { key: `${wy}-${pad2(wm)}-${pad2(wd)}`, label: `${wd} ${MONTHS_SHORT[wm - 1]}` };
+  return { key: `${wy}-${pad2(wm)}-${pad2(wd)}`, label: `${wd} ${monthsShort()[wm - 1]}` };
 }
 
 /**
@@ -233,7 +229,7 @@ export function aggregateDailyBuckets(
       const { m, d } = parseDayKey(b.dayKey);
       return {
         key: b.dayKey,
-        label: `${d} ${MONTHS_SHORT[m - 1]}`,
+        label: `${d} ${monthsShort()[m - 1]}`,
         distanceM: b.distanceM,
         tripsCount: b.tripsCount,
       };

@@ -11,11 +11,13 @@ import { usePipelineRunState } from '@/tracking/pipelineStatus';
 import { runPipelineIfSafe } from '@/tracking/tracker';
 import { derivePipelineBannerState } from './pipelineBannerState';
 import { colors, space, radii } from '@/theme/tokens';
+import { useI18n } from '@/i18n';
 import { Text } from './Text';
 
 const POLL_MS = 10_000;
 
 export function PipelineStatusBanner() {
+  const { t } = useI18n();
   const db = useDb();
   const qc = useQueryClient();
   const run = usePipelineRunState();
@@ -66,7 +68,7 @@ export function PipelineStatusBanner() {
       <View style={styles.banner}>
         <ActivityIndicator size="small" color={colors.accent} />
         <Text variant="label" onGround style={styles.label}>
-          Calcul en cours…
+          {t('pipeline.computing')}
         </Text>
       </View>
     );
@@ -77,11 +79,11 @@ export function PipelineStatusBanner() {
       <View style={styles.banner}>
         <ActivityIndicator size="small" color={colors.accent} />
         <Text variant="label" onGround style={styles.label}>
-          Classification des trajets…
+          {t('pipeline.classifying')}
         </Text>
         {run.draftsPending > 0 ? (
           <Text variant="label" onGround soft style={styles.detail}>
-            · {run.draftsPending} restant{run.draftsPending > 1 ? 's' : ''}
+            {t('pipeline.remaining', { count: run.draftsPending })}
           </Text>
         ) : null}
       </View>
@@ -93,7 +95,7 @@ export function PipelineStatusBanner() {
       <View style={styles.banner}>
         <MaterialCommunityIcons name="map-marker-path" size={16} color={colors.deep} />
         <Text variant="label" onGround style={styles.label}>
-          Trajet en cours — il apparaîtra à l'arrêt
+          {t('pipeline.tripInProgress')}
         </Text>
       </View>
     );
@@ -108,11 +110,11 @@ export function PipelineStatusBanner() {
     >
       <MaterialCommunityIcons name="check-circle-outline" size={16} color={colors.deep} />
       <Text variant="label" onGround style={styles.label}>
-        À jour
+        {t('pipeline.upToDate')}
       </Text>
       {unconsumed > 0 ? (
         <Text variant="label" onGround soft style={styles.detail}>
-          · {unconsumed} point{unconsumed > 1 ? 's' : ''} en attente
+          {t('pipeline.pointsPending', { count: unconsumed })}
         </Text>
       ) : null}
       <View style={styles.spacer} />

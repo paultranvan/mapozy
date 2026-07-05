@@ -3,6 +3,7 @@ import { View, TextInput, Pressable, ScrollView, StyleSheet, Alert } from 'react
 import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, space } from '@/theme/tokens';
+import { useI18n } from '@/i18n';
 import { Text } from '@/ui/Text';
 import { useCustomCategories, useCreateCustomCategory, useDeleteCustomCategory } from '@/queries/useCategories';
 import type { CustomCategory } from '@/db/customCategories';
@@ -21,6 +22,7 @@ const COLOR_OPTIONS = ['#C9883F', '#8978FF', '#B3BF26', '#FF7B5E', '#1CAAE8', '#
 
 export default function CategoryEditor() {
   const router = useRouter();
+  const { t } = useI18n();
   const [name, setName] = useState('');
   const [icon, setIcon] = useState<keyof typeof MaterialCommunityIcons.glyphMap>(ICON_OPTIONS[0]!);
   const [color, setColor] = useState(COLOR_OPTIONS[0]!);
@@ -30,37 +32,37 @@ export default function CategoryEditor() {
 
   const onSave = async () => {
     const trimmed = name.trim();
-    if (!trimmed) { Alert.alert('Name required', 'Give the category a name.'); return; }
+    if (!trimmed) { Alert.alert(t('categoryNew.nameRequiredTitle'), t('categoryNew.nameRequiredBody')); return; }
     try { await create.mutateAsync({ name: trimmed, icon, color }); router.back(); }
-    catch { Alert.alert('Error', 'Could not create the category.'); }
+    catch { Alert.alert(t('common.error'), t('categoryNew.createError')); }
   };
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ paddingBottom: space[6] }} keyboardShouldPersistTaps="handled">
       <View style={styles.bar}>
-        <Pressable onPress={() => router.back()}><Text variant="body" color={colors.inkSoft}>Cancel</Text></Pressable>
-        <Text variant="body" color={colors.ink}>New category</Text>
-        <Pressable onPress={onSave}><Text variant="body" color={name.trim() ? colors.accent : colors.inkSoft}>Save</Text></Pressable>
+        <Pressable onPress={() => router.back()}><Text variant="body" color={colors.inkSoft}>{t('common.cancel')}</Text></Pressable>
+        <Text variant="body" color={colors.ink}>{t('categoryNew.title')}</Text>
+        <Pressable onPress={onSave}><Text variant="body" color={name.trim() ? colors.accent : colors.inkSoft}>{t('common.save')}</Text></Pressable>
       </View>
 
       <View style={styles.preview}>
         <View style={[styles.previewBadge, { backgroundColor: color }]}>
           <MaterialCommunityIcons name={icon} size={26} color="#fff" />
         </View>
-        <Text variant="body" color={colors.ink} numberOfLines={1}>{name.trim() || 'Preview'}</Text>
+        <Text variant="body" color={colors.ink} numberOfLines={1}>{name.trim() || t('categoryNew.preview')}</Text>
       </View>
 
-      <Text variant="label" color={colors.inkSoft} style={styles.sec}>NAME</Text>
-      <TextInput value={name} onChangeText={setName} placeholder="Category name (e.g. Climbing)" placeholderTextColor={colors.inkSoft} style={styles.input} />
+      <Text variant="label" color={colors.inkSoft} style={styles.sec}>{t('categoryNew.sectionName')}</Text>
+      <TextInput value={name} onChangeText={setName} placeholder={t('categoryNew.namePlaceholder')} placeholderTextColor={colors.inkSoft} style={styles.input} />
 
-      <Text variant="label" color={colors.inkSoft} style={styles.sec}>COLOR</Text>
+      <Text variant="label" color={colors.inkSoft} style={styles.sec}>{t('categoryNew.sectionColor')}</Text>
       <View style={styles.colorRow}>
         {COLOR_OPTIONS.map((hex) => (
           <Pressable key={hex} onPress={() => setColor(hex)} style={[styles.swatch, { backgroundColor: hex }, color === hex && styles.swatchOn]} />
         ))}
       </View>
 
-      <Text variant="label" color={colors.inkSoft} style={styles.sec}>ICON</Text>
+      <Text variant="label" color={colors.inkSoft} style={styles.sec}>{t('categoryNew.sectionIcon')}</Text>
       <View style={styles.iconGrid}>
         {ICON_OPTIONS.map((g) => (
           <Pressable key={g} onPress={() => setIcon(g)} style={[styles.iconCell, icon === g && { borderColor: color, backgroundColor: colors.accentSoft }]}>
@@ -71,7 +73,7 @@ export default function CategoryEditor() {
 
       {(existing.data?.length ?? 0) > 0 && (
         <>
-          <Text variant="label" color={colors.inkSoft} style={styles.sec}>YOUR CATEGORIES</Text>
+          <Text variant="label" color={colors.inkSoft} style={styles.sec}>{t('categoryNew.sectionYours')}</Text>
           {(existing.data ?? ([] as CustomCategory[])).map((c: CustomCategory) => (
             <View key={c.id} style={styles.row}>
               <View style={[styles.rowBadge, { backgroundColor: c.color }]}>

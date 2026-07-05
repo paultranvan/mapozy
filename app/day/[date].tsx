@@ -27,11 +27,11 @@ import {
   formatDuration,
   formatCo2,
   formatTime,
-  capitalize,
-  WEEKDAYS,
-  WEEKDAYS_SHORT,
-  MONTHS_SHORT,
+  formatDayHeader,
 } from '@/lib/format';
+import { t as translate, useI18n } from '@/i18n';
+import { modeLabel } from '@/i18n/labels';
+import { weekdaysShort } from '@/i18n/dates';
 import {
   dayKey,
   dayKeyToMs,
@@ -53,22 +53,19 @@ function weekFor(key: string): { days: WeekDay[]; startMs: number; endMs: number
   const dow = new Date(base).getDay(); // 0 = Sunday
   const mondayMs = base + (dow === 0 ? -6 : 1 - dow) * DAY_MS;
   const days: WeekDay[] = [];
+  const labels = weekdaysShort();
   for (let i = 0; i < 7; i++) {
     const ms = mondayMs + i * DAY_MS;
     const d = new Date(ms);
-    days.push({ key: dayKey(ms), label: WEEKDAYS_SHORT[d.getDay()]!, dayNum: d.getDate() });
+    days.push({ key: dayKey(ms), label: labels[d.getDay()]!, dayNum: d.getDate() });
   }
   return { days, startMs: startOfDayMs(mondayMs), endMs: endOfDayMs(mondayMs + 6 * DAY_MS) };
 }
 
 function dayLabel(key: string): string {
-  if (key === dayKey(Date.now())) return 'Today';
-  if (key === dayKey(Date.now() - 86_400_000)) return 'Yesterday';
-  const d = new Date(dayKeyToMs(key));
-  const sameYear = d.getFullYear() === new Date().getFullYear();
-  return sameYear
-    ? `${WEEKDAYS[d.getDay()]}, ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`
-    : `${WEEKDAYS[d.getDay()]}, ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}`;
+  if (key === dayKey(Date.now())) return translate('day.today');
+  if (key === dayKey(Date.now() - 86_400_000)) return translate('day.yesterday');
+  return formatDayHeader(dayKeyToMs(key));
 }
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
@@ -76,6 +73,7 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 }
 
 export default function DayScreen() {
+  const { t, locale } = useI18n();
   const params = useLocalSearchParams<{ date: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -127,7 +125,9 @@ export default function DayScreen() {
   // Drop any highlight when switching day.
   useEffect(() => setSelectedTripId(null), [date]);
 
-  const week = useMemo(() => weekFor(date), [date]);
+  // `locale` so the week-strip day labels re-render in the new language.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const week = useMemo(() => weekFor(date), [date, locale]);
   const weekDaysQ = useTripDaysWithTrips(week.startMs, week.endMs);
   const daysWithTrips = weekDaysQ.data ?? NO_DAYS;
 
@@ -261,7 +261,7 @@ export default function DayScreen() {
           {summary.count === 0 ? (
             <View style={styles.emptyDay}>
               <Text variant="body" soft align="center">
-                No trips on this day.
+                {t('day.noTrips')}
               </Text>
             </View>
           ) : (
@@ -296,7 +296,7 @@ export default function DayScreen() {
               {modeBreakdown.rows.length > 0 ? (
                 <View style={styles.breakdown}>
                   <Text variant="ribbon" soft style={styles.breakdownLabel}>
-                    By mode
+                    {t('day.byMode')}
                   </Text>
                   <ModeBar segments={modeBreakdown.segments} height={8} radius={4} gap={2} />
                   <View style={styles.legend}>
@@ -308,7 +308,7 @@ export default function DayScreen() {
                             { backgroundColor: colors.mode[r.mode] ?? colors.mode.mixed },
                           ]}
                         />
-                        <Text variant="meta">{capitalize(r.mode)}</Text>
+                        <Text variant="meta">{modeLabel(r.mode)}</Text>
                         <Text variant="meta" soft>
                           {formatDistance(r.distanceM)} · {r.pct}%
                         </Text>

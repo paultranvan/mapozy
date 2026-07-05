@@ -2,6 +2,7 @@ import { View, Pressable, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, space, radii } from '@/theme/tokens';
+import { useI18n, type TranslationKey } from '@/i18n';
 import { Text } from './Text';
 import type { RecordingStatus } from '@/tracking/recording';
 
@@ -10,7 +11,7 @@ interface Props {
 }
 
 interface Visual {
-  label: string;
+  labelKey: TranslationKey;
   bg: string;
   fg: string;
   dot?: string;
@@ -21,21 +22,21 @@ function visualFor(status: RecordingStatus): Visual {
   switch (status) {
     case 'recording':
       return {
-        label: 'Recording',
+        labelKey: 'recording.recording',
         bg: colors.surfaceMuted,
         fg: colors.inkOnGround,
         dot: '#2ECC71',
       };
     case 'idle':
       return {
-        label: 'Idle',
+        labelKey: 'recording.idle',
         bg: colors.surfaceMuted,
         fg: colors.inkOnGroundSoft,
         dot: 'transparent',
       };
     case 'warning':
       return {
-        label: 'Not tracking',
+        labelKey: 'recording.notTracking',
         bg: colors.dangerSurface,
         fg: colors.danger,
         icon: 'alert-circle',
@@ -44,6 +45,7 @@ function visualFor(status: RecordingStatus): Visual {
 }
 
 export function RecordingPill({ status }: Props) {
+  const { t } = useI18n();
   const router = useRouter();
   const v = visualFor(status);
   return (
@@ -72,7 +74,7 @@ export function RecordingPill({ status }: Props) {
         />
       )}
       <Text variant="label" color={v.fg} style={{ marginLeft: 6 }}>
-        {v.label}
+        {t(v.labelKey)}
       </Text>
     </Pressable>
   );

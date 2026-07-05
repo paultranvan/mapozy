@@ -5,7 +5,9 @@ import { colors, space, radii } from '@/theme/tokens';
 import { Text } from './Text';
 import { ModeIcon } from './ModeIcon';
 import { effectiveMode } from '@/pipeline/effectiveMode';
-import { formatDistance, formatDuration, formatSpeed, formatTime, capitalize } from '@/lib/format';
+import { formatDistance, formatDuration, formatSpeed, formatTime } from '@/lib/format';
+import { useI18n } from '@/i18n';
+import { modeLabel } from '@/i18n/labels';
 import type { Mode, Section, TripBreak } from '@/types';
 
 const MODES: Mode[] = ['walk', 'run', 'bike', 'car', 'bus', 'tram', 'subway', 'train', 'boat', 'plane'];
@@ -47,6 +49,7 @@ export function Timeline({
   onMergeUp,
   onMergeDown,
 }: Props) {
+  const { t } = useI18n();
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   const breaksByOrdering = new Map<number, TripBreak>();
   for (const b of breaks ?? []) breaksByOrdering.set(b.ordering, b);
@@ -81,13 +84,19 @@ export function Timeline({
               brk ? (
                 <MidRow
                   kind="break"
-                  label={`Break · ${formatDuration(
-                    Math.max(1, Math.round((brk.endTimeMs - brk.startTimeMs) / 1000))
-                  )}`}
+                  label={t('timeline.break', {
+                    duration: formatDuration(
+                      Math.max(1, Math.round((brk.endTimeMs - brk.startTimeMs) / 1000))
+                    ),
+                  })}
                   time={null}
                 />
               ) : (
-                <MidRow kind="transit" label={midLabel ?? 'Transit point'} time={midTime} />
+                <MidRow
+                  kind="transit"
+                  label={midLabel ?? t('timeline.transitPoint')}
+                  time={midTime}
+                />
               )
             ) : null}
           </View>
@@ -153,6 +162,7 @@ function Leg({
   onMergeUp?: (index: number) => void;
   onMergeDown?: (index: number) => void;
 }) {
+  const { t } = useI18n();
   const mode = effectiveMode(section);
   const color = colors.mode[mode];
   const edited = section.userMode != null;
@@ -173,11 +183,11 @@ function Leg({
         >
           <View style={styles.legTitleRow}>
             <Text variant="title" style={styles.legTitle}>
-              {capitalize(mode)}
+              {modeLabel(mode)}
             </Text>
             {edited ? (
               <Text variant="ribbon" soft style={styles.editedTag}>
-                EDITED
+                {t('timeline.edited')}
               </Text>
             ) : null}
             {editable ? (
@@ -190,8 +200,11 @@ function Leg({
             ) : null}
           </View>
           <Text variant="ribbon" soft style={styles.mono}>
-            {formatDuration(section.durationS)} · {formatDistance(section.distanceM)} · avg{' '}
-            {formatSpeed(section.avgSpeedMps)}
+            {t('timeline.legStats', {
+              duration: formatDuration(section.durationS),
+              distance: formatDistance(section.distanceM),
+              speed: formatSpeed(section.avgSpeedMps),
+            })}
           </Text>
         </Pressable>
 
@@ -231,11 +244,12 @@ function LegEditor({
   onMergeUp?: (index: number) => void;
   onMergeDown?: (index: number) => void;
 }) {
+  const { t } = useI18n();
   const canSplit = vertexCount(section) >= 3;
   return (
     <View style={styles.editor}>
       <Text variant="ribbon" soft style={styles.editorLabel}>
-        Mode
+        {t('timeline.mode')}
       </Text>
       <View style={styles.modes}>
         {MODES.map((m) => {
@@ -262,13 +276,25 @@ function LegEditor({
 
       <View style={styles.acts}>
         {canSplit ? (
-          <ActionChip label="Split here" glyph="✂" onPress={() => onSplitLeg?.(section, index)} />
+          <ActionChip
+            label={t('timeline.splitHere')}
+            glyph="✂"
+            onPress={() => onSplitLeg?.(section, index)}
+          />
         ) : null}
         {index > 0 ? (
-          <ActionChip label="Merge up" glyph="⤒" onPress={() => onMergeUp?.(index)} />
+          <ActionChip
+            label={t('timeline.mergeUp')}
+            glyph="⤒"
+            onPress={() => onMergeUp?.(index)}
+          />
         ) : null}
         {index < count - 1 ? (
-          <ActionChip label="Merge down" glyph="⤓" onPress={() => onMergeDown?.(index)} />
+          <ActionChip
+            label={t('timeline.mergeDown')}
+            glyph="⤓"
+            onPress={() => onMergeDown?.(index)}
+          />
         ) : null}
       </View>
     </View>

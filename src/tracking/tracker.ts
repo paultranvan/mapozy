@@ -7,18 +7,21 @@ import { shouldRunPipelineForForeground, shouldRunGivenMotion } from './foregrou
 import { makeOverpassDeps } from './overpassDeps';
 import { runDraftEnrichment } from './refreshDrafts';
 import { markPipelineRunStart, markPipelineRunEnd } from './pipelineStatus';
+import { t } from '@/i18n';
 
-export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
-  desiredAccuracy: 'high',
-  activityIntervalMs: 10_000,
-  foregroundNotificationTitle: 'Mapozy tracking',
-  foregroundNotificationBody: 'Tracking active',
-};
+// Built at call time (not module load) so the notification text reflects the
+// language selected when tracking actually starts.
+export function defaultTrackingConfig(): TrackingConfig {
+  return {
+    desiredAccuracy: 'high',
+    activityIntervalMs: 10_000,
+    foregroundNotificationTitle: t('notification.trackingTitle'),
+    foregroundNotificationBody: t('notification.trackingBody'),
+  };
+}
 
-export async function startTracking(
-  cfg: TrackingConfig = DEFAULT_TRACKING_CONFIG
-): Promise<void> {
-  await MapozyTracker.start(cfg);
+export async function startTracking(cfg?: TrackingConfig): Promise<void> {
+  await MapozyTracker.start(cfg ?? defaultTrackingConfig());
 }
 
 export async function stopTracking(): Promise<void> {

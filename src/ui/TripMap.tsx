@@ -1,4 +1,6 @@
-import { View, StyleSheet, Text, useWindowDimensions } from 'react-native';
+import { View, StyleSheet, useWindowDimensions } from 'react-native';
+import { Text } from '@/ui/Text';
+import { t } from '@/i18n';
 import MapLibreGL, {
   MapView,
   ShapeSource,
@@ -189,7 +191,7 @@ export function TripMap({
   if (allCoords.length === 0) {
     return (
       <View style={[styles.container, styles.empty]}>
-        <Text>No GPS trace available for this trip</Text>
+        <Text>{t('map.noTraceTrip')}</Text>
       </View>
     );
   }

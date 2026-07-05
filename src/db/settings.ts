@@ -39,4 +39,6 @@ export const SETTING_KEYS = {
   // are bypassed and trips fall back to local-only processing. See src/lib/net.ts.
   ALLOW_EXTERNAL_API: 'allow_external_api',
   LAST_DB_MAINTENANCE_MS: 'last_db_maintenance_ms',
+  // 'system' (default when unset) | 'en' | 'fr' — see src/i18n.
+  LANGUAGE: 'language',
 } as const;

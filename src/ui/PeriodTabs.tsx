@@ -1,6 +1,7 @@
 import { View, Pressable, StyleSheet } from 'react-native';
 import { Text } from './Text';
 import { colors, space } from '@/theme/tokens';
+import { useI18n, type TranslationKey } from '@/i18n';
 import type { PeriodKey } from '@/lib/time';
 
 interface Props {
@@ -8,15 +9,16 @@ interface Props {
   onChange: (v: PeriodKey) => void;
 }
 
-const OPTIONS: { value: PeriodKey; label: string }[] = [
-  { value: 'today', label: 'Today' },
-  { value: 'week', label: 'Week' },
-  { value: 'month', label: 'Month' },
-  { value: 'year', label: 'Year' },
-  { value: 'all', label: 'All' },
+const OPTIONS: { value: PeriodKey; labelKey: TranslationKey }[] = [
+  { value: 'today', labelKey: 'periodTabs.today' },
+  { value: 'week', labelKey: 'periodTabs.week' },
+  { value: 'month', labelKey: 'periodTabs.month' },
+  { value: 'year', labelKey: 'periodTabs.year' },
+  { value: 'all', labelKey: 'periodTabs.all' },
 ];
 
 export function PeriodTabs({ value, onChange }: Props) {
+  const { t } = useI18n();
   return (
     <View style={styles.row}>
       {OPTIONS.map((o) => {
@@ -34,7 +36,7 @@ export function PeriodTabs({ value, onChange }: Props) {
               soft={!active}
               style={active ? styles.activeText : undefined}
             >
-              {o.label}
+              {t(o.labelKey)}
             </Text>
             {active ? <View style={styles.underline} /> : <View style={styles.underlineSpacer} />}
           </Pressable>

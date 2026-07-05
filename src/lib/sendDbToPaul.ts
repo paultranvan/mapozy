@@ -1,6 +1,7 @@
 import { Alert } from 'react-native';
 import * as MailComposer from 'expo-mail-composer';
 import Constants from 'expo-constants';
+import { t } from '@/i18n';
 import type { Db } from '@/db/client';
 import { buildExportFilename } from './sendDbToPaulFilename';
 import { prepareDbExport } from './exportDb';
@@ -40,10 +41,10 @@ export async function sendDbToPaul(db: Db): Promise<void> {
   // reported as SENT regardless of what the user actually did. The SAVED
   // and CANCELLED branches only fire on iOS / web.
   if (result.status === MailComposer.MailComposerStatus.SENT) {
-    Alert.alert('Sent', 'Your data is on its way to Paul. Thanks!');
+    Alert.alert(t('sendDb.sentTitle'), t('sendDb.sentMessage'));
   } else if (result.status === MailComposer.MailComposerStatus.SAVED) {
-    Alert.alert('Saved', 'The email was saved as a draft.');
+    Alert.alert(t('sendDb.savedTitle'), t('sendDb.savedMessage'));
   } else {
-    Alert.alert('Cancelled', 'No email was sent.');
+    Alert.alert(t('sendDb.cancelledTitle'), t('sendDb.cancelledMessage'));
   }
 }

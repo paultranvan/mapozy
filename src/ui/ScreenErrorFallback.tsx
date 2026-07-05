@@ -5,6 +5,7 @@ import { Text } from './Text';
 import { useDb } from '@/db/DbContext';
 import { insertDiagnosticEvent } from '@/db/diagnostics';
 import { colors, space, radii } from '@/theme/tokens';
+import { useI18n } from '@/i18n';
 
 /**
  * Fallback rendered by a route's `ErrorBoundary` export when that screen throws
@@ -24,6 +25,7 @@ export function ScreenErrorFallback({
 }) {
   const router = useRouter();
   const db = useDb();
+  const { t } = useI18n();
 
   useEffect(() => {
     insertDiagnosticEvent(db, Date.now(), 'js_render_error', {
@@ -38,20 +40,19 @@ export function ScreenErrorFallback({
   return (
     <View style={styles.root}>
       <Text variant="display" align="center">
-        Something went wrong
+        {t('errorFallback.title')}
       </Text>
       <Text variant="body" soft align="center" style={styles.msg}>
-        This screen hit an error and couldn’t open. The details were saved to help
-        fix it.
+        {t('errorFallback.message')}
       </Text>
       <View style={styles.actions}>
         <Pressable style={[styles.btn, styles.primary]} onPress={() => void retry()}>
           <Text variant="title" style={{ color: colors.surface }}>
-            Try again
+            {t('errorFallback.tryAgain')}
           </Text>
         </Pressable>
         <Pressable style={[styles.btn, styles.secondary]} onPress={() => router.back()}>
-          <Text variant="title">Go back</Text>
+          <Text variant="title">{t('errorFallback.goBack')}</Text>
         </Pressable>
       </View>
     </View>
