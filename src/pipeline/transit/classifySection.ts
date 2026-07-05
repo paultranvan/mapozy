@@ -297,12 +297,15 @@ export function classifyBusCorridor(input: CorridorInput): TransitClassification
   // vehicle looping through the corridor, not a scheduled service.
   if (best.revisitFrac > maxRevisitFrac) return null;
 
+  // Dwell is MANDATORY: count and span both just prove the street carries a
+  // bus line — any car commuting along the corridor passes them. Only the
+  // trace slowing at the stops a bus must serve is behavioral evidence.
+  if (best.dwellFrac < minDwellFrac) return null;
   const votes =
     (best.n >= minStops && best.n / (totalM / 1000) >= minDensityPerKm ? 1 : 0) +
-    (best.span >= minSpan ? 1 : 0) +
-    (best.dwellFrac >= minDwellFrac ? 1 : 0);
-  if (votes >= 2) {
-    return { mode: 'bus', modeSource: 'corridor', modeConfidence: votes >= 3 ? 0.8 : 0.6 };
+    (best.span >= minSpan ? 1 : 0);
+  if (votes >= 1) {
+    return { mode: 'bus', modeSource: 'corridor', modeConfidence: votes >= 2 ? 0.8 : 0.6 };
   }
   return null;
 }

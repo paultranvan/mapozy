@@ -233,10 +233,14 @@ export const RULES = {
       '~350 m apart so point sampling aliases) on three signals — ' +
       'count+density, span along the section, and dwell (trace slows under ' +
       'dwellSpeedMps within dwellNearM of the stop: a bus SERVES stops, a car ' +
-      'passes them). Any 2 of 3 ⇒ bus. Thresholds fitted on the 2026-07-02 ' +
-      'tester export: real rides each fail one signal (power-save GPS thins ' +
-      'dwells, door-to-door legs dilute span) while a car along a bus ' +
-      'corridor passes at most one. Guards: section ≥ minDistanceM, average ' +
+      'passes them). Dwell is MANDATORY plus at least one of count/span ⇒ ' +
+      'bus: count and span both only prove the STREET carries a bus line, ' +
+      'and the 2026-07-05 export showed a daily car commute passing both ' +
+      '(line 187 corridor, 14 stops, span 0.94) — behavioral evidence must ' +
+      'gate the match. Known cost, accepted for precision: a power-save ride ' +
+      'whose GPS is too thin to catch any stop dwell is missed (the ' +
+      '2026-07-02 tester export had such rides pass on count+span). Guards: ' +
+      'section ≥ minDistanceM, average ' +
       'speed ≤ maxAvgSpeedMps (~40 km/h) so motorway drives never qualify. ' +
       'cellProbe* pick which stop-cache cells to load along the path. ' +
       'Revisit guard: a scheduled bus progresses along its route ONCE, so the ' +

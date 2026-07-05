@@ -146,8 +146,22 @@ describe('classifyBusCorridor', () => {
     expect(r?.modeConfidence).toBe(0.8);
   });
 
-  it('full corridor but no dwells (power-save GPS) → still bus (2 votes)', () => {
+  it('full corridor but no dwells → null (a car commuting along a bus line)', () => {
+    // count+span alone only prove the STREET carries a bus line, not that the
+    // vehicle behaved like a bus. Real case (2026-07-03, line 187 to Cachan):
+    // a daily car commute matched 14 stops with span 0.94 and was classified
+    // bus on count+span. Dwell — slowing at the stops a bus must serve — is
+    // now mandatory evidence. Known cost: a power-save ride whose GPS is too
+    // thin to ever catch a stop dwell is no longer auto-detected.
     const r = classifyBusCorridor({ path, speeds: fastEverywhere, stops: lineStops('183') });
+    expect(r).toBeNull();
+  });
+
+  it('dwells at stops plus full span but low count → bus (dwell + 1)', () => {
+    // Sparse-line corridor: only 6 matched stops (count vote fails) but the
+    // trace demonstrably serves them (dwell) across most of the path (span).
+    const stops = lineStops('183', 17); // ~6 stops over 5.5 km
+    const r = classifyBusCorridor({ path, speeds: slowEverywhere, stops });
     expect(r?.mode).toBe('bus');
     expect(r?.modeConfidence).toBe(0.6);
   });
