@@ -15,8 +15,9 @@ import {
   trimLineFromStart,
   trimLineFromEnd,
   pathLengthMeters,
+  haversineMeters,
 } from '../lib/distance';
-import type { Trip } from '../types';
+import type { Trip, Place } from '../types';
 
 // Distance, in screen pixels, between the geographic trace endpoint and the
 // marker center. The marker's coloured fill has a 15 px radius — using 16
@@ -31,6 +32,18 @@ const MAX_TRIM_FRACTION = 0.45;
 // `<Camera bounds={...}>` below — used twice (camera config + initial-zoom
 // estimate) so keep them as a single source of truth.
 const PAD = { left: 40, right: 40, top: 60, bottom: 280 };
+// Endpoint anchoring to the resolved start/end place. The trace routinely
+// starts or ends tens-to-hundreds of metres from the actual door: GPS cold
+// start after leaving a geofenced stay, or stop detection ending the trip a
+// noise-bound short of the place. When a place is resolved, the marker sits
+// on the place itself; if the trace endpoint is farther than
+// ANCHOR_CONNECT_MIN_M a dashed connector bridges trace and marker — the same
+// visual language as gap connectors (no GPS along it, but the endpoints are
+// known). Past ANCHOR_MAX_M the place is no longer credibly the visual
+// endpoint (e.g. a stale carried-over seed place) and we fall back to the
+// trace endpoint.
+const ANCHOR_MAX_M = 2000;
+const ANCHOR_CONNECT_MIN_M = 30;
 
 function metersPerPixel(zoom: number, latDeg: number): number {
   const cosLat = Math.cos((latDeg * Math.PI) / 180);
@@ -75,7 +88,32 @@ function parseLineCoords(geojson: string): Array<[number, number]> {
   }
 }
 
-export function TripMap({ trip }: { trip: Trip }) {
+// Where an endpoint marker should sit, and whether a dashed connector to the
+// trace endpoint is needed. `at` is the trace endpoint when no place anchors.
+function anchorEndpoint(
+  place: Place | null | undefined,
+  traceEnd: [number, number] | undefined
+): { at: [number, number]; connector: [[number, number], [number, number]] | null } | null {
+  if (!traceEnd) return null;
+  if (!place) return { at: traceEnd, connector: null };
+  const placeCoord: [number, number] = [place.longitude, place.latitude];
+  const d = haversineMeters(place.latitude, place.longitude, traceEnd[1], traceEnd[0]);
+  if (d > ANCHOR_MAX_M) return { at: traceEnd, connector: null };
+  return {
+    at: placeCoord,
+    connector: d > ANCHOR_CONNECT_MIN_M ? [traceEnd, placeCoord] : null,
+  };
+}
+
+export function TripMap({
+  trip,
+  startPlace,
+  endPlace,
+}: {
+  trip: Trip;
+  startPlace?: Place | null;
+  endPlace?: Place | null;
+}) {
   const allCoords = useMemo<Array<[number, number]>>(
     () => parseLineCoords(trip.geojson),
     [trip.geojson]
@@ -83,13 +121,26 @@ export function TripMap({ trip }: { trip: Trip }) {
 
   const { width: winW, height: winH } = useWindowDimensions();
 
+  const startAnchor = useMemo(
+    () => anchorEndpoint(startPlace, allCoords[0]),
+    [startPlace, allCoords]
+  );
+  const endAnchor = useMemo(
+    () => anchorEndpoint(endPlace, allCoords[allCoords.length - 1]),
+    [endPlace, allCoords]
+  );
+
   // Bounds + ref lat are derived from the trip, not from zoom — memoize them
   // so the Camera's `bounds` prop has a stable reference and isn't re-applied
   // every time `zoom` state changes (which would snap the camera back over
   // the user's pinch / pan).
   const { bounds, refLat, initialZoom } = useMemo(() => {
-    const lons = allCoords.map((c) => c[0]);
-    const lats = allCoords.map((c) => c[1]);
+    const anchorCoords = [startAnchor?.at, endAnchor?.at].filter(
+      (c): c is [number, number] => c != null
+    );
+    const boundCoords = [...allCoords, ...anchorCoords];
+    const lons = boundCoords.map((c) => c[0]);
+    const lats = boundCoords.map((c) => c[1]);
     const sw: [number, number] = [Math.min(...lons), Math.min(...lats)];
     const ne: [number, number] = [Math.max(...lons), Math.max(...lats)];
     const viewW = Math.max(1, winW - PAD.left - PAD.right);
@@ -106,7 +157,7 @@ export function TripMap({ trip }: { trip: Trip }) {
       refLat: (sw[1] + ne[1]) / 2,
       initialZoom: estimateFitZoom(sw, ne, viewW, viewH),
     };
-  }, [allCoords, winW, winH]);
+  }, [allCoords, startAnchor, endAnchor, winW, winH]);
 
   // Dashed connectors across data gaps. A break with `ordering === k` and
   // `gap` set sits between sections[k] and sections[k+1] (see assemble.ts);
@@ -159,8 +210,12 @@ export function TripMap({ trip }: { trip: Trip }) {
         // fall back to the raw trace otherwise.
         let coords = parseLineCoords(s.matchedGeojson ?? s.geojson);
         if (coords.length < 2) return null;
-        const isFirst = i === 0;
-        const isLast = i === trip.sections.length - 1;
+        // Trim only when the marker actually sits on the trace endpoint —
+        // an anchored marker is on the place, away from the trace, and
+        // trimming there would leave the line floating short of nothing.
+        const isFirst = i === 0 && startAnchor?.connector == null;
+        const isLast =
+          i === trip.sections.length - 1 && endAnchor?.connector == null;
         if (isFirst || isLast) {
           const cap = pathLengthMeters(coords) * MAX_TRIM_FRACTION;
           const trim = Math.min(trimM, cap);
@@ -191,7 +246,11 @@ export function TripMap({ trip }: { trip: Trip }) {
           </ShapeSource>
         );
       })}
-      {gapConnectors.map(([from, to], i) => (
+      {[
+        ...gapConnectors,
+        ...(startAnchor?.connector ? [startAnchor.connector] : []),
+        ...(endAnchor?.connector ? [endAnchor.connector] : []),
+      ].map(([from, to], i) => (
         <ShapeSource
           key={`gap-${i}`}
           id={`gap-${i}`}
@@ -213,14 +272,18 @@ export function TripMap({ trip }: { trip: Trip }) {
           />
         </ShapeSource>
       ))}
-      <PointAnnotation id="start" coordinate={allCoords[0]!} anchor={{ x: 0.5, y: 0.5 }}>
+      <PointAnnotation
+        id="start"
+        coordinate={startAnchor?.at ?? allCoords[0]!}
+        anchor={{ x: 0.5, y: 0.5 }}
+      >
         <View style={[styles.marker, styles.startMarker]}>
           <MaterialCommunityIcons name="play" size={18} color={themeColors.surface} />
         </View>
       </PointAnnotation>
       <PointAnnotation
         id="end"
-        coordinate={allCoords[allCoords.length - 1]!}
+        coordinate={endAnchor?.at ?? allCoords[allCoords.length - 1]!}
         anchor={{ x: 0.5, y: 0.5 }}
       >
         <View style={[styles.marker, styles.endMarker]}>

@@ -276,7 +276,13 @@ export default function TripDetailScreen() {
     <View style={styles.root}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={StyleSheet.absoluteFill}>
-        {isFocused ? <TripMap trip={trip} /> : null}
+        {isFocused ? (
+          <TripMap
+            trip={trip}
+            startPlace={startPlaceQ.data}
+            endPlace={endPlaceQ.data}
+          />
+        ) : null}
       </View>
       <FloatingIconButton
         icon="chevron-left"
