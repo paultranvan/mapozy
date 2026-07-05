@@ -1,6 +1,7 @@
 // Rules implemented here (see ./rules.ts):
 //   RULE_DWELL_STAY              — sliding-window dwell detection
 //   RULE_STATIONARY_BOUNDARY     — refine trip/stay split inside a detected dwell
+//   RULE_STROLL_DWELL_DISCARD    — drop short dwells with no confirmed stillness
 //   RULE_STALLED_VEHICLE_GUARD   — disqualify dwells overlapping confident in_vehicle
 //   RULE_GAP_DWELL               — long tracking gap with non-trivial distance → stay
 //   RULE_GAP_PLAUSIBILITY        — overrides RULE_GAP_DWELL when avg gap speed looks like real motion
@@ -63,6 +64,7 @@ export function segmentation(
   const stationaryMaxDispM =
     opts.stationaryMaxDisplacementM ??
     RULES.STATIONARY_BOUNDARY.defaults.maxDisplacementM;
+  const stationaryCrawlMps = RULES.STATIONARY_BOUNDARY.defaults.crawlSpeedMps;
   const stallCeilingMs =
     RULES.STALLED_VEHICLE_GUARD.defaults.maxStallMinutes * 60_000;
   const stallMaxSpeedMps = RULES.STALLED_VEHICLE_GUARD.defaults.maxStallSpeedMps;
@@ -183,24 +185,39 @@ export function segmentation(
   // RULE_STATIONARY_BOUNDARY — peel off the approach/departure points at each
   // dwell's edges so they get attributed to the adjacent trips rather than the
   // stay. Gap-based dwells (startIdx === endIdx) are skipped — they're a
-  // single representative point with no inner window to refine.
+  // single representative point with no inner window to refine (and always
+  // count as confirmed: the absence of fixes IS the stillness evidence).
   const refined = dwells.map((d) =>
     d.startIdx === d.endIdx
-      ? { stayStartIdx: d.startIdx, stayEndIdx: d.endIdx }
+      ? { stayStartIdx: d.startIdx, stayEndIdx: d.endIdx, confirmed: true }
       : refineDwellBoundary(
           points,
           d.startIdx,
           d.endIdx,
           stationaryWindowMs,
-          stationaryMaxDispM
+          stationaryMaxDispM,
+          stationaryCrawlMps,
+          radius
         )
   );
 
+  // RULE_STROLL_DWELL_DISCARD — a short dwell with no confirmed stationary
+  // moment is slow movement inside the dwell radius (a stroll), not a stay.
+  // Drop it so its points flow into the surrounding trip. Long dwells are
+  // kept unconditionally (fallback boundaries) — see the rule description.
+  const maxUnconfirmedDwellMs =
+    RULES.STROLL_DWELL_DISCARD.defaults.maxUnconfirmedDwellMs;
+  const keptDwells = dwells
+    .map((d, di) => ({ d, r: refined[di]! }))
+    .filter(
+      ({ d, r }) => r.confirmed || d.end - d.start >= maxUnconfirmedDwellMs
+    );
+
   const segs: Segment[] = [];
   let cursor = 0;
-  for (let di = 0; di < dwells.length; di++) {
-    const d = dwells[di]!;
-    const { stayStartIdx, stayEndIdx } = refined[di]!;
+  for (let di = 0; di < keptDwells.length; di++) {
+    const { d, r } = keptDwells[di]!;
+    const { stayStartIdx, stayEndIdx } = r;
     // A gap dwell is encoded as a single representative point (startIdx ===
     // endIdx); its real time span is the gap [d.start, d.end], not one instant.
     const isGapDwell = d.startIdx === d.endIdx;
@@ -246,53 +263,99 @@ export function segmentation(
 
 // RULE_STATIONARY_BOUNDARY — for the forward search, return true if every
 // later point within `windowMs` of `points[idx]` stays within
-// `maxDisplacementM` of it. If the dwell window ends before `windowMs` of
-// data is available, we conservatively count the point as stationary only
-// when the remaining-points span is at least `windowMs` long — otherwise
-// we can't tell and fall back to non-stationary so the dwell anchor wins.
+// `maxDisplacementM` of it. Sparse sampling must not pass vacuously: when the
+// first later point already falls past the window (common under power-save,
+// where fixes arrive every 70-250s), that point is the only evidence we have
+// for the window — so it too must sit close to the reference. Without this,
+// a slow walk sampled every 75s reads as "stationary" at every fix and the
+// stay swallows the whole final approach, truncating the trip up to ~150m
+// short of the destination.
+//
+// Two closeness bounds apply to that beyond-window point:
+//   - the strict `maxDisplacementM` noise bound — over a couple of minutes a
+//     stationary phone doesn't drift past it, while a slow stroll does;
+//   - failing that, an at-rest drift-speed bound: displacement / silence
+//     length at or under `crawlSpeedMps` (and still inside `sameDwellRadiusM`,
+//     mirroring RULE_GAP_DWELL's same-place-gap logic). GPS wander across a
+//     multi-minute at-rest silence routinely exceeds the strict bound
+//     (observed: 28m across a 41-min power-save silence, 16m across a 4-min
+//     one), and rejecting it collapses the stay's edge to the last tight fix —
+//     shrinking a 55-min stay below RULE_TRIP_BREAK_MAX so two distinct trips
+//     merge. The speed form keeps the slow-stroll rejection intact: even the
+//     slowest meander drifts at ~0.15 m/s+, while at-rest noise implies a
+//     few cm/s.
+//
+// If the dwell window ends before `windowMs` of data is available, we
+// conservatively count the point as stationary only when the remaining-points
+// span is at least `windowMs` long — otherwise we can't tell and fall back to
+// non-stationary so the dwell anchor wins.
+function withinRestBounds(
+  d: number,
+  silenceMs: number,
+  maxDisplacementM: number,
+  crawlSpeedMps: number,
+  sameDwellRadiusM: number
+): boolean {
+  if (d <= maxDisplacementM) return true;
+  return d <= sameDwellRadiusM && d / (silenceMs / 1000) <= crawlSpeedMps;
+}
+
 function isStationaryForward(
   points: RawPoint[],
   idx: number,
   lastIdx: number,
   windowMs: number,
-  maxDisplacementM: number
+  maxDisplacementM: number,
+  crawlSpeedMps: number,
+  sameDwellRadiusM: number
 ): boolean {
   const ref = points[idx]!;
   const t0 = ref.timestampMs;
   for (let k = idx + 1; k <= lastIdx; k++) {
     const p = points[k]!;
-    if (p.timestampMs - t0 > windowMs) return true;
-    if (
-      haversineMeters(ref.latitude, ref.longitude, p.latitude, p.longitude) >
-      maxDisplacementM
-    ) {
-      return false;
+    const d = haversineMeters(ref.latitude, ref.longitude, p.latitude, p.longitude);
+    if (p.timestampMs - t0 > windowMs) {
+      return withinRestBounds(
+        d,
+        p.timestampMs - t0,
+        maxDisplacementM,
+        crawlSpeedMps,
+        sameDwellRadiusM
+      );
     }
+    if (d > maxDisplacementM) return false;
   }
   return points[lastIdx]!.timestampMs - t0 >= windowMs;
 }
 
 // RULE_STATIONARY_BOUNDARY — mirror of isStationaryForward for the trailing
 // edge: every earlier point within `windowMs` of `points[idx]` must stay
-// within `maxDisplacementM`.
+// close, including the first point past the window when no fix landed inside
+// it (same sparse-sampling + long-silence bounds as the forward search).
 function isStationaryBackward(
   points: RawPoint[],
   idx: number,
   firstIdx: number,
   windowMs: number,
-  maxDisplacementM: number
+  maxDisplacementM: number,
+  crawlSpeedMps: number,
+  sameDwellRadiusM: number
 ): boolean {
   const ref = points[idx]!;
   const t0 = ref.timestampMs;
   for (let k = idx - 1; k >= firstIdx; k--) {
     const p = points[k]!;
-    if (t0 - p.timestampMs > windowMs) return true;
-    if (
-      haversineMeters(ref.latitude, ref.longitude, p.latitude, p.longitude) >
-      maxDisplacementM
-    ) {
-      return false;
+    const d = haversineMeters(ref.latitude, ref.longitude, p.latitude, p.longitude);
+    if (t0 - p.timestampMs > windowMs) {
+      return withinRestBounds(
+        d,
+        t0 - p.timestampMs,
+        maxDisplacementM,
+        crawlSpeedMps,
+        sameDwellRadiusM
+      );
     }
+    if (d > maxDisplacementM) return false;
   }
   return t0 - points[firstIdx]!.timestampMs >= windowMs;
 }
@@ -308,35 +371,53 @@ function refineDwellBoundary(
   startIdx: number,
   endIdx: number,
   windowMs: number,
-  maxDisplacementM: number
-): { stayStartIdx: number; stayEndIdx: number } {
+  maxDisplacementM: number,
+  crawlSpeedMps: number,
+  sameDwellRadiusM: number
+): { stayStartIdx: number; stayEndIdx: number; confirmed: boolean } {
   let stayStartIdx: number | null = null;
   for (let i = startIdx; i <= endIdx; i++) {
     if (
-      isStationaryForward(points, i, endIdx, windowMs, maxDisplacementM)
+      isStationaryForward(
+        points,
+        i,
+        endIdx,
+        windowMs,
+        maxDisplacementM,
+        crawlSpeedMps,
+        sameDwellRadiusM
+      )
     ) {
       stayStartIdx = i;
       break;
     }
   }
   if (stayStartIdx === null) {
-    return { stayStartIdx: startIdx, stayEndIdx: endIdx };
+    return { stayStartIdx: startIdx, stayEndIdx: endIdx, confirmed: false };
   }
 
   let stayEndIdx: number | null = null;
   for (let i = endIdx; i >= stayStartIdx; i--) {
     if (
-      isStationaryBackward(points, i, stayStartIdx, windowMs, maxDisplacementM)
+      isStationaryBackward(
+        points,
+        i,
+        stayStartIdx,
+        windowMs,
+        maxDisplacementM,
+        crawlSpeedMps,
+        sameDwellRadiusM
+      )
     ) {
       stayEndIdx = i;
       break;
     }
   }
   if (stayEndIdx === null) {
-    return { stayStartIdx, stayEndIdx: endIdx };
+    return { stayStartIdx, stayEndIdx: endIdx, confirmed: true };
   }
 
-  return { stayStartIdx, stayEndIdx };
+  return { stayStartIdx, stayEndIdx, confirmed: true };
 }
 
 // Recompute the stay's centroid from the refined (stationary-only) subset of

@@ -408,4 +408,151 @@ describe('segmentation', () => {
       }
     });
   });
+
+  describe('sparse cadence: slow walking must not read as stationary', () => {
+    const mpdLat = 111_320;
+    const t0 = 1_700_000_000_000;
+
+    // Long stationary anchor stay (35 min ≥ RULE_TRIP_BREAK_MAX) at `lat`.
+    function stayPts(startMs: number, lat: number, lon: number): RawPoint[] {
+      const out: RawPoint[] = [];
+      for (let i = 0; i <= 35; i++) out.push(mkPoint(startMs + i * 60_000, lat, lon));
+      return out;
+    }
+
+    it('a slow sparse final approach stays in the trip; the stay starts at the true stop', () => {
+      // Stay at A, brisk walk 400m north (40m/30s), then a slow sparse
+      // approach (30m every 75s — no fix ever lands inside the 60s stationary
+      // window), then genuinely stationary at B. With the vacuous-window bug,
+      // the stay starts at the first sparse approach fix, truncating the trip
+      // ~180m short of B.
+      const lon = 5.0;
+      const pts: RawPoint[] = stayPts(t0, 45.0, lon);
+      const walkStart = t0 + 35 * 60_000 + 30_000;
+      for (let i = 1; i <= 10; i++) {
+        pts.push(mkPoint(walkStart + i * 30_000, 45.0 + (i * 40) / mpdLat, lon));
+      }
+      const slowStart = walkStart + 10 * 30_000;
+      for (let i = 1; i <= 6; i++) {
+        pts.push(mkPoint(slowStart + i * 75_000, 45.0 + (400 + i * 30) / mpdLat, lon));
+      }
+      const arrivedTs = slowStart + 6 * 75_000 + 75_000;
+      const latB = 45.0 + 610 / mpdLat;
+      for (let i = 0; i <= 28; i++) {
+        pts.push(mkPoint(arrivedTs + i * 75_000, latB, lon));
+      }
+
+      const segs = segmentation(pts, [], { dwellMinutes: 5, dwellRadiusM: 100 });
+      const trips = segs.filter((s) => s.kind === 'trip') as Array<{
+        kind: 'trip';
+        points: RawPoint[];
+      }>;
+      const stays = segs.filter((s) => s.kind === 'stay') as Array<{
+        kind: 'stay';
+        startMs: number;
+      }>;
+      expect(stays).toHaveLength(2);
+      expect(trips).toHaveLength(1);
+      // Stay B must begin at the first genuinely stationary fix...
+      expect(stays[1]!.startMs).toBe(arrivedTs);
+      // ...and the trip polyline must reach it (not stop mid-approach).
+      const lastPt = trips[0]!.points[trips[0]!.points.length - 1]!;
+      expect(Math.abs(lastPt.latitude - latB) * mpdLat).toBeLessThan(20);
+    });
+
+    it('a short slow stroll inside the dwell radius is not a stay (walk stays continuous)', () => {
+      // Walk out, meander ~8 min within a 30m pocket (22m per 75s fix — moving
+      // the whole time, never stationary for 60s), walk on, stay at B. The
+      // meander must not chop the walk into two trips with a bogus break.
+      const lon = 5.0;
+      const pts: RawPoint[] = stayPts(t0, 45.0, lon);
+      const walkStart = t0 + 35 * 60_000 + 30_000;
+      for (let i = 1; i <= 8; i++) {
+        pts.push(mkPoint(walkStart + i * 30_000, 45.0 + (i * 40) / mpdLat, lon));
+      }
+      const strollStart = walkStart + 8 * 30_000;
+      for (let i = 1; i <= 6; i++) {
+        const m = 320 + (i % 2 === 0 ? 40 : 62);
+        pts.push(mkPoint(strollStart + i * 75_000, 45.0 + m / mpdLat, lon));
+      }
+      const walk2Start = strollStart + 6 * 75_000;
+      for (let i = 1; i <= 8; i++) {
+        pts.push(mkPoint(walk2Start + i * 30_000, 45.0 + (382 + i * 40) / mpdLat, lon));
+      }
+      pts.push(...stayPts(walk2Start + 8 * 30_000 + 30_000, 45.0 + 702 / mpdLat, lon));
+
+      const segs = segmentation(pts, [], { dwellMinutes: 5, dwellRadiusM: 100 });
+      expect(segs.filter((s) => s.kind === 'stay')).toHaveLength(2);
+      expect(segs.filter((s) => s.kind === 'trip')).toHaveLength(1);
+    });
+
+    it('a long noisy stop is still a stay even without tight stationary evidence', () => {
+      // Real case (park stop, 20-45m GPS accuracy): ~29 min of fixes jittering
+      // 20-28m apart — no 60s window ever holds still within 15m, yet this is a
+      // genuine stop and must survive as a stay (duration safety valve).
+      const lon = 5.0;
+      const pts: RawPoint[] = stayPts(t0, 45.0, lon);
+      const walkStart = t0 + 35 * 60_000 + 30_000;
+      for (let i = 1; i <= 8; i++) {
+        pts.push(mkPoint(walkStart + i * 30_000, 45.0 + (i * 40) / mpdLat, lon));
+      }
+      const parkStart = walkStart + 8 * 30_000;
+      for (let i = 1; i <= 20; i++) {
+        const m = 340 + (i % 2 === 0 ? 0 : 22);
+        pts.push(mkPoint(parkStart + i * 90_000, 45.0 + m / mpdLat, lon));
+      }
+      const walk2Start = parkStart + 20 * 90_000;
+      for (let i = 1; i <= 8; i++) {
+        pts.push(mkPoint(walk2Start + i * 30_000, 45.0 + (362 + i * 40) / mpdLat, lon));
+      }
+      pts.push(...stayPts(walk2Start + 8 * 30_000 + 30_000, 45.0 + 682 / mpdLat, lon));
+
+      const segs = segmentation(pts, [], { dwellMinutes: 5, dwellRadiusM: 100 });
+      // A / park / B — the noisy park stop is kept.
+      expect(segs.filter((s) => s.kind === 'stay')).toHaveLength(3);
+      expect(segs.filter((s) => s.kind === 'trip')).toHaveLength(2);
+    });
+
+    it('a long same-place GPS silence counts as stillness evidence (power-save stay ends the trip)', () => {
+      // Real case (2026-06-25): arrive at a place, a few fixes, then GPS goes
+      // silent 12 min, one fix, silent another 41 min, then noisy departure
+      // fixes 25-40m apart. The 28m hop across the 41-min silence must read as
+      // stationary (same-place gap, RULE_GAP_DWELL logic) — otherwise the
+      // stay's trailing edge collapses to the last tight fix, the ~55-min stay
+      // shrinks below RULE_TRIP_BREAK_MAX and two distinct trips merge.
+      const lon = 5.0;
+      const pts: RawPoint[] = stayPts(t0, 45.0, lon);
+      const walkStart = t0 + 35 * 60_000 + 30_000;
+      for (let i = 1; i <= 8; i++) {
+        pts.push(mkPoint(walkStart + i * 30_000, 45.0 + (i * 40) / mpdLat, lon));
+      }
+      const placeLat = 45.0 + 360 / mpdLat;
+      const arriveTs = walkStart + 8 * 30_000 + 60_000;
+      pts.push(mkPoint(arriveTs, placeLat, lon));
+      pts.push(mkPoint(arriveTs + 70_000, placeLat + 5 / mpdLat, lon));
+      // 12-min silence, one fix, then 41-min silence — phone at rest.
+      pts.push(mkPoint(arriveTs + 70_000 + 12 * 60_000, placeLat + 7 / mpdLat, lon));
+      const wakeTs = arriveTs + 70_000 + 53 * 60_000;
+      pts.push(mkPoint(wakeTs, placeLat + 28 / mpdLat, lon));
+      // noisy departure fixes, then walk away to B
+      pts.push(mkPoint(wakeTs + 30_000, placeLat + 3 / mpdLat, lon));
+      pts.push(mkPoint(wakeTs + 60_000, placeLat + 30 / mpdLat, lon));
+      const walk2Start = wakeTs + 90_000;
+      for (let i = 1; i <= 8; i++) {
+        pts.push(mkPoint(walk2Start + i * 30_000, placeLat + (30 + i * 40) / mpdLat, lon));
+      }
+      pts.push(...stayPts(walk2Start + 8 * 30_000 + 30_000, placeLat + 380 / mpdLat, lon));
+
+      const segs = segmentation(pts, [], { dwellMinutes: 5, dwellRadiusM: 100 });
+      const stays = segs.filter((s) => s.kind === 'stay') as Array<{
+        kind: 'stay';
+        startMs: number;
+        endMs: number;
+      }>;
+      // The ~55-min stay must end the trip: two trips, three stays.
+      expect(stays).toHaveLength(3);
+      expect(segs.filter((s) => s.kind === 'trip')).toHaveLength(2);
+      expect(stays[1]!.endMs - stays[1]!.startMs).toBeGreaterThanOrEqual(30 * 60_000);
+    });
+  });
 });

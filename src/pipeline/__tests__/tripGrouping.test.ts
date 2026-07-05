@@ -174,4 +174,26 @@ describe('groupIntoTrips', () => {
     expect(groups[0]!.startStay).not.toBeNull();
     expect(groups[0]!.startStay!.centerLat).toBe(45.1);
   });
+
+  it('consecutive short stays whose combined span reaches 30 min close the group', () => {
+    // Real case (2026-06-30): a 28.8-min observed stay at home immediately
+    // followed by a 15.2-min departure gap stay — one continuous 44-min stop.
+    // Individually each is under RULE_TRIP_BREAK_MAX, but combined they must
+    // end the trip, not survive as a mid-trip break gluing two drives together.
+    const t = (min: number) => min * 60_000;
+    const segs: Segment[] = [
+      stay(0, t(60)),
+      trip(t(60) + 1000, t(70)),
+      stay(t(70) + 1000, t(99)),          // 29 min observed stay
+      stay(t(99) + 1000, t(114)),         // 15 min gap stay, back-to-back
+      trip(t(114) + 1000, t(124)),
+      stay(t(124) + 1000, t(184)),
+    ];
+    const groups = groupIntoTrips(segs);
+    expect(groups).toHaveLength(2);
+    expect(groups[0]!.breaks).toEqual([]);
+    expect(groups[0]!.endStay).not.toBeNull();
+    // The second trip starts from the combined stop, not from the first stay.
+    expect(groups[1]!.startStay!.endMs).toBe(t(114));
+  });
 });

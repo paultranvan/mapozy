@@ -55,8 +55,31 @@ export const RULES = {
 
   STATIONARY_BOUNDARY: rule(
     'RULE_STATIONARY_BOUNDARY',
-    'Inside a detected dwell, refine the trip/stay boundary to the moment the phone is actually stationary (windowed displacement under the threshold), instead of the outer edge of the dwell circle. This makes trip polylines reach the destination instead of being truncated by up to one dwell radius.',
-    { windowMs: 60_000, maxDisplacementM: 15 }
+    'Inside a detected dwell, refine the trip/stay boundary to the moment the ' +
+      'phone is actually stationary (windowed displacement under the ' +
+      'threshold), instead of the outer edge of the dwell circle. This makes ' +
+      'trip polylines reach the destination instead of being truncated by up ' +
+      'to one dwell radius. When sampling is sparse and the only evidence ' +
+      'point falls past the window, it must still sit within ' +
+      'maxDisplacementM — or, failing that, imply an at-rest drift speed of ' +
+      'at most crawlSpeedMps (and stay inside the dwell radius): GPS wander ' +
+      'across a multi-minute at-rest silence routinely exceeds the strict ' +
+      'noise bound, while even the slowest stroll drifts at ~0.15 m/s+.',
+    { windowMs: 60_000, maxDisplacementM: 15, crawlSpeedMps: 0.1 }
+  ),
+
+  STROLL_DWELL_DISCARD: rule(
+    'RULE_STROLL_DWELL_DISCARD',
+    'A dwell in which RULE_STATIONARY_BOUNDARY can confirm no genuinely ' +
+      'stationary moment is slow on-foot wandering, not a stay: a stroll ' +
+      'drifts 20-80 m per fix, which keeps the sliding window inside the ' +
+      'dwell radius while never holding still. Discard it so the walk stays ' +
+      'continuous instead of being chopped into mini-sections with holes. ' +
+      'Applies only below maxUnconfirmedDwellMs: past that the dwell is kept ' +
+      'regardless, as the safety valve — noisy GPS at a genuine long stop ' +
+      '(observed: a 29-min park stop at 20-45 m accuracy) can jitter above ' +
+      'the stationary displacement bound, and a trip must always be endable.',
+    { maxUnconfirmedDwellMs: 12 * 60_000 }
   ),
 
   STALLED_VEHICLE_GUARD: rule(
@@ -215,7 +238,19 @@ export const RULES = {
       'dwells, door-to-door legs dilute span) while a car along a bus ' +
       'corridor passes at most one. Guards: section ≥ minDistanceM, average ' +
       'speed ≤ maxAvgSpeedMps (~40 km/h) so motorway drives never qualify. ' +
-      'cellProbe* pick which stop-cache cells to load along the path.',
+      'cellProbe* pick which stop-cache cells to load along the path. ' +
+      'Revisit guard: a scheduled bus progresses along its route ONCE, so the ' +
+      'trace runs near each stop over ONE contiguous stretch of its path. A ' +
+      'trace that doubles back over the same corridor (a coach doing ' +
+      'pickups, a car circling for parking) nears the same stops at path ' +
+      'positions far apart — near-stretches separated by more than passGapM ' +
+      'of travelled path count as separate passes, and when more than ' +
+      'maxRevisitFrac of the winning route\'s stops are passed ≥2 times, the ' +
+      'section is not a bus. Path-position gaps (not radial hysteresis) so ' +
+      'dwell jitter at a served stop can never split one pass in two, and so ' +
+      'sparse fixes still catch the revisit (segments are interpolated). The ' +
+      'fraction (not any-revisit) tolerates a genuine route turnaround ' +
+      'doubling a couple of stops near a terminus.',
     {
       stopRadiusM: 60,
       minStops: 10,
@@ -228,6 +263,8 @@ export const RULES = {
       maxAvgSpeedMps: 11,
       cellProbeEveryM: 400,
       cellProbeRadiusM: 900,
+      passGapM: 250,
+      maxRevisitFrac: 0.3,
     }
   ),
 

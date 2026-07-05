@@ -89,6 +89,24 @@ export function groupIntoTrips(segments: Segment[]): TripLegGroup[] {
             pendingBreak.endMs = seg.endMs;
             pendingBreak.gap = pendingBreak.gap || seg.gap;
           }
+          // Consecutive stays are one continuous stop: judge break-vs-trip-end
+          // on the COMBINED span. An observed at-rest stay chained to a
+          // departure gap stay (each under the threshold) is routinely a
+          // 40-min+ stop — keeping it as a break glues two distinct trips
+          // together.
+          if (pendingBreak.endMs - pendingBreak.startMs >= maxBreakMs) {
+            current.endStay = {
+              centerLat: pendingBreak.centerLat,
+              centerLon: pendingBreak.centerLon,
+              endMs: pendingBreak.endMs,
+              gap: pendingBreak.gap,
+            };
+            out.push(current);
+            current = null;
+            pendingBreak = null;
+            previousStay = stayBoundary;
+            continue;
+          }
         }
         previousStay = stayBoundary;
       } else {
