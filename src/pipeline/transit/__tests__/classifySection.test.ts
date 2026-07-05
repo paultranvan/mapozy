@@ -73,24 +73,36 @@ describe('classifySection — station corroboration', () => {
   });
 });
 
-describe('classifySection — bus route_ref', () => {
-  it('shared route_ref at both bus stops → bus', () => {
+describe('sharedEndpointBusRefs', () => {
+  it('collects the refs served at both endpoints', () => {
     const start: TransitStop[] = [
       { id: 1, lat: lat0, lon: lon0, busStop: true, routeRef: '12;38' },
     ];
     const end: TransitStop[] = [
       { id: 2, lat: lat0, lon: lon0, busStop: true, routeRef: '38;91' },
     ];
-    const r = classifySection({ coords: straightTrace(), ways: [], startStops: start, endStops: end });
-    expect(r?.mode).toBe('bus');
+    expect([...sharedEndpointBusRefs(start, end)]).toEqual(['38']);
   });
 
-  it('bus stops with NO shared route_ref → null (no false positive)', () => {
+  it('no shared route_ref → empty set', () => {
     const start: TransitStop[] = [
       { id: 1, lat: lat0, lon: lon0, busStop: true, routeRef: '12' },
     ];
     const end: TransitStop[] = [
       { id: 2, lat: lat0, lon: lon0, busStop: true, routeRef: '38' },
+    ];
+    expect(sharedEndpointBusRefs(start, end).size).toBe(0);
+  });
+
+  it('classifySection itself never returns bus from endpoint stops alone', () => {
+    // Five 2026-06 car commutes were classified bus this way (both ends near
+    // stops of the same home↔Cachan line). Endpoint sharing is structural
+    // evidence only — it must go through the corridor scorer's dwell gate.
+    const start: TransitStop[] = [
+      { id: 1, lat: lat0, lon: lon0, busStop: true, routeRef: '12;38' },
+    ];
+    const end: TransitStop[] = [
+      { id: 2, lat: lat0, lon: lon0, busStop: true, routeRef: '38;91' },
     ];
     expect(
       classifySection({ coords: straightTrace(), ways: [], startStops: start, endStops: end })
@@ -101,7 +113,7 @@ describe('classifySection — bus route_ref', () => {
 // ---------------------------------------------------------------------------
 // Bus corridor (step 4) — door-to-door bus with no stop at either endpoint.
 // ---------------------------------------------------------------------------
-import { classifyBusCorridor, samplePathEvery } from '../classifySection';
+import { classifyBusCorridor, samplePathEvery, sharedEndpointBusRefs } from '../classifySection';
 
 function busStop(id: number, routeRef: string): TransitStop {
   return { id, lat: lat0, lon: lon0, busStop: true, routeRef };
@@ -164,6 +176,29 @@ describe('classifyBusCorridor', () => {
     const r = classifyBusCorridor({ path, speeds: slowEverywhere, stops });
     expect(r?.mode).toBe('bus');
     expect(r?.modeConfidence).toBe(0.6);
+  });
+
+  it('endpoint-shared ref counts as the structural vote behind dwell', () => {
+    // Short anchored hop: 3 matched stops clustered mid-path (count and span
+    // both fail) but the ride dwells at them and both endpoints sit on the
+    // line — the endpoint ref supplies the structural vote.
+    const shortPath = path.slice(0, 20); // ~1.1 km
+    const slow = shortPath.map(() => 1.0);
+    const stops: TransitStop[] = [8, 10, 12].map((i) => ({
+      id: 3000 + i, lat: shortPath[i]![1], lon: shortPath[i]![0], busStop: true, routeRef: '38',
+    }));
+    const withRef = classifyBusCorridor({
+      path: shortPath, speeds: slow, stops, endpointRefs: new Set(['38']),
+    });
+    expect(withRef?.mode).toBe('bus');
+    expect(withRef?.modeConfidence).toBe(0.6);
+    // Same evidence without the endpoint anchor: no structural vote → null.
+    expect(classifyBusCorridor({ path: shortPath, speeds: slow, stops })).toBeNull();
+    // Endpoint anchor without dwell (the June car commutes): null.
+    const fast = shortPath.map(() => 8.0);
+    expect(
+      classifyBusCorridor({ path: shortPath, speeds: fast, stops, endpointRefs: new Set(['38']) })
+    ).toBeNull();
   });
 
   it('few stops over a small part of the trace → null (car crossing a line)', () => {

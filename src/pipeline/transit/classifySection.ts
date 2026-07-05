@@ -88,8 +88,12 @@ function routeRefTokens(s: TransitStop): string[] {
 
 /**
  * Classify one motorized section. Returns null to leave it as `car`.
- * Precedence: rail map-match (geometry, motorway-immune) > rail station at both
- * endpoints > bus with a shared route_ref at both endpoints.
+ * Precedence: rail map-match (geometry, motorway-immune) > rail station at
+ * both endpoints. Bus is NOT classified here: a shared route_ref at the
+ * endpoints only proves the section's ends sit on one line's corridor — the
+ * 2026-07-05 export had five car commutes classified bus this way. Use
+ * `sharedEndpointBusRefs` and feed the result to `classifyBusCorridor`,
+ * where it counts as a structural vote behind the mandatory dwell evidence.
  */
 export function classifySection(input: ClassifyInput): TransitClassification | null {
   const { coverageMin, bufferM } = RULES.RAIL_MAP_MATCH.defaults;
@@ -122,18 +126,30 @@ export function classifySection(input: ClassifyInput): TransitClassification | n
     }
   }
 
-  // 3. Bus: shared route_ref across bus stops at both endpoints.
+  return null;
+}
+
+/**
+ * Bus route_refs served by stops at BOTH section endpoints. Structural
+ * evidence only (the ends sit on one line's corridor) — never classify on it
+ * alone; pass it to `classifyBusCorridor` as `endpointRefs`.
+ */
+export function sharedEndpointBusRefs(
+  startStops: TransitStop[],
+  endStops: TransitStop[]
+): Set<string> {
   const startRefs = new Set(
-    input.startStops.filter((s) => s.busStop).flatMap(routeRefTokens)
+    startStops.filter((s) => s.busStop).flatMap(routeRefTokens)
   );
-  if (startRefs.size > 0) {
-    const endRefs = input.endStops.filter((s) => s.busStop).flatMap(routeRefTokens);
-    if (endRefs.some((r) => startRefs.has(r))) {
-      return { mode: 'bus', modeSource: 'station', modeConfidence: 0.6 };
+  const out = new Set<string>();
+  if (startRefs.size === 0) return out;
+  for (const s of endStops) {
+    if (!s.busStop) continue;
+    for (const r of routeRefTokens(s)) {
+      if (startRefs.has(r)) out.add(r);
     }
   }
-
-  return null;
+  return out;
 }
 
 /**
@@ -195,6 +211,9 @@ export interface CorridorInput {
   path: Array<[number, number]>; // raw trace, [lon, lat]
   speeds: Array<number | null>; // speed (m/s) per path point, parallel array
   stops: TransitStop[]; // candidate stops gathered along the path (deduped)
+  // Bus refs served at BOTH section endpoints (see sharedEndpointBusRefs) —
+  // counts as a structural vote alongside count and span.
+  endpointRefs?: Set<string>;
 }
 
 /**
@@ -282,28 +301,31 @@ export function classifyBusCorridor(input: CorridorInput): TransitClassification
     }
   }
 
-  let best: { n: number; span: number; dwellFrac: number; revisitFrac: number } | null =
-    null;
-  for (const list of byRef.values()) {
+  let best:
+    | { ref: string; n: number; span: number; dwellFrac: number; revisitFrac: number }
+    | null = null;
+  for (const [ref, list] of byRef) {
     if (best && list.length <= best.n) continue;
     const pos = list.map((e) => e.pos).sort((a, b) => a - b);
     const span = pos.length > 1 ? (pos[pos.length - 1]! - pos[0]!) / totalM : 0;
     const dwellFrac = list.filter((e) => e.dwell).length / list.length;
     const revisitFrac = list.filter((e) => e.passes >= 2).length / list.length;
-    best = { n: list.length, span, dwellFrac, revisitFrac };
+    best = { ref, n: list.length, span, dwellFrac, revisitFrac };
   }
   if (!best) return null;
   // Revisit guard: a trace that keeps coming back past the same stops is a
   // vehicle looping through the corridor, not a scheduled service.
   if (best.revisitFrac > maxRevisitFrac) return null;
 
-  // Dwell is MANDATORY: count and span both just prove the street carries a
-  // bus line — any car commuting along the corridor passes them. Only the
-  // trace slowing at the stops a bus must serve is behavioral evidence.
+  // Dwell is MANDATORY: count, span and endpoint refs all just prove the
+  // street carries a bus line — any car commuting along the corridor passes
+  // them. Only the trace slowing at the stops a bus must serve is behavioral
+  // evidence.
   if (best.dwellFrac < minDwellFrac) return null;
   const votes =
     (best.n >= minStops && best.n / (totalM / 1000) >= minDensityPerKm ? 1 : 0) +
-    (best.span >= minSpan ? 1 : 0);
+    (best.span >= minSpan ? 1 : 0) +
+    (input.endpointRefs?.has(best.ref) ? 1 : 0);
   if (votes >= 1) {
     return { mode: 'bus', modeSource: 'corridor', modeConfidence: votes >= 2 ? 0.8 : 0.6 };
   }

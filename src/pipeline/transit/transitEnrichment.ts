@@ -26,6 +26,7 @@ import {
   classifyBusCorridor,
   classifySection,
   samplePathEvery,
+  sharedEndpointBusRefs,
 } from './classifySection';
 import {
   isMetroStation,
@@ -136,13 +137,22 @@ export async function enrichTripTransit(
         cls = classifyBoat(coords, await getWaterwaysNear(deps, coords));
       }
       if (!cls) {
-        // Step 4 — door-to-door bus: endpoints are home/work, not stops, so
-        // endpoint matching missed it. Gather the bus stops lining the path
-        // (probing one cache cell every ~400 m) and score route corridors.
-        // Guarded to plausible bus legs so motorway drives skip the lookups.
+        // Step 4 — bus. One unified path for both the door-to-door case
+        // (endpoints are home/work, no stop nearby) and the endpoint-anchored
+        // case (both ends near stops sharing a route_ref): gather the bus
+        // stops lining the path (probing one cache cell every ~400 m) and
+        // score route corridors, where dwell evidence is mandatory and a
+        // shared endpoint ref counts as a structural vote. Guarded to
+        // plausible bus legs so motorway drives skip the lookups; a shared
+        // endpoint ref waives the length floor (a short anchored hop is
+        // plausible), never the speed ceiling.
         const bc = RULES.BUS_CORRIDOR.defaults;
         const avgSpeed = sec.distanceM / Math.max(1, sec.durationS);
-        if (sec.distanceM >= bc.minDistanceM && avgSpeed <= bc.maxAvgSpeedMps) {
+        const endpointRefs = sharedEndpointBusRefs(startStops, endStops);
+        if (
+          (sec.distanceM >= bc.minDistanceM || endpointRefs.size > 0) &&
+          avgSpeed <= bc.maxAvgSpeedMps
+        ) {
           const seen = new Map<number, TransitStop>();
           for (const p of samplePathEvery(coords, bc.cellProbeEveryM)) {
             for (const s of await getStopsNear(deps, p[1], p[0], bc.cellProbeRadiusM)) {
@@ -153,6 +163,7 @@ export async function enrichTripTransit(
             path: coords,
             speeds: useRaw ? rawPoints.map((p) => p.speedMps ?? null) : coords.map(() => null),
             stops: [...seen.values()],
+            endpointRefs,
           });
         }
       }
