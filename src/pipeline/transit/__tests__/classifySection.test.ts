@@ -175,4 +175,25 @@ describe('classifyBusCorridor', () => {
     expect(classifyBusCorridor({ path: [], speeds: [], stops: [] })).toBeNull();
     expect(classifyBusCorridor({ path: [[lon0, lat0]], speeds: [null], stops: [] })).toBeNull();
   });
+
+  it('a trace that doubles back over the same corridor is not a bus (coach/car doing a loop)', () => {
+    // Real case (2026-07-03): a coach ride went south, back north, then south
+    // again along the same avenue lined with one route's stops — span and
+    // dwell both voted, classifying it as a bus. A scheduled bus progresses
+    // along its route ONCE; it never passes the same stops two or three times.
+    // Out-and-back-and-out over a ~2.2 km corridor: up 40 steps, down 20,
+    // up 30 (~5 km of path over a 2.2 km extent).
+    const zigzag: Array<[number, number]> = [];
+    const at = (i: number): [number, number] => [lon0, lat0 + 0.0005 * i];
+    for (let i = 0; i <= 40; i++) zigzag.push(at(i));
+    for (let i = 39; i >= 20; i--) zigzag.push(at(i));
+    for (let i = 21; i <= 50; i++) zigzag.push(at(i));
+    // One route's stops every ~390 m along the corridor extent.
+    const stops: TransitStop[] = [];
+    for (let i = 0; i <= 50; i += 7) {
+      stops.push({ id: 2000 + i, lat: lat0 + 0.0005 * i, lon: lon0, busStop: true, routeRef: '192' });
+    }
+    const slow = zigzag.map(() => 1.0);
+    expect(classifyBusCorridor({ path: zigzag, speeds: slow, stops })).toBeNull();
+  });
 });

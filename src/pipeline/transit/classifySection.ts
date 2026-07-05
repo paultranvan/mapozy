@@ -1,6 +1,11 @@
 import type { Mode, ModeSource } from '../../types';
 import type { RailwayWay, TransitStop, WaterWay } from '../../lib/overpass';
-import { coverageFraction, haversineMeters, pointToPolylineMeters } from '../../lib/distance';
+import {
+  coverageFraction,
+  haversineMeters,
+  pointToPolylineMeters,
+  pointToSegmentMeters,
+} from '../../lib/distance';
 import { RULES } from '../rules';
 
 export interface TransitClassification {
@@ -214,6 +219,8 @@ export function classifyBusCorridor(input: CorridorInput): TransitClassification
     minDwellFrac,
     dwellNearM,
     dwellSpeedMps,
+    passGapM,
+    maxRevisitFrac,
   } = RULES.BUS_CORRIDOR.defaults;
   const { path, speeds, stops } = input;
   if (path.length < 2) return null;
@@ -229,9 +236,10 @@ export function classifyBusCorridor(input: CorridorInput): TransitClassification
   const totalM = cum[path.length - 1]!;
   if (totalM <= 0) return null;
 
-  // Stops hugging the trace, with their position along it and whether the
-  // trace has a slow moment near them.
-  const byRef = new Map<string, { pos: number; dwell: boolean }[]>();
+  // Stops hugging the trace, with their position along it, whether the trace
+  // has a slow moment near them, and how many separate times the trace
+  // approaches them (revisit guard — see the rule description).
+  const byRef = new Map<string, { pos: number; dwell: boolean; passes: number }[]>();
   for (const stop of stops) {
     if (!stop.busStop) continue;
     const refs = routeRefTokens(stop);
@@ -249,7 +257,24 @@ export function classifyBusCorridor(input: CorridorInput): TransitClassification
       const sp = speeds[i];
       if (!dwell && d <= dwellNearM && sp != null && sp < dwellSpeedMps) dwell = true;
     }
-    const entry = { pos: cum[nearestI]!, dwell };
+    // Pass counting walks SEGMENTS, not fixes: raw fixes can be hundreds of
+    // metres apart, so a revisit leg may sweep right past the stop without a
+    // single fix landing inside the radius. Collect the path positions where
+    // the trace runs near the stop; positions separated by more than
+    // passGapM of travelled path are separate passes (the vehicle left and
+    // came back), while dwell jitter at a served stop stays one contiguous
+    // stretch. dwellNearM (not stopRadiusM) as the proximity bound: the
+    // return leg often runs on the far side of the street, a lane-width
+    // beyond the tight stop-matching radius.
+    let passes = 0;
+    let lastNearPos: number | null = null;
+    for (let i = 0; i + 1 < path.length; i++) {
+      const d = pointToSegmentMeters([stop.lon, stop.lat], path[i]!, path[i + 1]!);
+      if (d > dwellNearM) continue;
+      if (lastNearPos === null || cum[i]! - lastNearPos > passGapM) passes++;
+      lastNearPos = cum[i]!;
+    }
+    const entry = { pos: cum[nearestI]!, dwell, passes };
     for (const r of refs) {
       let list = byRef.get(r);
       if (!list) byRef.set(r, (list = []));
@@ -257,15 +282,20 @@ export function classifyBusCorridor(input: CorridorInput): TransitClassification
     }
   }
 
-  let best: { n: number; span: number; dwellFrac: number } | null = null;
+  let best: { n: number; span: number; dwellFrac: number; revisitFrac: number } | null =
+    null;
   for (const list of byRef.values()) {
     if (best && list.length <= best.n) continue;
     const pos = list.map((e) => e.pos).sort((a, b) => a - b);
     const span = pos.length > 1 ? (pos[pos.length - 1]! - pos[0]!) / totalM : 0;
     const dwellFrac = list.filter((e) => e.dwell).length / list.length;
-    best = { n: list.length, span, dwellFrac };
+    const revisitFrac = list.filter((e) => e.passes >= 2).length / list.length;
+    best = { n: list.length, span, dwellFrac, revisitFrac };
   }
   if (!best) return null;
+  // Revisit guard: a trace that keeps coming back past the same stops is a
+  // vehicle looping through the corridor, not a scheduled service.
+  if (best.revisitFrac > maxRevisitFrac) return null;
 
   const votes =
     (best.n >= minStops && best.n / (totalM / 1000) >= minDensityPerKm ? 1 : 0) +
