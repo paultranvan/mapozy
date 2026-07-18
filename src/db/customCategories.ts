@@ -27,6 +27,13 @@ export async function getCustomCategories(db: Db): Promise<CustomCategory[]> {
   );
 }
 
+export async function updateCustomCategory(db: Db, id: number, input: CustomCategoryInput): Promise<void> {
+  await db.runAsync(
+    `UPDATE custom_categories SET name = ?, icon = ?, color = ? WHERE id = ?`,
+    input.name, input.icon, input.color, id
+  );
+}
+
 export async function deleteCustomCategory(db: Db, id: number): Promise<void> {
   await db.runAsync(`DELETE FROM custom_categories WHERE id = ?`, id);
 }

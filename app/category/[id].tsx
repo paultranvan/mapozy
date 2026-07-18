@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, TextInput, Pressable, ScrollView, StyleSheet, Alert } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, space } from '@/theme/tokens';
 import { useI18n } from '@/i18n';
 import { Text } from '@/ui/Text';
-import { useCustomCategories, useCreateCustomCategory, useDeleteCustomCategory } from '@/queries/useCategories';
+import {
+  useCustomCategories, useCreateCustomCategory, useUpdateCustomCategory, useDeleteCustomCategory,
+} from '@/queries/useCategories';
 import type { CustomCategory } from '@/db/customCategories';
 
 const ICON_OPTIONS: (keyof typeof MaterialCommunityIcons.glyphMap)[] = [
@@ -23,25 +25,57 @@ const COLOR_OPTIONS = ['#C9883F', '#8978FF', '#B3BF26', '#FF7B5E', '#1CAAE8', '#
 export default function CategoryEditor() {
   const router = useRouter();
   const { t } = useI18n();
+  const params = useLocalSearchParams<{ id: string }>();
+  const editId = params.id === 'new' ? null : Number(params.id);
   const [name, setName] = useState('');
   const [icon, setIcon] = useState<keyof typeof MaterialCommunityIcons.glyphMap>(ICON_OPTIONS[0]!);
   const [color, setColor] = useState(COLOR_OPTIONS[0]!);
+  const [seeded, setSeeded] = useState(false);
   const existing = useCustomCategories();
   const create = useCreateCustomCategory();
+  const update = useUpdateCustomCategory();
   const remove = useDeleteCustomCategory();
+
+  const editing = editId != null ? existing.data?.find((c: CustomCategory) => c.id === editId) : undefined;
+
+  // Prefill once when opening an existing category (query resolves async).
+  useEffect(() => {
+    if (editing && !seeded) {
+      setName(editing.name);
+      setIcon(editing.icon as keyof typeof MaterialCommunityIcons.glyphMap);
+      setColor(editing.color);
+      setSeeded(true);
+    }
+  }, [editing, seeded]);
 
   const onSave = async () => {
     const trimmed = name.trim();
     if (!trimmed) { Alert.alert(t('categoryNew.nameRequiredTitle'), t('categoryNew.nameRequiredBody')); return; }
-    try { await create.mutateAsync({ name: trimmed, icon, color }); router.back(); }
-    catch { Alert.alert(t('common.error'), t('categoryNew.createError')); }
+    try {
+      if (editId != null) await update.mutateAsync({ id: editId, input: { name: trimmed, icon, color } });
+      else await create.mutateAsync({ name: trimmed, icon, color });
+      router.back();
+    } catch {
+      Alert.alert(t('common.error'), editId != null ? t('categoryEdit.updateError') : t('categoryNew.createError'));
+    }
+  };
+
+  const confirmDelete = (c: CustomCategory, afterDelete?: () => void) => {
+    Alert.alert(t('categoryEdit.deleteTitle'), t('categoryEdit.deleteBody'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('common.delete'),
+        style: 'destructive',
+        onPress: () => { remove.mutate(c.id); afterDelete?.(); },
+      },
+    ]);
   };
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ paddingBottom: space[6] }} keyboardShouldPersistTaps="handled">
       <View style={styles.bar}>
         <Pressable onPress={() => router.back()}><Text variant="body" color={colors.inkSoft}>{t('common.cancel')}</Text></Pressable>
-        <Text variant="body" color={colors.ink}>{t('categoryNew.title')}</Text>
+        <Text variant="body" color={colors.ink}>{editId != null ? t('categoryEdit.title') : t('categoryNew.title')}</Text>
         <Pressable onPress={onSave}><Text variant="body" color={name.trim() ? colors.accent : colors.inkSoft}>{t('common.save')}</Text></Pressable>
       </View>
 
@@ -71,16 +105,26 @@ export default function CategoryEditor() {
         ))}
       </View>
 
-      {(existing.data?.length ?? 0) > 0 && (
+      {editId != null && editing && (
+        <Pressable onPress={() => confirmDelete(editing, () => router.back())} style={styles.deleteBtn}>
+          <MaterialCommunityIcons name="trash-can-outline" size={18} color={colors.danger} />
+          <Text variant="body" color={colors.danger}>{t('categoryEdit.delete')}</Text>
+        </Pressable>
+      )}
+
+      {editId == null && (existing.data?.length ?? 0) > 0 && (
         <>
           <Text variant="label" color={colors.inkSoft} style={styles.sec}>{t('categoryNew.sectionYours')}</Text>
           {(existing.data ?? ([] as CustomCategory[])).map((c: CustomCategory) => (
             <View key={c.id} style={styles.row}>
-              <View style={[styles.rowBadge, { backgroundColor: c.color }]}>
-                <MaterialCommunityIcons name={c.icon as keyof typeof MaterialCommunityIcons.glyphMap} size={16} color="#fff" />
-              </View>
-              <Text variant="body" color={colors.ink} style={styles.rowName} numberOfLines={1}>{c.name}</Text>
-              <Pressable onPress={() => remove.mutate(c.id)} hitSlop={8}>
+              <Pressable onPress={() => router.push(`/category/${c.id}`)} style={styles.rowMain}>
+                <View style={[styles.rowBadge, { backgroundColor: c.color }]}>
+                  <MaterialCommunityIcons name={c.icon as keyof typeof MaterialCommunityIcons.glyphMap} size={16} color="#fff" />
+                </View>
+                <Text variant="body" color={colors.ink} style={styles.rowName} numberOfLines={1}>{c.name}</Text>
+                <MaterialCommunityIcons name="pencil-outline" size={16} color={colors.inkSoft} />
+              </Pressable>
+              <Pressable onPress={() => confirmDelete(c)} hitSlop={8}>
                 <MaterialCommunityIcons name="trash-can-outline" size={18} color={colors.danger} />
               </Pressable>
             </View>
@@ -103,7 +147,9 @@ const styles = StyleSheet.create({
   swatchOn: { borderWidth: 3, borderColor: colors.ink },
   iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2], paddingHorizontal: space[3] },
   iconCell: { width: 44, height: 44, borderRadius: 10, borderWidth: 1, borderColor: colors.divider, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[1], marginTop: space[4], marginHorizontal: space[3], paddingVertical: space[2], borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.danger },
   row: { flexDirection: 'row', alignItems: 'center', gap: space[3], paddingHorizontal: space[3], paddingVertical: space[2], borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.divider },
+  rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space[3] },
   rowBadge: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
   rowName: { flex: 1 },
 });

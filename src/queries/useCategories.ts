@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useDb } from '../db/DbContext';
 import {
-  getCustomCategories, createCustomCategory, deleteCustomCategory,
+  getCustomCategories, createCustomCategory, updateCustomCategory, deleteCustomCategory,
   type CustomCategoryInput,
 } from '../db/customCategories';
 import { builtinCategories, customToMeta, type CategoryMeta } from '../ui/placeCategories';
@@ -23,6 +23,19 @@ export function useCreateCustomCategory() {
   return useMutation({
     mutationFn: (input: CustomCategoryInput) => createCustomCategory(db, input),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['customCategories'] }),
+  });
+}
+
+export function useUpdateCustomCategory() {
+  const db = useDb();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: number; input: CustomCategoryInput }) =>
+      updateCustomCategory(db, id, input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['customCategories'] });
+      qc.invalidateQueries({ queryKey: ['userPlaces'] }); // badges pick up new icon/color
+    },
   });
 }
 
