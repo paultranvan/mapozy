@@ -257,14 +257,6 @@ export default function StatsScreen() {
             }
             sub={recordsQ.data?.bestDayMs ? formatDate(recordsQ.data.bestDayMs) : null}
           />
-          <Divider />
-          <RecordRow
-            title={t('stats.currentStreak')}
-            value={t('stats.streakDays', {
-              count: recordsQ.data?.currentStreakDays ?? 0,
-            })}
-            sub={null}
-          />
         </Card>
       </ScrollView>
     </View>

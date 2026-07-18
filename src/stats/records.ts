@@ -5,7 +5,6 @@ export interface RecordsData {
   longestTripDateMs: number | null;
   bestDayDistanceM: number;
   bestDayMs: number | null;
-  currentStreakDays: number;
 }
 
 export async function records(db: Db): Promise<RecordsData> {
@@ -22,26 +21,10 @@ export async function records(db: Db): Promise<RecordsData> {
     ? new Date(bestDay.day_key + 'T00:00:00').getTime()
     : null;
 
-  const distinctDays = await db.getAllAsync<{ day_key: string }>(
-    `SELECT DISTINCT date(start_time_ms / 1000, 'unixepoch', 'localtime') as day_key
-     FROM trips ORDER BY day_key DESC LIMIT 365`
-  );
-  let streak = 0;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  for (let i = 0; i < distinctDays.length; i++) {
-    const expected = new Date(today);
-    expected.setDate(today.getDate() - i);
-    const expectedKey = expected.toISOString().slice(0, 10);
-    if (distinctDays[i]?.day_key === expectedKey) streak++;
-    else break;
-  }
-
   return {
     longestTripDistanceM: longest?.d ?? 0,
     longestTripDateMs: longest?.t ?? null,
     bestDayDistanceM: bestDay?.d ?? 0,
     bestDayMs,
-    currentStreakDays: streak,
   };
 }

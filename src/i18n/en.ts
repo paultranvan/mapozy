@@ -229,8 +229,6 @@ export const en = {
   'stats.records': 'Records',
   'stats.longestTrip': 'Longest trip',
   'stats.bestDay': 'Best day',
-  'stats.currentStreak': 'Current streak',
-  'stats.streakDays': '{count} day(s)',
   'trips.today': 'Today',
   'trips.yesterday': 'Yesterday',
   'trips.deleteTitle': 'Delete {count} trip(s)?',

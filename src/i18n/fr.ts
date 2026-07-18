@@ -227,8 +227,6 @@ export const fr: Record<TranslationKey, string> = {
   'stats.records': 'Records',
   'stats.longestTrip': 'Trajet le plus long',
   'stats.bestDay': 'Meilleur jour',
-  'stats.currentStreak': 'Série en cours',
-  'stats.streakDays': '{count} jour(s)',
   'trips.today': 'Aujourd’hui',
   'trips.yesterday': 'Hier',
   'trips.deleteTitle': 'Supprimer {count} trajet(s) ?',
