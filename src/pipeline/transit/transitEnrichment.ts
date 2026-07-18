@@ -25,6 +25,7 @@ import {
   classifyBoat,
   classifyBusCorridor,
   classifySection,
+  classifyTrainBySpeed,
   samplePathEvery,
   sharedEndpointBusRefs,
 } from './classifySection';
@@ -36,6 +37,7 @@ import {
   recomputeTotals,
 } from './subwayGaps';
 import {
+  capCoordsToTileBudget,
   getRailwaysNear,
   getStopsNear,
   getWaterwaysNear,
@@ -81,6 +83,81 @@ function lastCoord(geojson: string): [number, number] | null {
 }
 
 /**
+ * Network-touching classification of one still-`car` section: rail map-match,
+ * endpoint stations, boat, then bus corridor. Returns null to leave it as
+ * `car`. Overpass errors propagate to the caller's draft handling.
+ */
+async function classifyCarSectionOnline(
+  deps: OverpassDeps,
+  sec: Section,
+  radius: number
+): Promise<ReturnType<typeof classifySection>> {
+  const db = deps.db;
+  const maxAccM = RULES.ACCURACY_FILTER.defaults.maxAccuracyM;
+  // Match on the RAW fixes, not the persisted resampled trace. A section's
+  // 10-s resampling interpolates straight chords across GPS gaps (e.g. a
+  // subway surfacing only near stations), and those chords bow far off the
+  // curved track — tanking rail coverage. The raw fixes sit on the rail.
+  // Fall back to the resampled trace when raw points aren't available.
+  const rawPoints = (await getPointsInRange(db, sec.startTimeMs, sec.endTimeMs)).filter(
+    (p) => p.accuracyMeters <= maxAccM
+  );
+  const rawFixes = rawPoints.map((p) => [p.longitude, p.latitude] as [number, number]);
+  const useRaw = rawFixes.length >= 2;
+  const coords = useRaw ? rawFixes : coordsOf(sec.geojson);
+  if (coords.length < 2) return null;
+  // Way-based matching (rail, water) runs on a tile-budgeted probe of the
+  // trace — fetch and coverage measurement MUST share the same coords.
+  const probe = capCoordsToTileBudget(coords, RULES.RAIL_MAP_MATCH.defaults.maxProbeTiles);
+  const ways = await getRailwaysNear(deps, probe);
+  const start = coords[0]!;
+  const end = coords[coords.length - 1]!;
+  const startStops = await getStopsNear(deps, start[1], start[0], radius);
+  const endStops = await getStopsNear(deps, end[1], end[0], radius);
+  let cls = classifySection({ coords: probe, ways, startStops, endStops });
+  if (!cls && boatGuard(sec.distanceM, sec.durationS)) {
+    // Step 3.5 — boat: slow, long section following waterway/ferry
+    // geometry (tester: canal cruise classified walk·car·bike). Checked
+    // before the bus corridor — cheaper (one tiled fetch vs per-400 m
+    // stop probes) and a canal trace lined with quai-side bus stops must
+    // not win as "bus".
+    cls = classifyBoat(probe, await getWaterwaysNear(deps, probe));
+  }
+  if (!cls) {
+    // Step 4 — bus. One unified path for both the door-to-door case
+    // (endpoints are home/work, no stop nearby) and the endpoint-anchored
+    // case (both ends near stops sharing a route_ref): gather the bus
+    // stops lining the path (probing one cache cell every ~400 m) and
+    // score route corridors, where dwell evidence is mandatory and a
+    // shared endpoint ref counts as a structural vote. Guarded to
+    // plausible bus legs so motorway drives skip the lookups; a shared
+    // endpoint ref waives the length floor (a short anchored hop is
+    // plausible), never the speed ceiling.
+    const bc = RULES.BUS_CORRIDOR.defaults;
+    const avgSpeed = sec.distanceM / Math.max(1, sec.durationS);
+    const endpointRefs = sharedEndpointBusRefs(startStops, endStops);
+    if (
+      (sec.distanceM >= bc.minDistanceM || endpointRefs.size > 0) &&
+      avgSpeed <= bc.maxAvgSpeedMps
+    ) {
+      const seen = new Map<number, TransitStop>();
+      for (const p of samplePathEvery(coords, bc.cellProbeEveryM)) {
+        for (const s of await getStopsNear(deps, p[1], p[0], bc.cellProbeRadiusM)) {
+          seen.set(s.id, s);
+        }
+      }
+      cls = classifyBusCorridor({
+        path: coords,
+        speeds: useRaw ? rawPoints.map((p) => p.speedMps ?? null) : coords.map(() => null),
+        stops: [...seen.values()],
+        endpointRefs,
+      });
+    }
+  }
+  return cls;
+}
+
+/**
  * Re-runnable, network-touching transit classification for one stored trip.
  * Walks the trip's `car` sections, reclassifies via Overpass, recomputes
  * aggregates, and clears `draft`. On any Overpass failure it sets the matching
@@ -105,68 +182,14 @@ export async function enrichTripTransit(
   const conversions = new Map<number, Section>();
 
   try {
-    // Pass 1: reclassify motorized (car) sections via rail-match/station/bus.
-    const maxAccM = RULES.ACCURACY_FILTER.defaults.maxAccuracyM;
+    // Pass 1: reclassify motorized (car) sections. RULE_TRAIN_SPEED first —
+    // local and free; only unresolved sections pay the Overpass path.
     for (const sec of trip.sections) {
       if (sec.mode !== 'car' || sec.id == null) continue;
       if (sec.userMode != null) continue; // user override wins
-      // Match on the RAW fixes, not the persisted resampled trace. A section's
-      // 10-s resampling interpolates straight chords across GPS gaps (e.g. a
-      // subway surfacing only near stations), and those chords bow far off the
-      // curved track — tanking rail coverage. The raw fixes sit on the rail.
-      // Fall back to the resampled trace when raw points aren't available.
-      const rawPoints = (await getPointsInRange(db, sec.startTimeMs, sec.endTimeMs)).filter(
-        (p) => p.accuracyMeters <= maxAccM
-      );
-      const rawFixes = rawPoints.map((p) => [p.longitude, p.latitude] as [number, number]);
-      const useRaw = rawFixes.length >= 2;
-      const coords = useRaw ? rawFixes : coordsOf(sec.geojson);
-      if (coords.length < 2) continue;
-      const ways = await getRailwaysNear(deps, coords);
-      const start = coords[0]!;
-      const end = coords[coords.length - 1]!;
-      const startStops = await getStopsNear(deps, start[1], start[0], radius);
-      const endStops = await getStopsNear(deps, end[1], end[0], radius);
-      let cls = classifySection({ coords, ways, startStops, endStops });
-      if (!cls && boatGuard(sec.distanceM, sec.durationS)) {
-        // Step 3.5 — boat: slow, long section following waterway/ferry
-        // geometry (tester: canal cruise classified walk·car·bike). Checked
-        // before the bus corridor — cheaper (one tiled fetch vs per-400 m
-        // stop probes) and a canal trace lined with quai-side bus stops must
-        // not win as "bus".
-        cls = classifyBoat(coords, await getWaterwaysNear(deps, coords));
-      }
-      if (!cls) {
-        // Step 4 — bus. One unified path for both the door-to-door case
-        // (endpoints are home/work, no stop nearby) and the endpoint-anchored
-        // case (both ends near stops sharing a route_ref): gather the bus
-        // stops lining the path (probing one cache cell every ~400 m) and
-        // score route corridors, where dwell evidence is mandatory and a
-        // shared endpoint ref counts as a structural vote. Guarded to
-        // plausible bus legs so motorway drives skip the lookups; a shared
-        // endpoint ref waives the length floor (a short anchored hop is
-        // plausible), never the speed ceiling.
-        const bc = RULES.BUS_CORRIDOR.defaults;
-        const avgSpeed = sec.distanceM / Math.max(1, sec.durationS);
-        const endpointRefs = sharedEndpointBusRefs(startStops, endStops);
-        if (
-          (sec.distanceM >= bc.minDistanceM || endpointRefs.size > 0) &&
-          avgSpeed <= bc.maxAvgSpeedMps
-        ) {
-          const seen = new Map<number, TransitStop>();
-          for (const p of samplePathEvery(coords, bc.cellProbeEveryM)) {
-            for (const s of await getStopsNear(deps, p[1], p[0], bc.cellProbeRadiusM)) {
-              seen.set(s.id, s);
-            }
-          }
-          cls = classifyBusCorridor({
-            path: coords,
-            speeds: useRaw ? rawPoints.map((p) => p.speedMps ?? null) : coords.map(() => null),
-            stops: [...seen.values()],
-            endpointRefs,
-          });
-        }
-      }
+      const cls =
+        classifyTrainBySpeed(sec.distanceM, sec.durationS) ??
+        (await classifyCarSectionOnline(deps, sec, radius));
       if (cls) {
         const co2 = co2GramsForSection(cls.mode, sec.distanceM);
         await updateSectionClassification(db, sec.id, cls.mode, cls.modeSource, cls.modeConfidence, co2);

@@ -307,8 +307,19 @@ export async function replaceTripSectionsAndBreaks(
 }
 
 export async function listDraftTripIds(db: Db): Promise<number[]> {
+  // Cheapest-first: a trip's enrichment cost is driven by the car sections
+  // still needing Overpass (walk/rail/user-overridden sections cost nothing).
+  // Draining cheap drafts first keeps one long-distance ride from starving
+  // the whole queue (2026-07-14 export: a 641 km trip blocked 17 older
+  // drafts for days). Newest first among equals.
   const rows = await db.getAllAsync<{ id: number }>(
-    `SELECT id FROM trips WHERE draft = 1 AND locked = 0 ORDER BY start_time_ms DESC`
+    `SELECT t.id
+       FROM trips t
+       LEFT JOIN sections s
+         ON s.trip_id = t.id AND s.mode = 'car' AND s.user_mode IS NULL
+      WHERE t.draft = 1 AND t.locked = 0
+      GROUP BY t.id
+      ORDER BY COALESCE(SUM(s.distance_m), 0) ASC, t.start_time_ms DESC`
   );
   return rows.map((r) => r.id);
 }

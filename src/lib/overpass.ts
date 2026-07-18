@@ -61,11 +61,14 @@ export interface OverpassDeps {
 
 // Heavy rail-geometry queries over dense areas frequently 429/504 on a single
 // public instance, which would needlessly draft trips. Try mirrors in turn and
-// only fail once they all reject.
+// only fail once they all reject. Responsiveness order, measured 2026-07-15
+// on a worst-case rail query: overpass-api.de 504'd in ~8 s, openstreetmap.fr
+// answered in ~1.5 s, kumi.systems hung ~90 s (eating the whole 75 s client
+// timeout before the chain could move on) — kumi stays last-resort only.
 const ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
   'https://overpass.openstreetmap.fr/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
 ];
 const USER_AGENT = 'mapozy/0.1.0 (personal use)';
 const DEFAULT_MIN_INTERVAL_MS = 1100;
@@ -264,6 +267,12 @@ const TILE_DEG = 0.05; // ~5.5 km latitude — dedup unit for railway geometry
 // 60-80 s (and often 429/504) on public instances. 6 halves the area — more
 // queries, but each fast and reliable, and every tile is cached either way.
 const TILE_CHUNK = 6;
+// Max bounding-rect area (in tiles) of one chunk query. Path-ordered slices
+// used to merge 6 diagonal tiles into up to a 6×6-tile rect (2026-07-14
+// export: 16-tile ≈ 485 km² rects that 504'd on public instances); bounding
+// the rect keeps every query small even when the path runs diagonally. 9
+// allows a 3×3 block (or a full 6×1 straight run via TILE_CHUNK).
+const CHUNK_MAX_RECT_TILES = 9;
 
 interface Tile {
   tx: number;
@@ -283,13 +292,17 @@ function tileBBox(t: Tile): BBox {
   };
 }
 
-// Tiles crossed by the polyline, in path order. Endpoints alone can skip a
-// tile when a segment is long (GPS gaps interpolate multi-km chords), so long
-// segments are sampled every half-tile.
+// Tiles containing the trace's fixes, in path order. ONLY point tiles:
+// classification is point-based (coverageFraction / dominantRailMode measure
+// each COORD's distance to ways, and per-tile PAD_DEG covers border-hugging
+// ways), so tiles crossed mid-chord by a long GPS-gap segment can never
+// influence the result. Interpolating them used to nearly triple the fetch
+// load on sparse power-save train rides (2026-07-14 export: 85 vs ~30 tiles
+// on one 305 km section).
 function tilesForPath(coords: Array<[number, number]>): Tile[] {
   const seen = new Set<string>();
   const out: Tile[] = [];
-  const add = (lon: number, lat: number) => {
+  for (const [lon, lat] of coords) {
     const tx = Math.floor(lon / TILE_DEG);
     const ty = Math.floor(lat / TILE_DEG);
     const k = `${tx}:${ty}`;
@@ -297,19 +310,63 @@ function tilesForPath(coords: Array<[number, number]>): Tile[] {
       seen.add(k);
       out.push({ tx, ty });
     }
-  };
-  for (let i = 0; i < coords.length; i++) {
-    const [lon, lat] = coords[i]!;
-    add(lon, lat);
-    if (i + 1 < coords.length) {
-      const [lon2, lat2] = coords[i + 1]!;
-      const span = Math.max(Math.abs(lon2 - lon), Math.abs(lat2 - lat));
-      const steps = Math.ceil(span / (TILE_DEG / 2));
-      for (let s = 1; s < steps; s++) {
-        add(lon + ((lon2 - lon) * s) / steps, lat + ((lat2 - lat) * s) / steps);
-      }
+  }
+  return out;
+}
+
+/**
+ * Subsample a trace so its point tiles fit the given budget (first and last
+ * fix always kept). Bounds the Overpass workload of one section: probing rail
+ * coverage on ~evenly spaced fixes estimates the full-trace coverage without
+ * fetching every tile of a multi-hundred-km corridor. Callers must use the
+ * RETURNED coords for both the way fetch and the classification so the two
+ * stay consistent.
+ */
+export function capCoordsToTileBudget(
+  coords: Array<[number, number]>,
+  maxTiles: number
+): Array<[number, number]> {
+  if (coords.length < 3 || tilesForPath(coords).length <= maxTiles) return coords;
+  for (let stride = 2; ; stride *= 2) {
+    const sampled: Array<[number, number]> = [];
+    for (let i = 0; i < coords.length; i += stride) sampled.push(coords[i]!);
+    if (sampled[sampled.length - 1] !== coords[coords.length - 1]) {
+      sampled.push(coords[coords.length - 1]!);
+    }
+    if (tilesForPath(sampled).length <= maxTiles || sampled.length <= 2) return sampled;
+  }
+}
+
+// Group tiles (path order, so consecutive ones are spatially close) into
+// chunks of at most TILE_CHUNK tiles whose merged bounding rect stays at most
+// CHUNK_MAX_RECT_TILES tiles — one bounded Overpass query per chunk.
+function chunkTilesByProximity(tiles: Tile[]): Array<{ chunk: Tile[]; rect: BBox }> {
+  const out: Array<{ chunk: Tile[]; rect: BBox }> = [];
+  let chunk: Tile[] = [];
+  let rect: BBox | null = null;
+  for (const t of tiles) {
+    const b = tileBBox(t);
+    const merged: BBox = rect
+      ? {
+          south: Math.min(rect.south, b.south),
+          west: Math.min(rect.west, b.west),
+          north: Math.max(rect.north, b.north),
+          east: Math.max(rect.east, b.east),
+        }
+      : b;
+    const rectTiles =
+      Math.round((merged.north - merged.south) / TILE_DEG) *
+      Math.round((merged.east - merged.west) / TILE_DEG);
+    if (chunk.length > 0 && (chunk.length >= TILE_CHUNK || rectTiles > CHUNK_MAX_RECT_TILES)) {
+      out.push({ chunk, rect: rect! });
+      chunk = [t];
+      rect = b;
+    } else {
+      chunk.push(t);
+      rect = merged;
     }
   }
+  if (chunk.length > 0) out.push({ chunk, rect: rect! });
   return out;
 }
 
@@ -366,18 +423,7 @@ async function getWaysNearTiled<W extends { id: number; coords: Array<[number, n
     if (cached === null) missing.push(t);
     else for (const w of cached) byId.set(w.id, w);
   }
-  for (let i = 0; i < missing.length; i += TILE_CHUNK) {
-    const chunk = missing.slice(i, i + TILE_CHUNK);
-    let rect = tileBBox(chunk[0]!);
-    for (const t of chunk.slice(1)) {
-      const b = tileBBox(t);
-      rect = {
-        south: Math.min(rect.south, b.south),
-        west: Math.min(rect.west, b.west),
-        north: Math.max(rect.north, b.north),
-        east: Math.max(rect.east, b.east),
-      };
-    }
+  for (const { chunk, rect } of chunkTilesByProximity(missing)) {
     const q = padBBox(rect, PAD_DEG);
     const query = `[out:json][timeout:60];(${selectorFor(q)});out geom;`;
     const ways = parse(await overpassFetch(deps, query)).map(roundWay);

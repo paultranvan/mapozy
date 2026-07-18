@@ -87,6 +87,21 @@ function routeRefTokens(s: TransitStop): string[] {
 }
 
 /**
+ * RULE_TRAIN_SPEED — classify a motorized section as train from its sustained
+ * average speed alone, with no network. Returns null when speed/distance
+ * cannot prove rail (the section then goes through geometry matching).
+ */
+export function classifyTrainBySpeed(
+  distanceM: number,
+  durationS: number
+): TransitClassification | null {
+  const { minAvgSpeedMps, minDistanceM } = RULES.TRAIN_SPEED.defaults;
+  if (distanceM < minDistanceM) return null;
+  if (distanceM / Math.max(1, durationS) < minAvgSpeedMps) return null;
+  return { mode: 'train', modeSource: 'speed', modeConfidence: 0.85 };
+}
+
+/**
  * Classify one motorized section. Returns null to leave it as `car`.
  * Precedence: rail map-match (geometry, motorway-immune) > rail station at
  * both endpoints. Bus is NOT classified here: a shared route_ref at the

@@ -81,7 +81,11 @@ export async function runDbMaintenance(
   return result;
 }
 
-export const CACHE_CAP_BYTES = 4 * 1024 * 1024;
+// 32 MB: the cache lives in its own non-exported DB file, so the cap only
+// protects device storage — and 4 MB could not even hold ONE long-distance
+// ride's rail corridor (a single dense-area tile chunk response measured
+// 1.7 MB on the 2026-07-14 export), forcing re-fetches on every recompute.
+export const CACHE_CAP_BYTES = 32 * 1024 * 1024;
 
 export interface CacheEvictionResult {
   rowsDeleted: number;

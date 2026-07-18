@@ -4,6 +4,7 @@ import { ensureTransitCacheSchema } from '../../db/transitCacheDb';
 import {
   getStopsNear,
   getRailwaysNear,
+  capCoordsToTileBudget,
   OverpassRateLimitError,
   OverpassOfflineError,
   OverpassUnavailableError,
@@ -66,6 +67,24 @@ describe('overpass — getStopsNear', () => {
     const stops = await getStopsNear(deps, 45.0, 5.0, 70);
     expect(calls).toBe(2); // first endpoint 504'd, second succeeded
     expect(stops.map((s) => s.id)).toEqual([1]);
+  });
+
+  it('tries mirrors in responsiveness order — kumi last', async () => {
+    // Measured 2026-07-15 on a heavy rail query: overpass-api.de 504s in
+    // ~8 s, openstreetmap.fr answers in ~1.5 s, kumi.systems HANGS ~90 s and
+    // eats the whole 75 s client timeout — it must only ever be the last
+    // resort.
+    const urls: string[] = [];
+    const deps = await mkDeps(async (url) => {
+      urls.push(String(url));
+      return fakeResponse({}, { status: 504, ok: false });
+    });
+    await getStopsNear(deps, 45.0, 5.0, 70).catch(() => {});
+    expect(urls).toEqual([
+      'https://overpass-api.de/api/interpreter',
+      'https://overpass.openstreetmap.fr/api/interpreter',
+      'https://overpass.kumi.systems/api/interpreter',
+    ]);
   });
 
   it('throws OverpassRateLimitError only after all endpoints 429', async () => {
@@ -157,18 +176,21 @@ describe('overpass — getRailwaysNear (tiled cache)', () => {
     expect(ways[0]!.coords[0]).toEqual([5.00123, 45.00199]);
   });
 
-  it('covers tiles crossed mid-segment by long chords (subway gap interpolation)', async () => {
-    // Two fixes 3 tiles apart with nothing in between: the middle tile must
-    // still be fetched/cached, otherwise ways there would be invisible.
+  it('fetches only tiles that contain fixes — mid-chord tiles are skipped', async () => {
+    // Two fixes 3 tiles apart with nothing in between: classification is
+    // point-based (coverageFraction measures each COORD's distance to ways,
+    // and per-tile padding covers borders), so ways in tiles no fix sits in
+    // can never influence the result — fetching them is pure Overpass load.
+    // This was the main workload amplifier on long power-save train rides.
     const deps = await mkDeps(async () => {
       return fakeResponse({ elements: [] });
     });
-    await getRailwaysNear(deps, [[5.01, 45.01], [5.16, 45.01]]); // tiles x=100..103
+    await getRailwaysNear(deps, [[5.01, 45.01], [5.16, 45.01]]); // tiles x=100 and x=103
     const cacheDb = await deps.cacheDb();
     const rows = await cacheDb.getAllAsync<{ cell_key: string }>(
       `SELECT cell_key FROM transit_cache ORDER BY cell_key`
     );
-    expect(rows.length).toBeGreaterThanOrEqual(4); // all crossed tiles cached
+    expect(rows.map((r) => r.cell_key)).toEqual(['waystile:100:900', 'waystile:103:900']);
   });
 
   it('chunks large tile sets into several bounded Overpass queries', async () => {
@@ -183,5 +205,57 @@ describe('overpass — getRailwaysNear (tiled cache)', () => {
     const coords = Array.from({ length: 26 }, (_, i) => [5.001 + i * 0.05, 45.001] as [number, number]);
     await getRailwaysNear(deps, coords);
     expect(calls).toBe(5);
+  });
+
+  it('keeps every chunk query geographically compact on a diagonal path', async () => {
+    // A diagonal path's consecutive tiles step +1 in BOTH axes; merging 6 of
+    // them into one bounding rect used to cover a 6×6 = 36-tile area (the
+    // 2026-07-14 export produced 16-tile ≈ 485 km² rects that 504'd on
+    // public instances). Every query's bbox must stay ≤ ~9 tiles.
+    const bodies: string[] = [];
+    const deps = await mkDeps(async (_url, init) => {
+      bodies.push(decodeURIComponent(String((init as RequestInit).body ?? '')));
+      return fakeResponse({ elements: [] });
+    });
+    const coords = Array.from(
+      { length: 12 },
+      (_, i) => [5.001 + i * 0.05, 45.001 + i * 0.05] as [number, number]
+    );
+    await getRailwaysNear(deps, coords);
+    expect(bodies.length).toBeGreaterThan(0);
+    for (const b of bodies) {
+      const m = b.match(/\((-?[\d.]+),(-?[\d.]+),(-?[\d.]+),(-?[\d.]+)\)/);
+      expect(m).not.toBeNull();
+      const [south, west, north, east] = m!.slice(1).map(Number) as [number, number, number, number];
+      // Subtract the fixed bbox padding, then measure in 0.05° tiles.
+      const tilesLat = (north - south - 0.008) / 0.05;
+      const tilesLon = (east - west - 0.008) / 0.05;
+      expect(tilesLat * tilesLon).toBeLessThanOrEqual(9.01);
+    }
+  });
+});
+
+describe('overpass — capCoordsToTileBudget', () => {
+  it('returns coords unchanged when they fit the budget', () => {
+    const coords: Array<[number, number]> = [
+      [5.001, 45.001],
+      [5.002, 45.002],
+    ];
+    expect(capCoordsToTileBudget(coords, 24)).toEqual(coords);
+  });
+
+  it('subsamples a long trace down to the tile budget, keeping endpoints', () => {
+    // 100 fixes spread over 100 distinct tiles along lon.
+    const coords = Array.from(
+      { length: 100 },
+      (_, i) => [5.001 + i * 0.05, 45.001] as [number, number]
+    );
+    const capped = capCoordsToTileBudget(coords, 24);
+    const tiles = new Set(capped.map(([lon, lat]) => `${Math.floor(lon / 0.05)}:${Math.floor(lat / 0.05)}`));
+    expect(tiles.size).toBeLessThanOrEqual(24);
+    expect(capped[0]).toEqual(coords[0]);
+    expect(capped[capped.length - 1]).toEqual(coords[coords.length - 1]);
+    // Every capped coord is a real input fix, in order.
+    for (const c of capped) expect(coords).toContainEqual(c);
   });
 });

@@ -189,6 +189,22 @@ export const RULES = {
     { maxBreakMs: 30 * 60_000 }
   ),
 
+  TRAIN_SPEED: rule(
+    'RULE_TRAIN_SPEED',
+    'A motorized section sustaining an average speed no road vehicle holds ' +
+      '(≥ minAvgSpeedMps over ≥ minDistanceM) is a train, decided locally ' +
+      'with ZERO network calls. Exists because rail map-matching a ' +
+      'long-distance ride is the single most expensive Overpass workload: ' +
+      'the 2026-07-14 export had a 641 km TGV day whose 305 km / 207 km/h ' +
+      'section alone needed ~15 large rail-geometry queries and wedged the ' +
+      'enrichment queue for days. The speed floor sits above any legal ' +
+      'European motorway average (130 km/h limit; sustained 150+ km/h over ' +
+      '10+ km is rail), and the distance floor keeps GPS speed glitches from ' +
+      'qualifying. Slower intercity rail (~110 km/h averages) still goes ' +
+      'through geometry matching.',
+    { minAvgSpeedMps: 42, minDistanceM: 10_000 }
+  ),
+
   RAIL_MAP_MATCH: rule(
     'RULE_RAIL_MAP_MATCH',
     'A motorized section whose resampled trace follows OSM railway geometry ' +
@@ -196,8 +212,13 @@ export const RULES = {
       'is rail. This is geometry-based, not speed-based, so it cleanly ' +
       'separates a train from a motorway drive at the same speed. The matched ' +
       "way's railway tag picks train (rail/narrow_gauge), tram " +
-      '(tram/light_rail), or subway.',
-    { coverageMin: 0.8, bufferM: 25 }
+      '(tram/light_rail), or subway. maxProbeTiles bounds the Overpass ' +
+      'workload of one section: a trace spanning more 0.05° tiles than this ' +
+      'is subsampled (evenly, endpoints kept) before fetching ways and ' +
+      'measuring coverage — probing a long corridor estimates coverage just ' +
+      'as well and keeps a single long-distance ride from monopolizing the ' +
+      'enrichment queue.',
+    { coverageMin: 0.8, bufferM: 25, maxProbeTiles: 24 }
   ),
 
   WATERWAY_MATCH: rule(
