@@ -3,6 +3,7 @@ import { runMigrations } from '../../db/migrations';
 import { ensureTransitCacheSchema } from '../../db/transitCacheDb';
 import {
   getStopsNear,
+  getStopsNearMany,
   getRailwaysNear,
   capCoordsToTileBudget,
   OverpassRateLimitError,
@@ -232,6 +233,58 @@ describe('overpass — getRailwaysNear (tiled cache)', () => {
       const tilesLon = (east - west - 0.008) / 0.05;
       expect(tilesLat * tilesLon).toBeLessThanOrEqual(9.01);
     }
+  });
+});
+
+describe('overpass — getStopsNearMany (batched cell probes)', () => {
+  const nearBody = {
+    elements: [
+      { type: 'node', id: 1, lat: 45.001, lon: 5.001, tags: { highway: 'bus_stop', route_ref: '12' } },
+      { type: 'node', id: 2, lat: 45.0015, lon: 5.011, tags: { highway: 'bus_stop', route_ref: '12' } },
+      // Far outside every probed cell — must be neither returned nor cached.
+      { type: 'node', id: 3, lat: 45.5, lon: 5.5, tags: { highway: 'bus_stop' } },
+    ],
+  };
+  const points: Array<[number, number]> = [
+    [5.001, 45.001],
+    [5.011, 45.001],
+    [5.021, 45.001],
+  ];
+
+  it('fetches all missing cells in ONE batched query', async () => {
+    // The bus-corridor probe used to issue one Overpass query per cold cell
+    // (2026-07-14 export: 180 serial stop queries over a full history).
+    let calls = 0;
+    const deps = await mkDeps(async () => {
+      calls++;
+      return fakeResponse(nearBody);
+    });
+    const stops = await getStopsNearMany(deps, points, 900);
+    expect(calls).toBe(1); // 3 cold cells, one query
+    expect(stops.map((s) => s.id).sort()).toEqual([1, 2]);
+  });
+
+  it('caches per cell — a later getStopsNear on a probed cell does not fetch', async () => {
+    let calls = 0;
+    const deps = await mkDeps(async () => {
+      calls++;
+      return fakeResponse(nearBody);
+    });
+    await getStopsNearMany(deps, points, 900);
+    const stops = await getStopsNear(deps, 45.001, 5.011, 70);
+    expect(calls).toBe(1); // no new fetch — cell came from the batch
+    expect(stops.map((s) => s.id)).toEqual([2]);
+  });
+
+  it('only fetches cells missing from the cache', async () => {
+    let calls = 0;
+    const deps = await mkDeps(async () => {
+      calls++;
+      return fakeResponse(nearBody);
+    });
+    await getStopsNear(deps, 45.001, 5.001, 70); // warms the first cell
+    await getStopsNearMany(deps, points, 900);
+    expect(calls).toBe(2); // one warm-up + one batch for the two cold cells
   });
 });
 

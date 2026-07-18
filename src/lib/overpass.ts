@@ -234,6 +234,35 @@ function parseWaterWays(elements: any[]): WaterWay[] {
   return out;
 }
 
+interface StopCell {
+  key: string;
+  bbox: BBox; // padded query/assignment bbox
+}
+
+function stopCellFor(lat: number, lon: number): StopCell {
+  return {
+    key: `stops:${r5(snap(lat))}:${r5(snap(lon))}`,
+    bbox: {
+      south: snap(lat) - PAD_DEG,
+      west: snap(lon) - PAD_DEG,
+      north: snap(lat) + GRID_DEG + PAD_DEG,
+      east: snap(lon) + GRID_DEG + PAD_DEG,
+    },
+  };
+}
+
+function stopSelectors(b: BBox): string {
+  return (
+    `node["highway"="bus_stop"](${b.south},${b.west},${b.north},${b.east});` +
+    `node["railway"~"^(station|halt|tram_stop|subway_entrance)$"](${b.south},${b.west},${b.north},${b.east});` +
+    `node["public_transport"~"^(platform|stop_position)$"](${b.south},${b.west},${b.north},${b.east});`
+  );
+}
+
+function inBBox(lat: number, lon: number, b: BBox): boolean {
+  return lat >= b.south && lat <= b.north && lon >= b.west && lon <= b.east;
+}
+
 export async function getStopsNear(
   deps: OverpassDeps,
   lat: number,
@@ -241,23 +270,62 @@ export async function getStopsNear(
   radiusM: number
 ): Promise<TransitStop[]> {
   const now = (deps.nowMs ?? Date.now)();
-  const key = `stops:${r5(snap(lat))}:${r5(snap(lon))}`;
-  let stops = await cacheGet<TransitStop[]>(deps, key, now);
+  const cell = stopCellFor(lat, lon);
+  let stops = await cacheGet<TransitStop[]>(deps, cell.key, now);
   if (stops === null) {
-    const south = snap(lat) - PAD_DEG;
-    const west = snap(lon) - PAD_DEG;
-    const north = snap(lat) + GRID_DEG + PAD_DEG;
-    const east = snap(lon) + GRID_DEG + PAD_DEG;
-    const q =
-      `[out:json][timeout:60];(` +
-      `node["highway"="bus_stop"](${south},${west},${north},${east});` +
-      `node["railway"~"^(station|halt|tram_stop|subway_entrance)$"](${south},${west},${north},${east});` +
-      `node["public_transport"~"^(platform|stop_position)$"](${south},${west},${north},${east});` +
-      `);out body;`;
+    const q = `[out:json][timeout:60];(${stopSelectors(cell.bbox)});out body;`;
     stops = parseStops(await overpassFetch(deps, q));
-    await cacheSet(deps, key, 'stops', stops, now);
+    await cacheSet(deps, cell.key, 'stops', stops, now);
   }
   return stops.filter((s) => haversineMeters(lat, lon, s.lat, s.lon) <= radiusM);
+}
+
+// Max stop cells per batched Overpass query. Cells are tiny (~500 m) disjoint
+// bboxes, so even a full batch stays a light query; the bound just keeps the
+// union clause list reasonable.
+const STOP_CELL_CHUNK = 12;
+
+/**
+ * Stops within radiusM of ANY of the given [lon, lat] points, fetching every
+ * cold cache cell in batched union queries instead of one query per cell.
+ * The bus-corridor probe walks a point every ~400 m of path — per-cell
+ * fetching cost one serial Overpass round-trip each (2026-07-14 export: 180
+ * stop queries over a full history); batching collapses a whole section's
+ * cold cells into ceil(n/12) queries. Cache rows are per cell and identical
+ * to what `getStopsNear` would have written (a stop lands in every cell whose
+ * padded bbox contains it).
+ */
+export async function getStopsNearMany(
+  deps: OverpassDeps,
+  points: Array<[number, number]>,
+  radiusM: number
+): Promise<TransitStop[]> {
+  const now = (deps.nowMs ?? Date.now)();
+  const cells = new Map<string, StopCell>();
+  for (const [lon, lat] of points) {
+    const c = stopCellFor(lat, lon);
+    if (!cells.has(c.key)) cells.set(c.key, c);
+  }
+  const candidates = new Map<number, TransitStop>();
+  const missing: StopCell[] = [];
+  for (const c of cells.values()) {
+    const cached = await cacheGet<TransitStop[]>(deps, c.key, now);
+    if (cached === null) missing.push(c);
+    else for (const s of cached) candidates.set(s.id, s);
+  }
+  for (let i = 0; i < missing.length; i += STOP_CELL_CHUNK) {
+    const chunk = missing.slice(i, i + STOP_CELL_CHUNK);
+    const q = `[out:json][timeout:60];(${chunk.map((c) => stopSelectors(c.bbox)).join('')});out body;`;
+    const stops = parseStops(await overpassFetch(deps, q));
+    for (const c of chunk) {
+      const cellStops = stops.filter((s) => inBBox(s.lat, s.lon, c.bbox));
+      await cacheSet(deps, c.key, 'stops', cellStops, now);
+      for (const s of cellStops) candidates.set(s.id, s);
+    }
+  }
+  return [...candidates.values()].filter((s) =>
+    points.some(([lon, lat]) => haversineMeters(lat, lon, s.lat, s.lon) <= radiusM)
+  );
 }
 
 const TILE_DEG = 0.05; // ~5.5 km latitude — dedup unit for railway geometry

@@ -322,8 +322,12 @@ export const RULES = {
       'distances/aggregates stay on the raw trace. The snapped shape is kept ' +
       'only when Valhalla\'s confidence_score is at least minConfidence (low ' +
       'confidence usually means an invented detour, e.g. cutting across a park), ' +
-      'and the input is downsampled to maxPoints to stay within Meili limits.',
-    { minConfidence: 0.5, maxPoints: 800 }
+      'and the input is downsampled to maxPoints to stay within Meili limits. ' +
+      'Sections shorter than minDistanceM skip the call entirely: a snapped ' +
+      'line over a sub-300 m stub changes nothing visually, yet such stubs ' +
+      'were HALF the Valhalla traffic of a full-history enrichment ' +
+      '(2026-07-14 export: 136 of 266 candidate sections).',
+    { minConfidence: 0.5, maxPoints: 800, minDistanceM: 300 }
   ),
 
   SUBWAY_STATION_RADIUS: rule(

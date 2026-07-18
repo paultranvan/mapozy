@@ -253,4 +253,28 @@ describe('enrichTripTransit — map-matching (Pass 3)', () => {
     expect(t!.sections[0]!.matchedGeojson ?? null).toBeNull();
     expect(t!.draft).toBe(false); // map-matching failure never drafts
   });
+
+  it('skips Valhalla entirely for sections below the distance floor', async () => {
+    // Half the Valhalla traffic of a full-history enrichment was snapping
+    // sub-300 m stubs (2026-07-14 export: 136 of 266 candidate sections)
+    // whose matched line changes nothing visually. They must not cost a
+    // network call.
+    let valhallaCalls = 0;
+    const inner = valhallaFetch(snapped, 0.9);
+    const deps = await depsWith(async (url, init) => {
+      if (String(url).includes('trace_attributes')) valhallaCalls++;
+      return inner!(url, init);
+    });
+    const tiny = walkTrip();
+    tiny.distanceM = 150;
+    tiny.sections[0]!.distanceM = 150;
+    const id = await insertTripWithSections(deps.db, tiny);
+
+    const res = await enrichTripTransit(deps, id);
+
+    expect(res.status).toBe('enriched');
+    expect(valhallaCalls).toBe(0);
+    const t = await getTripById(deps.db, id);
+    expect(t!.sections[0]!.matchedGeojson ?? null).toBeNull();
+  });
 });

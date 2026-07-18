@@ -40,12 +40,12 @@ import {
   capCoordsToTileBudget,
   getRailwaysNear,
   getStopsNear,
+  getStopsNearMany,
   getWaterwaysNear,
   OverpassRateLimitError,
   OverpassOfflineError,
   OverpassUnavailableError,
   type OverpassDeps,
-  type TransitStop,
 } from '../../lib/overpass';
 
 export interface EnrichResult {
@@ -140,16 +140,15 @@ async function classifyCarSectionOnline(
       (sec.distanceM >= bc.minDistanceM || endpointRefs.size > 0) &&
       avgSpeed <= bc.maxAvgSpeedMps
     ) {
-      const seen = new Map<number, TransitStop>();
-      for (const p of samplePathEvery(coords, bc.cellProbeEveryM)) {
-        for (const s of await getStopsNear(deps, p[1], p[0], bc.cellProbeRadiusM)) {
-          seen.set(s.id, s);
-        }
-      }
+      const stops = await getStopsNearMany(
+        deps,
+        samplePathEvery(coords, bc.cellProbeEveryM),
+        bc.cellProbeRadiusM
+      );
       cls = classifyBusCorridor({
         path: coords,
         speeds: useRaw ? rawPoints.map((p) => p.speedMps ?? null) : coords.map(() => null),
-        stops: [...seen.values()],
+        stops,
         endpointRefs,
       });
     }
@@ -308,7 +307,7 @@ async function mapMatchTripSections(
   tripId: number
 ): Promise<void> {
   const maxAccM = RULES.ACCURACY_FILTER.defaults.maxAccuracyM;
-  const { minConfidence, maxPoints } = RULES.MAP_MATCH.defaults;
+  const { minConfidence, maxPoints, minDistanceM } = RULES.MAP_MATCH.defaults;
   const sections = await getSectionsForTrip(deps.db, tripId);
   for (let i = 0; i < sections.length; i++) {
     const sec = sections[i]!;
@@ -320,6 +319,7 @@ async function mapMatchTripSections(
       await updateSectionMatchedGeometry(deps.db, sec.id, null);
       continue;
     }
+    if (sec.distanceM < minDistanceM) continue; // sub-stub: snap adds nothing
     // Match on raw fixes, not the resampled trace (same rationale as Pass 1).
     // Terminal sections reach into the adjacent stay for their anchor fix.
     const fromMs = sec.startTimeMs - (i === 0 ? ANCHOR_MARGIN_MS : 0);
