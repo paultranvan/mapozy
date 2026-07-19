@@ -29,6 +29,9 @@ android {
 
 dependencies {
   implementation project(':expo-modules-core')
+  // For HeadlessJsTaskService (background pipeline task). Version is supplied
+  // by the React Native gradle plugin's dependency substitution.
+  implementation 'com.facebook.react:react-android'
   implementation 'com.google.android.gms:play-services-location:21.3.0'
   implementation 'androidx.core:core-ktx:1.13.1'
 }

@@ -1,7 +1,7 @@
 {
   "name": "mapozy",
   "version": "0.1.0",
-  "main": "expo-router/entry",
+  "main": "index.js",
   "scripts": {
     "postinstall": "patch-package",
     "start": "expo start --dev-client",

@@ -13,7 +13,8 @@ import {
 } from '@expo-google-fonts/inter';
 import { adriaticTheme } from '@/theme/paperTheme';
 import { colors } from '@/theme/tokens';
-import { openDb, type Db } from '@/db/client';
+import { type Db } from '@/db/client';
+import { getSharedDb } from '@/db/sharedDb';
 import { DbProvider } from '@/db/DbContext';
 import { getSetting, SETTING_KEYS } from '@/db/settings';
 import {
@@ -57,7 +58,9 @@ export default function RootLayout() {
     let mounted = true;
     (async () => {
       try {
-        const handle = await openDb();
+        // Shared singleton (not a fresh openDb): the headless pipeline task
+        // must land on the SAME Db instance so its runs serialize with ours.
+        const handle = await getSharedDb();
         const pref = normalizeLanguagePref(
           await getSetting(handle, SETTING_KEYS.LANGUAGE)
         );

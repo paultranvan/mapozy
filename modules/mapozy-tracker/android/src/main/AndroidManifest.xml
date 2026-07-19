@@ -15,6 +15,9 @@
       android:name="expo.modules.mapozytracker.TrackingService"
       android:foregroundServiceType="location"
       android:exported="false"/>
+    <service
+      android:name="expo.modules.mapozytracker.PipelineHeadlessTaskService"
+      android:exported="false"/>
     <receiver
       android:name="expo.modules.mapozytracker.BootReceiver"
       android:enabled="true"

@@ -22,6 +22,7 @@ import android.os.Looper
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
+import com.facebook.react.HeadlessJsTaskService
 import com.google.android.gms.location.ActivityRecognition
 import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionRequest
@@ -569,6 +570,29 @@ class TrackingService : Service() {
       if (lng != null) putDouble("lng", lng)
     }
     MapozyTrackerEventBus.emitStationary(event)
+    // The event above only reaches JS if the app process is alive; when the
+    // OS killed it, events queue in the bus and can be lost in the drain race.
+    // The headless task is the process-independent path: it boots a JS
+    // context and segments the trip now instead of at the next app open.
+    startPipelineHeadlessTask()
+  }
+
+  private fun startPipelineHeadlessTask() {
+    try {
+      applicationContext.startService(
+        Intent(applicationContext, PipelineHeadlessTaskService::class.java)
+      )
+      HeadlessJsTaskService.acquireWakeLockNow(applicationContext)
+    } catch (e: Exception) {
+      // Never let a headless-start failure take down the tracker; record it
+      // so an export pins the cause (e.g. an OEM background-start refusal).
+      NativeStore.insertDiagnostic(
+        this,
+        System.currentTimeMillis(),
+        "headless_start_error",
+        (e.message ?: e.toString()),
+      )
+    }
   }
 
   private fun scheduleStopTimer() {
