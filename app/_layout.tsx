@@ -169,6 +169,13 @@ export default function RootLayout() {
                   animation: 'slide_from_right',
                 }}
               />
+              <Stack.Screen
+                name="tiime/login"
+                options={{
+                  presentation: 'card',
+                  animation: 'slide_from_right',
+                }}
+              />
             </Stack>
             </I18nProvider>
           </DbProvider>
