@@ -24,7 +24,39 @@ describe('searchAddress', () => {
       json: async () => [{ display_name: '85 Av. Berthelot, Lyon', lat: '45.74', lon: '4.85' }],
     } as any);
     const res = await searchAddress('berthelot');
-    expect(res).toEqual([{ label: '85 Av. Berthelot, Lyon', lat: 45.74, lon: 4.85 }]);
+    expect(res).toEqual([{
+      label: '85 Av. Berthelot, Lyon',
+      lat: 45.74,
+      lon: 4.85,
+      structured: { street: null, houseNumber: null, postalCode: null, city: null, country: null },
+    }]);
+  });
+
+  it('extracts structured address components from the addressdetails object', async () => {
+    mockNet.externalApiAllowed.mockReturnValue(true);
+    mockNet.externalFetch.mockResolvedValue({
+      ok: true,
+      json: async () => [{
+        display_name: '85 Av. Berthelot, Lyon',
+        lat: '45.74',
+        lon: '4.85',
+        address: {
+          road: 'Avenue Berthelot',
+          house_number: '85',
+          postcode: '69007',
+          city: 'Lyon',
+          country: 'France',
+        },
+      }],
+    } as any);
+    const res = await searchAddress('berthelot');
+    expect(res[0]!.structured).toEqual({
+      street: 'Avenue Berthelot',
+      houseNumber: '85',
+      postalCode: '69007',
+      city: 'Lyon',
+      country: 'France',
+    });
   });
 
   it('returns [] for blank queries without calling the network', async () => {

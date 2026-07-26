@@ -156,23 +156,33 @@ export interface UserPlaceInput {
   longitude: number;
   radiusM: number;
   displayName?: string | null;
+  street?: string | null;
+  houseNumber?: string | null;
+  postalCode?: string | null;
+  city?: string | null;
+  country?: string | null;
 }
 
 export async function createUserPlace(db: Db, input: UserPlaceInput): Promise<number> {
   const now = Date.now();
   const res = await db.runAsync(
-    `INSERT INTO places (kind, name, category, latitude, longitude, radius_m, display_name, visit_count, first_seen_ms, last_seen_ms)
-     VALUES ('user', ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-    input.name, input.category, input.latitude, input.longitude, input.radiusM, input.displayName ?? null, now, now
+    `INSERT INTO places (kind, name, category, latitude, longitude, radius_m, display_name, street, house_number, postal_code, city, country, visit_count, first_seen_ms, last_seen_ms)
+     VALUES ('user', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+    input.name, input.category, input.latitude, input.longitude, input.radiusM, input.displayName ?? null,
+    input.street ?? null, input.houseNumber ?? null, input.postalCode ?? null, input.city ?? null, input.country ?? null,
+    now, now
   );
   return res.lastInsertRowId;
 }
 
 export async function updateUserPlace(db: Db, id: number, input: UserPlaceInput): Promise<void> {
   await db.runAsync(
-    `UPDATE places SET name = ?, category = ?, latitude = ?, longitude = ?, radius_m = ?, display_name = ?
+    `UPDATE places SET name = ?, category = ?, latitude = ?, longitude = ?, radius_m = ?, display_name = ?,
+       street = ?, house_number = ?, postal_code = ?, city = ?, country = ?
      WHERE id = ? AND kind = 'user'`,
-    input.name, input.category, input.latitude, input.longitude, input.radiusM, input.displayName ?? null, id
+    input.name, input.category, input.latitude, input.longitude, input.radiusM, input.displayName ?? null,
+    input.street ?? null, input.houseNumber ?? null, input.postalCode ?? null, input.city ?? null, input.country ?? null,
+    id
   );
 }
 
