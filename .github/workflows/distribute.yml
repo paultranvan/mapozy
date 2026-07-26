@@ -26,7 +26,7 @@ on:
         description: 'Release notes (defaults to the latest commit subject)'
         required: false
       app_id_suffix:
-        description: 'applicationId suffix (e.g. .debug) to install alongside prod. When set, the APK is uploaded as a downloadable artifact instead of Firebase (a suffixed package does not match the prod Firebase app).'
+        description: 'applicationId suffix (e.g. .debug) to install alongside prod. When set, the build is distributed to the separate Firebase Debug app (com.paul.mapozy.debug) and also uploaded as an artifact.'
         required: false
 
 concurrency:
@@ -35,6 +35,10 @@ concurrency:
 
 env:
   FIREBASE_APP_ID: '1:736958471752:android:dd125d6adef895b482c27d'
+  # Separate Firebase Android app registered for com.paul.mapozy.debug, used for
+  # suffixed side-by-side test builds (App Distribution ties an upload to the
+  # app whose package matches the APK).
+  FIREBASE_APP_ID_DEBUG: '1:736958471752:android:9a6ff5893088fdc982c27d'
   TESTER_GROUP: testers
 
 jobs:
@@ -108,19 +112,21 @@ jobs:
           if-no-files-found: error
 
       - name: Distribute to Firebase App Distribution
-        # A suffixed applicationId (e.g. .debug) does not match the prod Firebase
-        # app, so skip Firebase for those builds — the APK artifact above is the
-        # delivery path. Tag pushes and un-suffixed dispatches distribute normally.
-        if: ${{ github.event.inputs.app_id_suffix == '' }}
+        # Suffixed builds (e.g. .debug) go to the matching Firebase Debug app;
+        # un-suffixed builds (tag pushes, normal dispatches) go to the prod app.
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          APP_ID_SUFFIX: ${{ github.event.inputs.app_id_suffix }}
         run: |
           NOTES="${{ github.event.inputs.notes }}"
           if [ -z "$NOTES" ]; then NOTES="$(git log -1 --pretty=%s)"; fi
+          APP="$FIREBASE_APP_ID"
+          if [ -n "$APP_ID_SUFFIX" ]; then APP="$FIREBASE_APP_ID_DEBUG"; fi
           echo "Release notes: $NOTES"
+          echo "Distributing to Firebase app: $APP (suffix: '${APP_ID_SUFFIX:-none}')"
           npx -y firebase-tools appdistribution:distribute \
             android/app/build/outputs/apk/release/app-release.apk \
-            --app "$FIREBASE_APP_ID" \
+            --app "$APP" \
             --groups "$TESTER_GROUP" \
             --release-notes "$NOTES" \
             --token "$FIREBASE_TOKEN"
