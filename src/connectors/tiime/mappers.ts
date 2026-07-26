@@ -39,6 +39,11 @@ export interface BuildTravelInput {
 
 export function buildTravelPayload(input: BuildTravelInput): TiimeTravelPayload {
   return {
+    // Required by Tiime even though inert here (omitting them 500s the API).
+    id: null,
+    locked: null,
+    comment: '',
+    tags: [],
     date: formatTiimeDate(input.startMs),
     distance: metersToKm(input.distanceM),
     departure_address: toTiimeAddress(input.departure),

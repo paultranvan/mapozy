@@ -29,7 +29,7 @@ describe('tiime mappers', () => {
     expect(formatTiimeDate(ms)).toBe('2026-07-26 10:05:18');
   });
 
-  it('builds a full payload without estimated_amount', () => {
+  it('builds a full payload with Tiime-required fields and no estimated_amount', () => {
     const ms = new Date(2026, 6, 26, 10, 5, 18).getTime();
     const payload = buildTravelPayload({
       startMs: ms,
@@ -41,6 +41,10 @@ describe('tiime mappers', () => {
       roundTrip: false,
     });
     expect(payload).toEqual({
+      id: null,
+      locked: null,
+      comment: '',
+      tags: [],
       date: '2026-07-26 10:05:18',
       distance: 32,
       departure_address: { street: '9 Voie Wagner', postal_code: '94400', city: 'Vitry-sur-Seine', country: 'FR' },

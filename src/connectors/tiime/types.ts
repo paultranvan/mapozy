@@ -6,6 +6,13 @@ export interface TiimeAddress {
 }
 
 export interface TiimeTravelPayload {
+  // Tiime 500s (generic "Une erreur est survenue") if id/locked/comment/tags
+  // are absent — verified against the live API. estimated_amount and the full
+  // vehicle object are NOT required (the server computes the amount).
+  id: null;
+  locked: null;
+  comment: string;
+  tags: never[];
   date: string; // 'YYYY-MM-DD HH:mm:ss'
   distance: number; // whole km
   departure_address: TiimeAddress;
