@@ -73,6 +73,7 @@ export default function TiimeQueueScreen() {
     const toInit = candidates.filter((c) => !initializedRef.current.has(c.tripId));
     if (toInit.length === 0) return;
     toInit.forEach((c) => initializedRef.current.add(c.tripId));
+    let isMounted = true;
     (async () => {
       for (const c of toInit) {
         const [departure, arrival] = await Promise.all([
@@ -83,6 +84,7 @@ export default function TiimeQueueScreen() {
             ? ensurePlaceAddress(db, c.arrivalPlaceId)
             : Promise.resolve(null),
         ]);
+        if (!isMounted) return;
         setCardState((prev) => ({
           ...prev,
           [c.tripId]: {
@@ -96,6 +98,9 @@ export default function TiimeQueueScreen() {
         }));
       }
     })();
+    return () => {
+      isMounted = false;
+    };
   }, [candidates, db]);
 
   const patchCard = useCallback((tripId: number, patch: Partial<CardState>) => {
@@ -134,6 +139,9 @@ export default function TiimeQueueScreen() {
         const candidate = candidates.find((c) => c.tripId === tripId);
         const state = cardState[tripId];
         if (!candidate || !state) continue;
+        // Guard against a stale selection re-sending an already-sent (or
+        // in-flight) candidate, which would duplicate the trip in Tiime.
+        if (state.status === 'sent' || state.status === 'sending') continue;
         patchCard(tripId, { status: 'sending', error: null });
         try {
           await sendMutation.mutateAsync({
@@ -315,6 +323,10 @@ function CandidateCard({
   const distanceKm = Math.round(candidate.distanceM / 1000);
   const ready = !!state;
   const busy = state?.status === 'sending';
+  // 'sent' is a terminal state: once a candidate has been sent, it must not
+  // be re-selectable or re-editable, otherwise a stale selection could
+  // re-invoke the send mutation and duplicate the trip in Tiime.
+  const locked = state?.status === 'sending' || state?.status === 'sent';
 
   return (
     <Card style={styles.card}>
@@ -323,7 +335,7 @@ function CandidateCard({
           onPress={onToggleSelected}
           hitSlop={10}
           style={styles.checkbox}
-          disabled={!ready || busy}
+          disabled={!ready || locked}
         >
           <MaterialCommunityIcons
             name={selected ? 'checkbox-marked' : 'checkbox-blank-outline'}
@@ -355,7 +367,7 @@ function CandidateCard({
             placeholder={t('tiimeQueue.arrivalCompanyPlaceholder')}
             placeholderTextColor={colors.inkSoft}
             style={styles.input}
-            editable={!busy}
+            editable={!locked}
           />
 
           <View style={styles.rowBetween}>
@@ -365,7 +377,7 @@ function CandidateCard({
               onValueChange={(v) => onPatch({ roundTrip: v })}
               trackColor={{ true: colors.accentSoft, false: colors.divider }}
               thumbColor={state.roundTrip ? colors.accent : colors.surface}
-              disabled={busy}
+              disabled={locked}
             />
           </View>
 
@@ -373,14 +385,14 @@ function CandidateCard({
             label={t('tiimeQueue.departureAddress')}
             address={state.departure}
             onChange={(addr) => onPatch({ departure: addr })}
-            disabled={busy}
+            disabled={locked}
             t={t}
           />
           <AddressFields
             label={t('tiimeQueue.arrivalAddress')}
             address={state.arrival}
             onChange={(addr) => onPatch({ arrival: addr })}
-            disabled={busy}
+            disabled={locked}
             t={t}
           />
 
