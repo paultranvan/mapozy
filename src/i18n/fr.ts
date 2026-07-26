@@ -146,6 +146,8 @@ export const fr: Record<TranslationKey, string> = {
   'settings.tiimeVehicle': 'Véhicule',
   'settings.tiimeNoVehicles': 'Aucun véhicule actif trouvé.',
   'settings.tiimeLoadError': 'Impossible de charger les données Tiime : {error}',
+  'settings.tiimeViewQueue': 'Trajets à envoyer',
+  'settings.tiimeViewQueueHint': 'Vérifier et pousser tes trajets voiture vers Tiime',
   'settings.tiimeDisconnect': 'Se déconnecter',
 
   // Écran d'erreur (error boundary)
@@ -345,7 +347,7 @@ export const fr: Record<TranslationKey, string> = {
   'tiimeQueue.noVehicleBody':
     'Choisissez une société et un véhicule dans les Réglages avant d\'envoyer des trajets.',
   'tiimeQueue.goToSettings': 'Aller aux réglages',
-  'tiimeQueue.empty': 'Aucun trajet à envoyer pour l\'instant.',
+  'tiimeQueue.empty': 'Aucun trajet à envoyer. Un trajet apparaît ici dès qu\'il est en voiture et qu\'il part ou arrive d\'un lieu que tu as catégorisé « travail ».',
   'tiimeQueue.arrivalCompanyLabel': 'Société à l\'arrivée',
   'tiimeQueue.arrivalCompanyPlaceholder': 'Nom de la société',
   'tiimeQueue.roundTrip': 'Aller-retour',

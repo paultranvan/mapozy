@@ -148,6 +148,8 @@ export const en = {
   'settings.tiimeVehicle': 'Vehicle',
   'settings.tiimeNoVehicles': 'No active vehicles found.',
   'settings.tiimeLoadError': 'Could not load Tiime data: {error}',
+  'settings.tiimeViewQueue': 'Trips to send',
+  'settings.tiimeViewQueueHint': 'Review and push your car trips to Tiime',
   'settings.tiimeDisconnect': 'Disconnect',
 
   // Screen error boundary
@@ -346,7 +348,7 @@ export const en = {
   'tiimeQueue.noVehicleBody':
     'Pick a company and a vehicle in Settings before sending trips.',
   'tiimeQueue.goToSettings': 'Go to Settings',
-  'tiimeQueue.empty': 'No trips to send yet.',
+  'tiimeQueue.empty': 'No trips to send yet. A trip shows up here once it is a car trip that starts or ends at a place you tagged as "work".',
   'tiimeQueue.arrivalCompanyLabel': 'Company at arrival',
   'tiimeQueue.arrivalCompanyPlaceholder': 'Company name',
   'tiimeQueue.roundTrip': 'Round trip',

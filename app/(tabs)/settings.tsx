@@ -473,6 +473,17 @@ export default function SettingsScreen() {
               )}
 
               <View style={styles.divider} />
+              <Pressable style={styles.actionRow} onPress={() => router.push('/tiime')}>
+                <View style={{ flex: 1 }}>
+                  <Text variant="title">{t('settings.tiimeViewQueue')}</Text>
+                  <Text variant="meta" soft>
+                    {t('settings.tiimeViewQueueHint')}
+                  </Text>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={22} color={colors.inkSoft} />
+              </Pressable>
+
+              <View style={styles.divider} />
               <Pressable style={styles.actionRow} onPress={onDisconnectTiime}>
                 <Text variant="title" color={colors.danger}>
                   {t('settings.tiimeDisconnect')}
