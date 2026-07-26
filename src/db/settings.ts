@@ -41,4 +41,7 @@ export const SETTING_KEYS = {
   LAST_DB_MAINTENANCE_MS: 'last_db_maintenance_ms',
   // 'system' (default when unset) | 'en' | 'fr' — see src/i18n.
   LANGUAGE: 'language',
+  // Tiime connector: default company + vehicle chosen at connect time.
+  TIIME_DEFAULT_COMPANY_ID: 'tiime_default_company_id',
+  TIIME_DEFAULT_VEHICLE_ID: 'tiime_default_vehicle_id',
 } as const;
