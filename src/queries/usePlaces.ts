@@ -52,6 +52,10 @@ function useInvalidatePlaces() {
   const qc = useQueryClient();
   return useCallback(() => {
     qc.invalidateQueries({ queryKey: ['userPlaces'] });
+    // Also the single-place query the editor reads (['userPlace', id]); without
+    // this, reopening a just-edited place serves the stale pre-edit category
+    // from cache until an app restart.
+    qc.invalidateQueries({ queryKey: ['userPlace'] });
     qc.invalidateQueries({ queryKey: ['userPlaceVisits'] });
     qc.invalidateQueries({ queryKey: ['unnamedClusters'] });
     qc.invalidateQueries({ queryKey: ['homeSuggestion'] });
