@@ -2,11 +2,16 @@ import type { Db } from '../../db/client';
 import type { StructuredAddress } from '../../db/places';
 import { getUserPlaces } from '../../db/places';
 import { getSentSignatures, recordSentTravel } from '../../db/connectorTravels';
+import { insertDiagnosticEvent } from '../../db/diagnostics';
 import { nearestUserPoi } from '../../lib/poiResolve';
 import { ensurePlaceAddress, reverseGeocodeStructured } from '../../pipeline/geocoding';
 import { buildTravelPayload } from './mappers';
-import type { TiimeClient } from './client';
+import { TiimeApiError, type TiimeClient } from './client';
 import type { TiimeTravelResponse } from './types';
+
+/** Diagnostic event type for a Tiime travel send (success or failure). Logged
+ *  to tracker_diagnostics so it exports with "Send data to Paul". */
+const TIIME_SEND_EVENT = 'tiime_send';
 
 function pad(n: number): string {
   return String(n).padStart(2, '0');
@@ -207,16 +212,38 @@ export async function sendCandidate(
     vehicleId: opts.vehicleId,
     roundTrip: opts.roundTrip,
   });
-  const res = await client.post<TiimeTravelResponse>(
-    `/v1/companies/${opts.companyId}/users/me/travels`,
-    payload
-  );
+  const path = `/v1/companies/${opts.companyId}/users/me/travels`;
   const signature = travelSignature({
     startMs: candidate.startMs,
     distanceM: candidate.distanceM,
     departure: candidate.departure,
     arrival: candidate.arrival,
   });
-  await recordSentTravel(db, 'tiime', signature, String(res.id), Date.now(), candidate.tripId);
-  return res.id;
+  try {
+    const res = await client.post<TiimeTravelResponse>(path, payload);
+    // Full send record (success + failure) lands in tracker_diagnostics, which
+    // ships with the "Send data to Paul" export — so a failed send is
+    // diagnosable after the fact (payload + status + Tiime's response body).
+    await insertDiagnosticEvent(db, Date.now(), TIIME_SEND_EVENT, {
+      ok: true,
+      tripId: candidate.tripId,
+      path,
+      status: 201,
+      travelId: res.id,
+      payload,
+    });
+    await recordSentTravel(db, 'tiime', signature, String(res.id), Date.now(), candidate.tripId);
+    return res.id;
+  } catch (e) {
+    await insertDiagnosticEvent(db, Date.now(), TIIME_SEND_EVENT, {
+      ok: false,
+      tripId: candidate.tripId,
+      path,
+      status: e instanceof TiimeApiError ? e.status : null,
+      body: e instanceof TiimeApiError ? e.body : null,
+      error: e instanceof Error ? e.message : String(e),
+      payload,
+    });
+    throw e;
+  }
 }

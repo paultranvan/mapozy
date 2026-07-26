@@ -19,6 +19,20 @@ export class TiimeAuthError extends Error {
   }
 }
 
+/** A non-OK Tiime API response. Carries the HTTP status and the raw response
+ *  body — the body is where Tiime puts the actual failure reason, so callers
+ *  (and the diagnostics log) can surface it instead of a bare status code. */
+export class TiimeApiError extends Error {
+  status: number;
+  body: string;
+  constructor(method: string, path: string, status: number, body: string) {
+    super(`Tiime API ${method} ${path} failed: ${status}`);
+    this.name = 'TiimeApiError';
+    this.status = status;
+    this.body = body;
+  }
+}
+
 export interface TiimeClient {
   get<T>(path: string, opts?: { accept?: string }): Promise<T>;
   post<T>(path: string, body: unknown): Promise<T>;
@@ -67,7 +81,8 @@ export function createTiimeClient(opts: {
       resp = await doFetch(token);
     }
     if (!resp.ok) {
-      throw new Error(`Tiime API ${method} ${path} failed: ${resp.status}`);
+      const errBody = await resp.text().catch(() => '');
+      throw new TiimeApiError(method, path, resp.status, errBody);
     }
     return (await resp.json()) as T;
   }

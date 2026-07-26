@@ -1,4 +1,4 @@
-import { createTiimeClient, TiimeAuthError } from '../client';
+import { createTiimeClient, TiimeAuthError, TiimeApiError } from '../client';
 
 jest.mock('../auth', () => {
   let stored: string | null = null;
@@ -50,6 +50,24 @@ describe('TiimeClient', () => {
       caughtError = err;
     }
     expect(caughtError).toBeInstanceOf(TiimeAuthError);
+  });
+
+  it('throws TiimeApiError carrying the status and response body on non-OK', async () => {
+    jest.spyOn(global, 'fetch' as any).mockResolvedValue({
+      status: 500,
+      ok: false,
+      text: async () => '{"message":"boom"}',
+    } as any);
+    const client = createTiimeClient({ refresh: async () => 'GOOD' });
+    let caught: unknown;
+    try {
+      await client.post('/v1/x', { a: 1 });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(TiimeApiError);
+    expect((caught as TiimeApiError).status).toBe(500);
+    expect((caught as TiimeApiError).body).toBe('{"message":"boom"}');
   });
 
   it('sends a custom accept header when provided', async () => {

@@ -1,6 +1,15 @@
+// travels -> client -> auth -> expo-secure-store (native ESM); mock so Jest can
+// load the module graph (TiimeApiError is a value import from ../client).
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(),
+  setItemAsync: jest.fn(),
+  deleteItemAsync: jest.fn(),
+}));
+
 import type { Db } from '../../../db/client';
 import { createMockDb } from '../../../db/mockDb';
 import { runMigrations } from '../../../db/migrations';
+import { listDiagnosticEvents } from '../../../db/diagnostics';
 import {
   listCandidates,
   sendCandidate,
@@ -8,6 +17,7 @@ import {
   type Coord,
   type TiimeCandidate,
 } from '../travels';
+import { TiimeApiError } from '../client';
 
 const EMPTY_ADDR = {
   street: null,
@@ -238,5 +248,45 @@ describe('listCandidates', () => {
 
     const candsAfter = await listCandidates(db);
     expect(findCandidate(candsAfter, trip)).toBeUndefined();
+  });
+
+  it('logs a diagnostic with status+body on a failed send, and does not record dedup', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    await insertUserPlace(db, { name: 'Acme Corp', category: 'work', coord: WORK });
+    const trip = await insertTrip(db, { departure: HOME, arrival: WORK });
+
+    const post = jest.fn(async () => {
+      throw new TiimeApiError('POST', '/v1/x', 500, '{"message":"nope"}');
+    });
+    const client = { get: jest.fn(), post } as any;
+
+    const candidate = findCandidate(await listCandidates(db), trip);
+    if (!candidate) throw new Error('expected a candidate');
+
+    let threw = false;
+    try {
+      await sendCandidate(db, client, candidate, {
+        vehicleId: 58697,
+        companyId: 243813,
+        roundTrip: false,
+        arrivalCompanyName: 'Acme Corp',
+        departure: EMPTY_ADDR,
+        arrival: EMPTY_ADDR,
+      });
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
+
+    const events = await listDiagnosticEvents(db, { type: 'tiime_send' });
+    expect(events.length).toBe(1);
+    expect(events[0]!.payload).toMatchObject({
+      ok: false,
+      status: 500,
+      body: '{"message":"nope"}',
+    });
+    // A failed send must NOT record dedup — the trip stays a candidate.
+    expect(findCandidate(await listCandidates(db), trip)).toBeDefined();
   });
 });
