@@ -334,6 +334,30 @@ export const en = {
   'places.frequentPlace': 'Frequent place',
   'places.visitCount': '{count} visit(s)',
   'places.seeMoreSuggestions': 'See more suggestions ({count})',
+
+  // Tiime validation queue
+  'tiimeQueue.title': 'Tiime queue',
+  'tiimeQueue.notConnectedTitle': 'Tiime not connected',
+  'tiimeQueue.notConnectedBody': 'Connect your Tiime account to send your business trips.',
+  'tiimeQueue.connectCta': 'Connect Tiime',
+  'tiimeQueue.noVehicleTitle': 'Default vehicle needed',
+  'tiimeQueue.noVehicleBody':
+    'Pick a company and a vehicle in Settings before sending trips.',
+  'tiimeQueue.goToSettings': 'Go to Settings',
+  'tiimeQueue.empty': 'No trips to send yet.',
+  'tiimeQueue.arrivalCompanyLabel': 'Company at arrival',
+  'tiimeQueue.arrivalCompanyPlaceholder': 'Company name',
+  'tiimeQueue.roundTrip': 'Round trip',
+  'tiimeQueue.departureAddress': 'Departure address',
+  'tiimeQueue.arrivalAddress': 'Arrival address',
+  'tiimeQueue.houseNumberPlaceholder': 'No.',
+  'tiimeQueue.streetPlaceholder': 'Street',
+  'tiimeQueue.postalCodePlaceholder': 'Postal code',
+  'tiimeQueue.cityPlaceholder': 'City',
+  'tiimeQueue.sendSelected': 'Send ({count})',
+  'tiimeQueue.sending': 'Sending…',
+  'tiimeQueue.sent': 'Sent',
+  'tiimeQueue.errorPrefix': 'Error: {error}',
 } as const;
 
 export type TranslationKey = keyof typeof en;

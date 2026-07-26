@@ -332,4 +332,29 @@ export const fr: Record<TranslationKey, string> = {
   'places.frequentPlace': 'Lieu fréquent',
   'places.visitCount': '{count} visite(s)',
   'places.seeMoreSuggestions': 'Voir plus de suggestions ({count})',
+
+  // File de validation Tiime
+  'tiimeQueue.title': 'File Tiime',
+  'tiimeQueue.notConnectedTitle': 'Tiime non connecté',
+  'tiimeQueue.notConnectedBody':
+    'Connectez votre compte Tiime pour envoyer vos trajets professionnels.',
+  'tiimeQueue.connectCta': 'Connecter Tiime',
+  'tiimeQueue.noVehicleTitle': 'Véhicule par défaut requis',
+  'tiimeQueue.noVehicleBody':
+    'Choisissez une société et un véhicule dans les Réglages avant d\'envoyer des trajets.',
+  'tiimeQueue.goToSettings': 'Aller aux réglages',
+  'tiimeQueue.empty': 'Aucun trajet à envoyer pour l\'instant.',
+  'tiimeQueue.arrivalCompanyLabel': 'Société à l\'arrivée',
+  'tiimeQueue.arrivalCompanyPlaceholder': 'Nom de la société',
+  'tiimeQueue.roundTrip': 'Aller-retour',
+  'tiimeQueue.departureAddress': 'Adresse de départ',
+  'tiimeQueue.arrivalAddress': 'Adresse d\'arrivée',
+  'tiimeQueue.houseNumberPlaceholder': 'N°',
+  'tiimeQueue.streetPlaceholder': 'Rue',
+  'tiimeQueue.postalCodePlaceholder': 'Code postal',
+  'tiimeQueue.cityPlaceholder': 'Ville',
+  'tiimeQueue.sendSelected': 'Envoyer ({count})',
+  'tiimeQueue.sending': 'Envoi…',
+  'tiimeQueue.sent': 'Envoyé',
+  'tiimeQueue.errorPrefix': 'Erreur : {error}',
 };
