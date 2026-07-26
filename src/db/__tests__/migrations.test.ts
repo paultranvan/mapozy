@@ -111,3 +111,45 @@ describe('migration 011: drop transit_cache', () => {
     expect(row).toBeNull();
   });
 });
+
+describe('migration 012', () => {
+  it('adds structured address columns to places', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    const cols = await db.getAllAsync<{ name: string }>(
+      `PRAGMA table_info(places)`
+    );
+    const names = cols.map((c) => c.name);
+    for (const c of ['street', 'house_number', 'postal_code', 'city', 'country']) {
+      expect(names).toContain(c);
+    }
+  });
+
+  it('creates connector_travels with a unique (type, trip) constraint', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    // mapozy_trip_id has a FK to trips(id) (foreign_keys=ON in createMockDb),
+    // so a real trip row is needed before it can be referenced.
+    const trip = await db.runAsync(
+      `INSERT INTO trips
+         (start_time_ms, end_time_ms, start_place_id, end_place_id, distance_m,
+          duration_s, dominant_mode, co2_g, geojson, manual_purpose, created_at_ms)
+       VALUES (0,1,NULL,NULL,0,1,'car',0,'{}',NULL,0)`
+    );
+    const tripId = trip.lastInsertRowId;
+    await db.runAsync(
+      `INSERT INTO connector_travels(connector_type, mapozy_trip_id, external_travel_id, sent_at) VALUES('tiime', ?, 'x', 100)`,
+      tripId
+    );
+    let rejected = false;
+    try {
+      await db.runAsync(
+        `INSERT INTO connector_travels(connector_type, mapozy_trip_id, external_travel_id, sent_at) VALUES('tiime', ?, 'y', 200)`,
+        tripId
+      );
+    } catch {
+      rejected = true;
+    }
+    expect(rejected).toBe(true);
+  });
+});
