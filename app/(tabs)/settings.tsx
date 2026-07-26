@@ -332,7 +332,11 @@ export default function SettingsScreen() {
   async function onDisconnectTiime() {
     await disconnectTiime();
     setTiimeCompany(null);
+    setTiimeCompanyError(null);
+    setTiimeCompanyLoading(false);
     setTiimeVehicles(null);
+    setTiimeVehiclesError(null);
+    setTiimeVehiclesLoading(false);
     await tiimeConnection.refetch();
   }
 
@@ -435,6 +439,10 @@ export default function SettingsScreen() {
               (!tiimeCompany && !tiimeCompanyError) ||
               (!!tiimeCompany && tiimeVehicles === null && !tiimeVehiclesError) ? (
                 <ActivityIndicator size="small" color={colors.ink} />
+              ) : tiimeCompanyError ? (
+                <Text variant="meta" soft>
+                  {t('settings.tiimeLoadError', { error: tiimeCompanyError })}
+                </Text>
               ) : tiimeVehiclesError ? (
                 <Text variant="meta" soft>
                   {t('settings.tiimeLoadError', { error: tiimeVehiclesError })}
