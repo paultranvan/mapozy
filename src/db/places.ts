@@ -14,6 +14,11 @@ interface Row {
   longitude: number;
   radius_m: number;
   display_name: string | null;
+  street: string | null;
+  house_number: string | null;
+  postal_code: string | null;
+  city: string | null;
+  country: string | null;
   visit_count: number;
   first_seen_ms: number;
   last_seen_ms: number;
@@ -32,6 +37,11 @@ function rowToPlace(r: Row): Place {
     longitude: r.longitude,
     radiusM: r.radius_m,
     displayName: r.display_name,
+    street: r.street ?? null,
+    houseNumber: r.house_number ?? null,
+    postalCode: r.postal_code ?? null,
+    city: r.city ?? null,
+    country: r.country ?? null,
     visitCount: r.visit_count,
     firstSeenMs: r.first_seen_ms,
     lastSeenMs: r.last_seen_ms,
@@ -113,6 +123,30 @@ export async function setPlaceDisplayName(
   displayName: string
 ): Promise<void> {
   await db.runAsync(`UPDATE places SET display_name = ? WHERE id = ?`, displayName, id);
+}
+
+export interface StructuredAddress {
+  street: string | null;
+  houseNumber: string | null;
+  postalCode: string | null;
+  city: string | null;
+  country: string | null;
+}
+
+export async function setPlaceStructuredAddress(
+  db: Db,
+  id: number,
+  addr: StructuredAddress
+): Promise<void> {
+  await db.runAsync(
+    `UPDATE places SET street = ?, house_number = ?, postal_code = ?, city = ?, country = ? WHERE id = ?`,
+    addr.street,
+    addr.houseNumber,
+    addr.postalCode,
+    addr.city,
+    addr.country,
+    id
+  );
 }
 
 export interface UserPlaceInput {

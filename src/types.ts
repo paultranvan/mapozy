@@ -81,6 +81,11 @@ export interface Place {
   longitude: number;
   radiusM: number;
   displayName: string | null;
+  street: string | null;
+  houseNumber: string | null;
+  postalCode: string | null;
+  city: string | null;
+  country: string | null;
   visitCount: number;
   firstSeenMs: number;
   lastSeenMs: number;
