@@ -26,7 +26,8 @@ import { TripSelectionBar } from '@/ui/TripSelectionBar';
 import { deleteTrips } from '@/db/trips';
 import { planRecompute, recomputeForTrips } from '@/pipeline/recomputeRange';
 import { makeOverpassDeps } from '@/tracking/overpassDeps';
-import { colors, space } from '@/theme/tokens';
+import { useTiimeConnection, useTiimeCandidates } from '@/queries/useTiime';
+import { colors, space, radii } from '@/theme/tokens';
 import { dayKey, dayKeyToMs } from '@/lib/time';
 import { formatDayHeader } from '@/lib/format';
 import { t as translate, useI18n } from '@/i18n';
@@ -66,6 +67,8 @@ export default function TripsScreen() {
   const tripsQ = useTripsList(500);
   const placesQ = usePlaces();
   const recording = useRecordingStatus();
+  const tiimeConnection = useTiimeConnection();
+  const tiimeCandidatesQ = useTiimeCandidates();
 
   useFocusEffect(
     useCallback(() => {
@@ -208,6 +211,9 @@ export default function TripsScreen() {
     };
   }, [db, qc, placesQ.data]);
 
+  const tiimeCandidateCount = tiimeCandidatesQ.data?.length ?? 0;
+  const showTiimeBanner = tiimeConnection.connected && tiimeCandidateCount > 0;
+
   const topBar = selectMode ? (
     <TripSelectionBar
       count={selected.size}
@@ -237,6 +243,19 @@ export default function TripsScreen() {
     <View style={styles.root}>
       {topBar}
       <PipelineStatusBanner />
+      {showTiimeBanner ? (
+        <Pressable
+          onPress={() => router.push('/tiime')}
+          style={({ pressed }) => [styles.tiimeBanner, pressed && styles.tiimeBannerPressed]}
+        >
+          <MaterialCommunityIcons name="briefcase-upload-outline" size={16} color={colors.accent} />
+          <Text variant="label" color={colors.accent} style={styles.tiimeBannerLabel}>
+            {t('trips.tiimePendingBanner', { count: tiimeCandidateCount })}
+          </Text>
+          <View style={styles.tiimeBannerSpacer} />
+          <MaterialCommunityIcons name="chevron-right" size={16} color={colors.accent} />
+        </Pressable>
+      ) : null}
       {sections.length === 0 ? (
         <View style={styles.center}>
           <MaterialCommunityIcons
@@ -327,5 +346,24 @@ const styles = StyleSheet.create({
   },
   sectionHeaderPressed: {
     opacity: 0.6,
+  },
+  tiimeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: space[4],
+    marginTop: space[2],
+    paddingVertical: space[2],
+    paddingHorizontal: space[3],
+    backgroundColor: colors.accentSoft,
+    borderRadius: radii.chip,
+  },
+  tiimeBannerPressed: {
+    opacity: 0.7,
+  },
+  tiimeBannerLabel: {
+    marginLeft: 6,
+  },
+  tiimeBannerSpacer: {
+    flex: 1,
   },
 });

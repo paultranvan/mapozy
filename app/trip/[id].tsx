@@ -32,6 +32,8 @@ import { placeLabels } from '@/lib/placeLabel';
 import { useI18n } from '@/i18n';
 import { weekdays } from '@/i18n/dates';
 import { useTripEndpointPois } from '@/queries/usePlaces';
+import { useTiimeConnection, useTiimeCandidates } from '@/queries/useTiime';
+import type { TiimeCandidate } from '@/connectors/tiime/travels';
 import { TripMap } from '@/ui/TripMap';
 import { Text } from '@/ui/Text';
 import { Timeline } from '@/ui/Timeline';
@@ -68,6 +70,8 @@ export default function TripDetailScreen() {
   const startPlaceQ = usePlace(tripQ.data?.startPlaceId ?? null);
   const endPlaceQ = usePlace(tripQ.data?.endPlaceId ?? null);
   const { startPoi, endPoi } = useTripEndpointPois(startPlaceQ.data, endPlaceQ.data);
+  const tiimeConnection = useTiimeConnection();
+  const tiimeCandidatesQ = useTiimeCandidates();
   const sheetRef = useRef<BottomSheet>(null);
   const insets = useSafeAreaInsets();
   // Only mount the MapLibre MapView while focused — see app/day/[date].tsx for
@@ -112,6 +116,9 @@ export default function TripDetailScreen() {
   }
 
   const trip = tripQ.data;
+  const isTiimeCandidate =
+    tiimeCandidatesQ.data?.some((c: TiimeCandidate) => c.tripId === id) ?? false;
+  const showTiimeAction = tiimeConnection.connected && isTiimeCandidate;
 
   async function refresh() {
     await qc.invalidateQueries({ queryKey: ['trip'] });
@@ -326,6 +333,20 @@ export default function TripDetailScreen() {
             {headlineDuration} · {headlineDistance}
           </Text>
 
+          {showTiimeAction ? (
+            <Pressable
+              onPress={() => router.push('/tiime')}
+              style={({ pressed }) => [styles.tiimeAction, pressed && styles.tiimeActionPressed]}
+            >
+              <MaterialCommunityIcons name="briefcase-upload-outline" size={18} color={colors.accent} />
+              <Text variant="label" color={colors.accent} style={styles.tiimeActionLabel}>
+                {t('trip.sendToTiime')}
+              </Text>
+              <View style={styles.tiimeActionSpacer} />
+              <MaterialCommunityIcons name="chevron-right" size={18} color={colors.accent} />
+            </Pressable>
+          ) : null}
+
           <View style={styles.timelineWrap}>
             <Timeline
               startLabel={startLabels.full}
@@ -466,6 +487,24 @@ const styles = StyleSheet.create({
   },
   stats: {
     marginBottom: space[3],
+  },
+  tiimeAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: space[3],
+    paddingVertical: space[2],
+    paddingHorizontal: space[3],
+    backgroundColor: colors.accentSoft,
+    borderRadius: radii.chip,
+  },
+  tiimeActionPressed: {
+    opacity: 0.7,
+  },
+  tiimeActionLabel: {
+    marginLeft: 6,
+  },
+  tiimeActionSpacer: {
+    flex: 1,
   },
   timelineWrap: {
     marginTop: space[2],
