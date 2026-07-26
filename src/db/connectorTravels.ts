@@ -2,47 +2,54 @@ import type { Db } from './client';
 
 export type ConnectorType = 'tiime';
 
-/** Record that a Mapozy trip was exported to a connector. Idempotent per
- *  (connector, trip): a re-send overwrites the stored external id + timestamp. */
+/** Record that a travel was exported to a connector, keyed by a content
+ *  signature rather than the (volatile) Mapozy trip id: a recompute deletes
+ *  and recreates trips with new ids, but the signature survives it. Idempotent
+ *  per (connector, signature): a re-send overwrites the stored external id,
+ *  timestamp and trip id. */
 export async function recordSentTravel(
   db: Db,
   connector: ConnectorType,
-  mapozyTripId: number,
+  signature: string,
   externalTravelId: string,
-  sentAtMs: number
+  sentAtMs: number,
+  mapozyTripId: number | null
 ): Promise<void> {
   await db.runAsync(
-    `INSERT INTO connector_travels(connector_type, mapozy_trip_id, external_travel_id, sent_at)
-     VALUES(?, ?, ?, ?)
-     ON CONFLICT(connector_type, mapozy_trip_id)
-     DO UPDATE SET external_travel_id = excluded.external_travel_id, sent_at = excluded.sent_at`,
+    `INSERT INTO connector_travels(connector_type, signature, mapozy_trip_id, external_travel_id, sent_at)
+     VALUES(?, ?, ?, ?, ?)
+     ON CONFLICT(connector_type, signature)
+     DO UPDATE SET external_travel_id = excluded.external_travel_id,
+                   sent_at = excluded.sent_at,
+                   mapozy_trip_id = excluded.mapozy_trip_id`,
     connector,
+    signature,
     mapozyTripId,
     externalTravelId,
     sentAtMs
   );
 }
 
-export async function getSentTripIds(
+export async function getSentSignatures(
   db: Db,
   connector: ConnectorType
-): Promise<Set<number>> {
-  const rows = await db.getAllAsync<{ mapozy_trip_id: number }>(
-    `SELECT mapozy_trip_id FROM connector_travels WHERE connector_type = ?`,
+): Promise<Set<string>> {
+  const rows = await db.getAllAsync<{ signature: string }>(
+    `SELECT signature FROM connector_travels WHERE connector_type = ?`,
     connector
   );
-  return new Set(rows.map((r) => r.mapozy_trip_id));
+  return new Set(rows.map((r) => r.signature));
 }
 
-export async function isTripSent(
+export async function isSignatureSent(
   db: Db,
   connector: ConnectorType,
-  mapozyTripId: number
+  signature: string
 ): Promise<boolean> {
   const r = await db.getFirstAsync<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM connector_travels WHERE connector_type = ? AND mapozy_trip_id = ?`,
+    `SELECT COUNT(*) AS n FROM connector_travels WHERE connector_type = ? AND signature = ?`,
     connector,
-    mapozyTripId
+    signature
   );
   return (r?.n ?? 0) > 0;
 }

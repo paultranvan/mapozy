@@ -219,6 +219,27 @@ CREATE TABLE IF NOT EXISTS connector_travels (
 CREATE INDEX IF NOT EXISTS idx_connector_travels_trip ON connector_travels(mapozy_trip_id);
 `;
 
+// Mapozy recompute deletes+recreates trips with NEW ids, and the old
+// mapozy_trip_id FK's ON DELETE CASCADE erased the dedup row along with it,
+// so a previously-sent trip reappeared as a candidate and got re-sent to the
+// connector. Places persist across a recompute (only trips are
+// deleted/recreated), so dedup switches to a content signature keyed on
+// stable place ids instead of the volatile trip id. This table is new
+// (migration 012) and holds no production data, so drop+recreate is safe.
+const MIGRATION_013 = `
+DROP TABLE IF EXISTS connector_travels;
+CREATE TABLE connector_travels (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  connector_type TEXT NOT NULL,
+  signature TEXT NOT NULL,
+  mapozy_trip_id INTEGER,
+  external_travel_id TEXT NOT NULL,
+  sent_at INTEGER NOT NULL,
+  UNIQUE(connector_type, signature)
+);
+CREATE INDEX IF NOT EXISTS idx_connector_travels_sig ON connector_travels(connector_type, signature);
+`;
+
 export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 1, sql: MIGRATION_001 },
   { version: 2, sql: MIGRATION_002 },
@@ -232,6 +253,7 @@ export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 10, sql: MIGRATION_010 },
   { version: 11, sql: MIGRATION_011 },
   { version: 12, sql: MIGRATION_012 },
+  { version: 13, sql: MIGRATION_013 },
 ];
 
 export async function getSchemaVersion(db: Db): Promise<number> {

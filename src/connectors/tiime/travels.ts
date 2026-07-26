@@ -1,9 +1,33 @@
 import type { Db } from '../../db/client';
 import type { StructuredAddress } from '../../db/places';
-import { getSentTripIds, recordSentTravel } from '../../db/connectorTravels';
+import { getSentSignatures, recordSentTravel } from '../../db/connectorTravels';
 import { buildTravelPayload } from './mappers';
 import type { TiimeClient } from './client';
 import type { TiimeTravelResponse } from './types';
+
+function pad(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+/** Local YYYY-MM-DD, distinct from `formatTiimeDate` (which includes time):
+ *  the signature only needs day granularity, so trips recomputed with a
+ *  slightly shifted start time (same day) still collapse to one signature. */
+function localDay(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Content signature used to dedup sends independent of the (volatile)
+ *  Mapozy trip id: a recompute deletes+recreates trips with new ids, but
+ *  places persist, so keying on day + distance + place ids survives it. */
+export function travelSignature(input: {
+  startMs: number;
+  distanceM: number;
+  departurePlaceId: number | null;
+  arrivalPlaceId: number | null;
+}): string {
+  return `${localDay(input.startMs)}|${Math.round(input.distanceM / 1000)}|${input.departurePlaceId ?? 'x'}|${input.arrivalPlaceId ?? 'x'}`;
+}
 
 export interface TiimeCandidate {
   tripId: number;
@@ -34,9 +58,19 @@ export async function listCandidates(db: Db): Promise<TiimeCandidate[]> {
         AND (sp.category = 'work' OR ep.category = 'work')
       ORDER BY t.start_time_ms DESC`
   );
-  const sent = await getSentTripIds(db, 'tiime');
+  const sent = await getSentSignatures(db, 'tiime');
   return rows
-    .filter((r) => !sent.has(r.id))
+    .filter(
+      (r) =>
+        !sent.has(
+          travelSignature({
+            startMs: r.start_time_ms,
+            distanceM: r.distance_m,
+            departurePlaceId: r.start_place_id,
+            arrivalPlaceId: r.end_place_id,
+          })
+        )
+    )
     .map((r) => ({
       tripId: r.id,
       startMs: r.start_time_ms,
@@ -75,6 +109,12 @@ export async function sendCandidate(
     `/v1/companies/${opts.companyId}/users/me/travels`,
     payload
   );
-  await recordSentTravel(db, 'tiime', candidate.tripId, String(res.id), Date.now());
+  const signature = travelSignature({
+    startMs: candidate.startMs,
+    distanceM: candidate.distanceM,
+    departurePlaceId: candidate.departurePlaceId,
+    arrivalPlaceId: candidate.arrivalPlaceId,
+  });
+  await recordSentTravel(db, 'tiime', signature, String(res.id), Date.now(), candidate.tripId);
   return res.id;
 }

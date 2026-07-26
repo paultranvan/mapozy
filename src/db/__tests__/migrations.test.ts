@@ -125,31 +125,39 @@ describe('migration 012', () => {
     }
   });
 
-  it('creates connector_travels with a unique (type, trip) constraint', async () => {
+});
+
+describe('migration 013', () => {
+  it('creates connector_travels with a unique (type, signature) constraint and no trip FK', async () => {
     const db = createMockDb();
     await runMigrations(db);
-    // mapozy_trip_id has a FK to trips(id) (foreign_keys=ON in createMockDb),
-    // so a real trip row is needed before it can be referenced.
-    const trip = await db.runAsync(
-      `INSERT INTO trips
-         (start_time_ms, end_time_ms, start_place_id, end_place_id, distance_m,
-          duration_s, dominant_mode, co2_g, geojson, manual_purpose, created_at_ms)
-       VALUES (0,1,NULL,NULL,0,1,'car',0,'{}',NULL,0)`
-    );
-    const tripId = trip.lastInsertRowId;
+    // mapozy_trip_id is now plain informational data (nullable, no FK), so no
+    // real trips row is required to insert here.
     await db.runAsync(
-      `INSERT INTO connector_travels(connector_type, mapozy_trip_id, external_travel_id, sent_at) VALUES('tiime', ?, 'x', 100)`,
-      tripId
+      `INSERT INTO connector_travels(connector_type, signature, mapozy_trip_id, external_travel_id, sent_at) VALUES('tiime', 'sig-1', NULL, 'x', 100)`
     );
     let rejected = false;
     try {
       await db.runAsync(
-        `INSERT INTO connector_travels(connector_type, mapozy_trip_id, external_travel_id, sent_at) VALUES('tiime', ?, 'y', 200)`,
-        tripId
+        `INSERT INTO connector_travels(connector_type, signature, mapozy_trip_id, external_travel_id, sent_at) VALUES('tiime', 'sig-1', NULL, 'y', 200)`
       );
     } catch {
       rejected = true;
     }
     expect(rejected).toBe(true);
+  });
+
+  it('allows mapozy_trip_id to reference a trip that no longer exists', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    // A trip id that was never created (or has since been deleted by a
+    // recompute) must not be rejected: there is no FK on this column anymore.
+    await db.runAsync(
+      `INSERT INTO connector_travels(connector_type, signature, mapozy_trip_id, external_travel_id, sent_at) VALUES('tiime', 'sig-2', 999999, 'z', 300)`
+    );
+    const row = await db.getFirstAsync<{ mapozy_trip_id: number }>(
+      `SELECT mapozy_trip_id FROM connector_travels WHERE signature = 'sig-2'`
+    );
+    expect(row?.mapozy_trip_id).toBe(999999);
   });
 });
