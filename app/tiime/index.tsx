@@ -68,6 +68,10 @@ export default function TiimeQueueScreen() {
   // Tracks which tripIds already had their default state (incl. addresses)
   // initialized, so a later re-render / refetch doesn't clobber user edits.
   const initializedRef = useRef<Set<number>>(new Set());
+  // Synchronous re-entrancy guard for the batch send: `sendingBatch` only
+  // disables the button after a re-render, so a fast double tap could run the
+  // loop twice with a stale cardState (per-card guards still see 'idle').
+  const sendingRef = useRef(false);
 
   useEffect(() => {
     const toInit = candidates.filter((c) => !initializedRef.current.has(c.tripId));
@@ -126,13 +130,15 @@ export default function TiimeQueueScreen() {
       : format(ms, 'MMM d, yyyy, HH:mm');
 
   const onSendSelected = useCallback(async () => {
-    const companyId = config.companyId;
-    const vehicleId = config.vehicleId;
-    if (companyId == null || vehicleId == null) return;
-    const ids = Array.from(selected);
-    if (ids.length === 0) return;
-    setSendingBatch(true);
+    if (sendingRef.current) return;
+    sendingRef.current = true;
     try {
+      const companyId = config.companyId;
+      const vehicleId = config.vehicleId;
+      if (companyId == null || vehicleId == null) return;
+      const ids = Array.from(selected);
+      if (ids.length === 0) return;
+      setSendingBatch(true);
       // Sequential on purpose: keeps per-card status updates easy to reason
       // about and avoids hammering the Tiime API with a burst of requests.
       for (const tripId of ids) {
@@ -168,6 +174,7 @@ export default function TiimeQueueScreen() {
         }
       }
     } finally {
+      sendingRef.current = false;
       setSendingBatch(false);
     }
   }, [selected, candidates, cardState, config.companyId, config.vehicleId, sendMutation, patchCard]);

@@ -43,7 +43,9 @@ export async function clearStoredToken(): Promise<void> {
   await SecureStore.deleteItemAsync(TIIME_TOKEN_KEY);
 }
 
-export async function isConnected(): Promise<boolean> {
-  const token = await getStoredToken();
-  return token !== null && !isTokenExpired(token, Date.now());
+/** Presence-only check (ignores expiry). "Connected" means a token is stored:
+ *  the client refreshes lazily on first use / 401, so an expired-but-present
+ *  token must not make the feature look disconnected. */
+export async function hasStoredToken(): Promise<boolean> {
+  return (await getStoredToken()) !== null;
 }

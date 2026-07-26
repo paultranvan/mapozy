@@ -2,7 +2,7 @@ import { createContext, useContext, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDb } from '@/db/DbContext';
 import { getSetting, setSetting, SETTING_KEYS } from '@/db/settings';
-import { isConnected, clearStoredToken } from '@/connectors/tiime/auth';
+import { hasStoredToken, clearStoredToken } from '@/connectors/tiime/auth';
 import { createTiimeClient } from '@/connectors/tiime/client';
 import {
   listCandidates,
@@ -19,7 +19,10 @@ export const TiimeRefresherProvider = RefreshCtx.Provider;
 export const useTiimeRefresher = () => useContext(RefreshCtx);
 
 export function useTiimeConnection() {
-  const q = useQuery({ queryKey: ['tiime', 'connected'], queryFn: () => isConnected() });
+  // Presence-only: an expired token still counts as connected — the client
+  // refreshes it lazily (validToken / 401 retry). Gating on expiry here would
+  // hide every UI surface and the refresh paths would never get to run.
+  const q = useQuery({ queryKey: ['tiime', 'connected'], queryFn: () => hasStoredToken() });
   return { connected: q.data ?? false, refetch: q.refetch };
 }
 

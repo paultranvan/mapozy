@@ -4,7 +4,8 @@ jest.mock('expo-secure-store', () => ({
   deleteItemAsync: jest.fn(),
 }));
 
-import { decodeJwtExpMs, isTokenExpired } from '../auth';
+import * as SecureStore from 'expo-secure-store';
+import { decodeJwtExpMs, isTokenExpired, hasStoredToken } from '../auth';
 
 // Minimal JWT with payload {"exp": 1785084920}
 function jwtWithExp(expSeconds: number): string {
@@ -27,5 +28,21 @@ describe('tiime auth token logic', () => {
     expect(isTokenExpired(jwtWithExp(exp), expMs - 120_000)).toBe(false);
     expect(isTokenExpired(jwtWithExp(exp), expMs - 30_000)).toBe(true); // inside 60s skew
     expect(isTokenExpired(jwtWithExp(exp), expMs + 10_000)).toBe(true);
+  });
+});
+
+describe('hasStoredToken', () => {
+  const getItemAsync = SecureStore.getItemAsync as jest.Mock;
+
+  beforeEach(() => getItemAsync.mockReset());
+
+  it('is true when any token is stored, even an expired one', async () => {
+    getItemAsync.mockResolvedValue(jwtWithExp(1)); // exp long past
+    await expect(hasStoredToken()).resolves.toBe(true);
+  });
+
+  it('is false when no token is stored', async () => {
+    getItemAsync.mockResolvedValue(null);
+    await expect(hasStoredToken()).resolves.toBe(false);
   });
 });
