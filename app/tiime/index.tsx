@@ -24,19 +24,10 @@ import {
   useTiimeConfig,
   useSendToTiime,
 } from '@/queries/useTiime';
-import type { TiimeCandidate } from '@/connectors/tiime/travels';
-import { ensurePlaceAddress } from '@/pipeline/geocoding';
+import { resolveTravelAddresses, type TiimeCandidate } from '@/connectors/tiime/travels';
 import type { StructuredAddress } from '@/db/places';
 
 type Translate = (key: TranslationKey, params?: TParams) => string;
-
-const EMPTY_ADDRESS: StructuredAddress = {
-  street: null,
-  houseNumber: null,
-  postalCode: null,
-  city: null,
-  country: null,
-};
 
 type CardStatus = 'idle' | 'sending' | 'sent' | 'error';
 
@@ -80,22 +71,15 @@ export default function TiimeQueueScreen() {
     let isMounted = true;
     (async () => {
       for (const c of toInit) {
-        const [departure, arrival] = await Promise.all([
-          c.departurePlaceId != null
-            ? ensurePlaceAddress(db, c.departurePlaceId)
-            : Promise.resolve(null),
-          c.arrivalPlaceId != null
-            ? ensurePlaceAddress(db, c.arrivalPlaceId)
-            : Promise.resolve(null),
-        ]);
+        const { departure, arrival } = await resolveTravelAddresses(db, c);
         if (!isMounted) return;
         setCardState((prev) => ({
           ...prev,
           [c.tripId]: {
-            arrivalCompanyName: c.arrivalPlaceName ?? '',
+            arrivalCompanyName: c.arrivalCompanyName ?? '',
             roundTrip: false,
-            departure: departure ?? EMPTY_ADDRESS,
-            arrival: arrival ?? EMPTY_ADDRESS,
+            departure,
+            arrival,
             status: 'idle',
             error: null,
           },
@@ -156,7 +140,7 @@ export default function TiimeQueueScreen() {
             vehicleId,
             roundTrip: state.roundTrip,
             overrides: {
-              arrivalCompanyName: state.arrivalCompanyName || candidate.arrivalPlaceName,
+              arrivalCompanyName: state.arrivalCompanyName || candidate.arrivalCompanyName,
               departure: state.departure,
               arrival: state.arrival,
             },

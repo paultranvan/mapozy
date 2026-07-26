@@ -1,143 +1,242 @@
+import type { Db } from '../../../db/client';
 import { createMockDb } from '../../../db/mockDb';
 import { runMigrations } from '../../../db/migrations';
-import { recordSentTravel } from '../../../db/connectorTravels';
-import { listCandidates, sendCandidate, travelSignature } from '../travels';
+import {
+  listCandidates,
+  sendCandidate,
+  travelSignature,
+  type Coord,
+  type TiimeCandidate,
+} from '../travels';
 
-// Insert a trip + two places directly, categorising one as 'work'.
-async function seedCarTrip(
-  db: any,
-  opts: { work: 'start' | 'end'; mode?: string; startMs?: number }
-) {
-  const now = opts.startMs ?? 1_700_000_000_000;
-  const startPlace = await db.runAsync(
-    `INSERT INTO places(kind, category, latitude, longitude, radius_m, first_seen_ms, last_seen_ms, city, street)
-     VALUES('user', ?, 48.8, 2.3, 50, ?, ?, 'Paris', 'Rue A')`,
-    opts.work === 'start' ? 'work' : 'home', now, now
+const EMPTY_ADDR = {
+  street: null,
+  houseNumber: null,
+  postalCode: null,
+  city: null,
+  country: null,
+};
+
+// A place a user tagged as their workplace. Trips are matched to it by
+// geographic proximity (nearestUserPoi), NOT via the trip's start/end place
+// FK columns — those reference auto-clustered places that are frequently
+// evicted/dangling and don't carry the user's category tag.
+const WORK: Coord = { lat: 48.8, lon: 2.3 };
+// Far outside the 100m work zone.
+const HOME: Coord = { lat: 48.9, lon: 2.4 };
+const ELSEWHERE_A: Coord = { lat: 48.95, lon: 2.5 };
+const ELSEWHERE_B: Coord = { lat: 49.0, lon: 2.6 };
+
+function lineStringGeojson(departure: Coord, arrival: Coord): string {
+  return JSON.stringify({
+    type: 'LineString',
+    coordinates: [
+      [departure.lon, departure.lat],
+      [arrival.lon, arrival.lat],
+    ],
+  });
+}
+
+async function insertUserPlace(
+  db: Db,
+  opts: { name: string; category: string; coord: Coord; radiusM?: number }
+): Promise<number> {
+  const now = 1_700_000_000_000;
+  const res = await db.runAsync(
+    `INSERT INTO places(kind, name, category, latitude, longitude, radius_m, first_seen_ms, last_seen_ms)
+     VALUES('user', ?, ?, ?, ?, ?, ?, ?)`,
+    opts.name,
+    opts.category,
+    opts.coord.lat,
+    opts.coord.lon,
+    opts.radiusM ?? 100,
+    now,
+    now
   );
-  const endPlace = await db.runAsync(
-    `INSERT INTO places(kind, category, latitude, longitude, radius_m, first_seen_ms, last_seen_ms, city, street)
-     VALUES('user', ?, 48.9, 2.4, 50, ?, ?, 'Issy', 'Rue B')`,
-    opts.work === 'end' ? 'work' : 'home', now, now
+  return res.lastInsertRowId as number;
+}
+
+async function insertTrip(
+  db: Db,
+  opts: {
+    departure: Coord;
+    arrival: Coord;
+    mode?: string;
+    startMs?: number;
+    distanceM?: number;
+  }
+): Promise<number> {
+  const startMs = opts.startMs ?? 1_700_000_000_000;
+  const geojson = lineStringGeojson(opts.departure, opts.arrival);
+  const res = await db.runAsync(
+    `INSERT INTO trips(start_time_ms, end_time_ms, distance_m, duration_s, dominant_mode, geojson, created_at_ms)
+     VALUES(?, ?, ?, ?, ?, ?, ?)`,
+    startMs,
+    startMs + 1_800_000,
+    opts.distanceM ?? 32000,
+    1800,
+    opts.mode ?? 'car',
+    geojson,
+    startMs
   );
-  const trip = await db.runAsync(
-    `INSERT INTO trips(start_time_ms, end_time_ms, start_place_id, end_place_id, distance_m, duration_s, dominant_mode, geojson, created_at_ms)
-     VALUES(?, ?, ?, ?, 32000, 1800, ?, '{}', ?)`,
-    now, now + 1800000, startPlace.lastInsertRowId, endPlace.lastInsertRowId, opts.mode ?? 'car', now
-  );
-  return {
-    tripId: trip.lastInsertRowId as number,
-    startPlaceId: startPlace.lastInsertRowId as number,
-    endPlaceId: endPlace.lastInsertRowId as number,
-  };
+  return res.lastInsertRowId as number;
+}
+
+function findCandidate(cands: TiimeCandidate[], tripId: number): TiimeCandidate | undefined {
+  return cands.find((c) => c.tripId === tripId);
 }
 
 describe('travelSignature', () => {
+  const startMs = 1_700_000_000_000;
+  const base = { startMs, distanceM: 32000, departure: WORK, arrival: HOME };
+
   it('is stable for identical content and ignores trip id', () => {
-    const a = travelSignature({
-      startMs: 1_700_000_000_000,
-      distanceM: 32000,
-      departurePlaceId: 1,
-      arrivalPlaceId: 2,
-    });
-    const b = travelSignature({
-      startMs: 1_700_000_000_000,
-      distanceM: 32000,
-      departurePlaceId: 1,
-      arrivalPlaceId: 2,
-    });
-    expect(a).toBe(b);
+    expect(travelSignature(base)).toBe(travelSignature({ ...base }));
   });
 
-  it('differs when distance or places differ', () => {
-    const base = { startMs: 1_700_000_000_000, distanceM: 32000, departurePlaceId: 1, arrivalPlaceId: 2 };
+  it('differs when distance or endpoint coordinates differ', () => {
     expect(travelSignature(base)).not.toBe(travelSignature({ ...base, distanceM: 33000 }));
-    expect(travelSignature(base)).not.toBe(travelSignature({ ...base, arrivalPlaceId: 3 }));
+    expect(travelSignature(base)).not.toBe(
+      travelSignature({ ...base, arrival: ELSEWHERE_A })
+    );
+    expect(travelSignature(base)).not.toBe(
+      travelSignature({ ...base, departure: ELSEWHERE_A })
+    );
   });
 
-  it('handles null place ids', () => {
+  it('produces the day|km|lat,lon|lat,lon coord-based format', () => {
+    const d = new Date(startMs);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const expectedDay = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     const sig = travelSignature({
-      startMs: 1_700_000_000_000,
-      distanceM: 32000,
-      departurePlaceId: null,
-      arrivalPlaceId: null,
+      startMs,
+      distanceM: 32499,
+      departure: { lat: 48.8, lon: 2.3 },
+      arrival: { lat: 48.85001, lon: 2.35001 },
     });
-    expect(sig).toContain('x|x');
+    expect(sig).toBe(`${expectedDay}|32|48.8000,2.3000|48.8500,2.3500`);
   });
 });
 
-describe('tiime travels domain', () => {
-  it('lists car trips touching a work place, excluding already-sent', async () => {
+describe('listCandidates', () => {
+  it('includes a car trip whose ARRIVAL lands inside a work-tagged place zone, with the place name as arrivalCompanyName', async () => {
     const db = createMockDb();
     await runMigrations(db);
-    const t1 = await seedCarTrip(db, { work: 'end' });
-    await seedCarTrip(db, { work: 'start', mode: 'bike' }); // not car → excluded
-    const sent = await seedCarTrip(db, { work: 'start' });
-    const sig = travelSignature({
-      startMs: 1_700_000_000_000,
-      distanceM: 32000,
-      departurePlaceId: sent.startPlaceId,
-      arrivalPlaceId: sent.endPlaceId,
-    });
-    await recordSentTravel(db, 'tiime', sig, 'x', 1, sent.tripId);
+    await insertUserPlace(db, { name: 'Acme Corp', category: 'work', coord: WORK });
+    const trip = await insertTrip(db, { departure: HOME, arrival: WORK });
 
     const cands = await listCandidates(db);
-    expect(cands.map((c) => c.tripId)).toEqual([t1.tripId]);
+    const found = findCandidate(cands, trip);
+    expect(found).toBeDefined();
+    expect(found?.arrivalCompanyName).toBe('Acme Corp');
+    expect(found?.departure).toEqual(HOME);
+    expect(found?.arrival).toEqual(WORK);
   });
 
-  it('excludes a recomputed trip (new trip id, same content) from candidates', async () => {
-    // This is the core fix: Mapozy recompute deletes+recreates trips with a
-    // NEW id, but places are stable. A trip already sent to Tiime must not
-    // reappear as a candidate just because its trip id changed.
+  it('includes a car trip whose DEPARTURE lands inside a work-tagged place zone', async () => {
     const db = createMockDb();
     await runMigrations(db);
-    const original = await seedCarTrip(db, { work: 'end' });
+    await insertUserPlace(db, { name: 'Acme Corp', category: 'work', coord: WORK });
+    const trip = await insertTrip(db, { departure: WORK, arrival: HOME });
+
+    const cands = await listCandidates(db);
+    expect(findCandidate(cands, trip)).toBeDefined();
+  });
+
+  it('excludes a car trip far from every work place', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    await insertUserPlace(db, { name: 'Acme Corp', category: 'work', coord: WORK });
+    const trip = await insertTrip(db, { departure: ELSEWHERE_A, arrival: ELSEWHERE_B });
+
+    const cands = await listCandidates(db);
+    expect(findCandidate(cands, trip)).toBeUndefined();
+  });
+
+  it('excludes a non-car trip even if it ends at the work place (mode filter)', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    await insertUserPlace(db, { name: 'Acme Corp', category: 'work', coord: WORK });
+    const trip = await insertTrip(db, { departure: HOME, arrival: WORK, mode: 'bike' });
+
+    const cands = await listCandidates(db);
+    expect(findCandidate(cands, trip)).toBeUndefined();
+  });
+
+  it('returns no candidates when the user has no work-tagged place at all', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    await insertUserPlace(db, { name: 'Home', category: 'home', coord: HOME });
+    await insertTrip(db, { departure: HOME, arrival: WORK });
+
+    const cands = await listCandidates(db);
+    expect(cands).toEqual([]);
+  });
+
+  it('excludes a recomputed trip (new trip id, same endpoints/day/km) already sent under a different id', async () => {
+    // Core fix under test: Mapozy recompute deletes+recreates trips with a NEW
+    // id but stable endpoint coordinates (from the geojson, not the volatile
+    // place FK). A trip already sent to Tiime must not reappear as a
+    // candidate just because its trip id changed.
+    const db = createMockDb();
+    await runMigrations(db);
+    await insertUserPlace(db, { name: 'Acme Corp', category: 'work', coord: WORK });
+    const tripA = await insertTrip(db, { departure: HOME, arrival: WORK });
 
     const post = jest.fn(async () => ({ id: 999 }));
     const client = { get: jest.fn(), post } as any;
-    const addr = { street: 'Rue A', houseNumber: null, postalCode: '75000', city: 'Paris', country: 'FR' };
+
     const candsBefore = await listCandidates(db);
-    const first = candsBefore[0];
-    if (!first) throw new Error('expected a candidate');
-    await sendCandidate(db, client, first, {
-      vehicleId: 58697, companyId: 243813, roundTrip: false,
-      arrivalCompanyName: 'ACME', departure: addr, arrival: addr,
+    const candidate = findCandidate(candsBefore, tripA);
+    if (!candidate) throw new Error('expected tripA to be a candidate');
+
+    await sendCandidate(db, client, candidate, {
+      vehicleId: 58697,
+      companyId: 243813,
+      roundTrip: false,
+      arrivalCompanyName: 'Acme Corp',
+      departure: EMPTY_ADDR,
+      arrival: EMPTY_ADDR,
     });
 
-    // Simulate recompute: delete the original trip, insert a new one with a
-    // different id but identical start time / distance / place ids.
-    await db.runAsync(`DELETE FROM trips WHERE id = ?`, original.tripId);
-    const recomputed = await db.runAsync(
-      `INSERT INTO trips(start_time_ms, end_time_ms, start_place_id, end_place_id, distance_m, duration_s, dominant_mode, geojson, created_at_ms)
-       VALUES(?, ?, ?, ?, 32000, 1800, 'car', '{}', ?)`,
-      1_700_000_000_000, 1_700_000_000_000 + 1800000,
-      original.startPlaceId, original.endPlaceId, 1_700_000_000_000
-    );
-    expect(recomputed.lastInsertRowId).not.toBe(original.tripId);
+    // Simulate recompute: a brand-new trip id, identical start time,
+    // distance and endpoints (as a fresh geojson would still encode).
+    const tripB = await insertTrip(db, { departure: HOME, arrival: WORK });
+    expect(tripB).not.toBe(tripA);
 
     const candsAfter = await listCandidates(db);
-    expect(candsAfter.find((c) => c.tripId === recomputed.lastInsertRowId)).toBeUndefined();
+    expect(findCandidate(candsAfter, tripB)).toBeUndefined();
   });
 
   it('sends a candidate, POSTs to the verified path, and records dedup', async () => {
     const db = createMockDb();
     await runMigrations(db);
-    const t1 = await seedCarTrip(db, { work: 'end' });
-    const cands = await listCandidates(db);
+    await insertUserPlace(db, { name: 'Acme Corp', category: 'work', coord: WORK });
+    const trip = await insertTrip(db, { departure: HOME, arrival: WORK });
 
     const post = jest.fn(async () => ({ id: 999 }));
     const client = { get: jest.fn(), post } as any;
-    const addr = { street: 'Rue A', houseNumber: null, postalCode: '75000', city: 'Paris', country: 'FR' };
 
-    const first = cands[0];
-    if (!first) throw new Error('expected a candidate');
-    const id = await sendCandidate(db, client, first, {
-      vehicleId: 58697, companyId: 243813, roundTrip: false,
-      arrivalCompanyName: 'ACME', departure: addr, arrival: addr,
+    const cands = await listCandidates(db);
+    const candidate = findCandidate(cands, trip);
+    if (!candidate) throw new Error('expected a candidate');
+
+    const id = await sendCandidate(db, client, candidate, {
+      vehicleId: 58697,
+      companyId: 243813,
+      roundTrip: false,
+      arrivalCompanyName: 'Acme Corp',
+      departure: EMPTY_ADDR,
+      arrival: EMPTY_ADDR,
     });
 
     expect(id).toBe(999);
-    expect(post).toHaveBeenCalledWith('/v1/companies/243813/users/me/travels', expect.objectContaining({ vehicle_id: 58697 }));
-    const cands2 = await listCandidates(db);
-    expect(cands2.find((c) => c.tripId === t1.tripId)).toBeUndefined();
+    expect(post).toHaveBeenCalledWith(
+      '/v1/companies/243813/users/me/travels',
+      expect.objectContaining({ vehicle_id: 58697 })
+    );
+
+    const candsAfter = await listCandidates(db);
+    expect(findCandidate(candsAfter, trip)).toBeUndefined();
   });
 });

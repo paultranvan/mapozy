@@ -7,11 +7,10 @@ import { createTiimeClient } from '@/connectors/tiime/client';
 import {
   listCandidates,
   sendCandidate,
+  resolveTravelAddresses,
   type TiimeCandidate,
   type SendOptions,
 } from '@/connectors/tiime/travels';
-import { ensurePlaceAddress } from '@/pipeline/geocoding';
-import type { StructuredAddress } from '@/db/places';
 
 type RefreshFn = () => Promise<string | null>;
 const RefreshCtx = createContext<RefreshFn>(async () => null);
@@ -64,14 +63,6 @@ function toNum(v: string | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-const EMPTY_ADDR: StructuredAddress = {
-  street: null,
-  houseNumber: null,
-  postalCode: null,
-  city: null,
-  country: null,
-};
-
 export function useSendToTiime() {
   const db = useDb();
   const qc = useQueryClient();
@@ -87,21 +78,18 @@ export function useSendToTiime() {
       overrides?: Partial<Pick<SendOptions, 'departure' | 'arrival' | 'arrivalCompanyName'>>;
     }) => {
       const { candidate, companyId, vehicleId } = args;
-      const departure =
-        args.overrides?.departure ??
-        (candidate.departurePlaceId != null
-          ? (await ensurePlaceAddress(db, candidate.departurePlaceId)) ?? EMPTY_ADDR
-          : EMPTY_ADDR);
-      const arrival =
-        args.overrides?.arrival ??
-        (candidate.arrivalPlaceId != null
-          ? (await ensurePlaceAddress(db, candidate.arrivalPlaceId)) ?? EMPTY_ADDR
-          : EMPTY_ADDR);
+      let departure = args.overrides?.departure;
+      let arrival = args.overrides?.arrival;
+      if (!departure || !arrival) {
+        const resolved = await resolveTravelAddresses(db, candidate);
+        departure = departure ?? resolved.departure;
+        arrival = arrival ?? resolved.arrival;
+      }
       return sendCandidate(db, client, candidate, {
         companyId,
         vehicleId,
         roundTrip: args.roundTrip ?? false,
-        arrivalCompanyName: args.overrides?.arrivalCompanyName ?? candidate.arrivalPlaceName,
+        arrivalCompanyName: args.overrides?.arrivalCompanyName ?? candidate.arrivalCompanyName,
         departure,
         arrival,
       });
