@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ScrollView,
   View,
@@ -40,6 +40,19 @@ import { getInterruptions, type Interruption } from '@/tracking/interruptions';
 import { format } from 'date-fns';
 import { fr as dateFnsFr } from 'date-fns/locale';
 import { t, useI18n, type LanguagePref } from '@/i18n';
+import {
+  useTiimeConnection,
+  useTiimeConfig,
+  useTiimeRefresher,
+  disconnectTiime,
+} from '@/queries/useTiime';
+import { createTiimeClient } from '@/connectors/tiime/client';
+import {
+  fetchDefaultCompany,
+  fetchVehicles,
+  type TiimeCompany,
+  type TiimeVehicle,
+} from '@/connectors/tiime/config-api';
 
 const LANGUAGE_OPTIONS: Array<{ pref: LanguagePref; labelKey: Parameters<typeof t>[0] }> = [
   { pref: 'system', labelKey: 'settings.langSystem' },
@@ -64,6 +77,20 @@ export default function SettingsScreen() {
   const [allowExternalApi, setAllowExternalApi] = useState(true);
   const [networkInfoVisible, setNetworkInfoVisible] = useState(false);
   const health = useTrackingHealth();
+
+  const tiimeConnection = useTiimeConnection();
+  const tiimeConfig = useTiimeConfig();
+  const tiimeRefresh = useTiimeRefresher();
+  const tiimeClient = useMemo(
+    () => createTiimeClient({ refresh: tiimeRefresh }),
+    [tiimeRefresh]
+  );
+  const [tiimeCompany, setTiimeCompany] = useState<TiimeCompany | null>(null);
+  const [tiimeCompanyError, setTiimeCompanyError] = useState<string | null>(null);
+  const [tiimeCompanyLoading, setTiimeCompanyLoading] = useState(false);
+  const [tiimeVehicles, setTiimeVehicles] = useState<TiimeVehicle[] | null>(null);
+  const [tiimeVehiclesError, setTiimeVehiclesError] = useState<string | null>(null);
+  const [tiimeVehiclesLoading, setTiimeVehiclesLoading] = useState(false);
 
   const refreshCounts = useCallback(async () => {
     setTripCount(await countTrips(db));
@@ -97,6 +124,55 @@ export default function SettingsScreen() {
       void refreshCounts();
     }, [refreshCounts])
   );
+
+  // Resolve the (single, v1) default company once connected, then persist it.
+  useEffect(() => {
+    if (!tiimeConnection.connected) {
+      setTiimeCompany(null);
+      setTiimeVehicles(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setTiimeCompanyLoading(true);
+      setTiimeCompanyError(null);
+      try {
+        const company = await fetchDefaultCompany(tiimeClient);
+        if (cancelled) return;
+        setTiimeCompany(company);
+        await tiimeConfig.setCompanyId(company.id);
+      } catch (e) {
+        if (!cancelled) setTiimeCompanyError(String(e));
+      } finally {
+        if (!cancelled) setTiimeCompanyLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tiimeConnection.connected, tiimeClient]);
+
+  // Once the company is known, list its active vehicles for the picker.
+  useEffect(() => {
+    if (!tiimeCompany) return;
+    let cancelled = false;
+    (async () => {
+      setTiimeVehiclesLoading(true);
+      setTiimeVehiclesError(null);
+      try {
+        const list = await fetchVehicles(tiimeClient, tiimeCompany.id);
+        if (!cancelled) setTiimeVehicles(list);
+      } catch (e) {
+        if (!cancelled) setTiimeVehiclesError(String(e));
+      } finally {
+        if (!cancelled) setTiimeVehiclesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tiimeCompany, tiimeClient]);
 
   // "Jun 5 14:02" / "5 juin 14:02" — interruption timestamps.
   const formatInterruptionDate = (ms: number) =>
@@ -249,6 +325,17 @@ export default function SettingsScreen() {
     router.replace('/onboarding');
   }
 
+  async function onSelectTiimeVehicle(vehicle: TiimeVehicle) {
+    await tiimeConfig.setVehicleId(vehicle.id);
+  }
+
+  async function onDisconnectTiime() {
+    await disconnectTiime();
+    setTiimeCompany(null);
+    setTiimeVehicles(null);
+    await tiimeConnection.refetch();
+  }
+
   return (
     <View style={styles.root}>
       <TopBar title={t('settings.title')} />
@@ -302,6 +389,89 @@ export default function SettingsScreen() {
               />
             )}
           </Pressable>
+        </Card>
+
+        <Text variant="display" onGround style={styles.section}>
+          {t('settings.sectionTiime')}
+        </Text>
+        <Card style={styles.card}>
+          {!tiimeConnection.connected ? (
+            <Pressable
+              style={styles.actionRow}
+              onPress={() => router.push('/tiime/login')}
+            >
+              <View style={{ flex: 1 }}>
+                <Text variant="title">{t('settings.tiimeConnect')}</Text>
+                <Text variant="meta" soft>
+                  {t('settings.tiimeConnectHint')}
+                </Text>
+              </View>
+              <MaterialCommunityIcons name="chevron-right" size={22} color={colors.inkSoft} />
+            </Pressable>
+          ) : (
+            <>
+              <View style={styles.row}>
+                <View style={{ flex: 1 }}>
+                  <Text variant="title">{t('settings.tiimeCompany')}</Text>
+                  {tiimeCompanyLoading ? (
+                    <ActivityIndicator size="small" color={colors.ink} />
+                  ) : tiimeCompanyError ? (
+                    <Text variant="meta" soft>
+                      {t('settings.tiimeLoadError', { error: tiimeCompanyError })}
+                    </Text>
+                  ) : (
+                    <Text variant="meta" soft>
+                      {tiimeCompany?.name ?? '—'}
+                    </Text>
+                  )}
+                </View>
+              </View>
+
+              <View style={styles.divider} />
+              <Text variant="title" style={styles.tiimeVehicleLabel}>
+                {t('settings.tiimeVehicle')}
+              </Text>
+              {tiimeVehiclesLoading ||
+              (!tiimeCompany && !tiimeCompanyError) ||
+              (!!tiimeCompany && tiimeVehicles === null && !tiimeVehiclesError) ? (
+                <ActivityIndicator size="small" color={colors.ink} />
+              ) : tiimeVehiclesError ? (
+                <Text variant="meta" soft>
+                  {t('settings.tiimeLoadError', { error: tiimeVehiclesError })}
+                </Text>
+              ) : tiimeVehicles && tiimeVehicles.length === 0 ? (
+                <Text variant="meta" soft>
+                  {t('settings.tiimeNoVehicles')}
+                </Text>
+              ) : (
+                (tiimeVehicles ?? []).map((vehicle, idx) => (
+                  <View key={vehicle.id}>
+                    {idx > 0 && <View style={styles.divider} />}
+                    <Pressable
+                      style={styles.actionRow}
+                      onPress={() => onSelectTiimeVehicle(vehicle)}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: tiimeConfig.vehicleId === vehicle.id }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text variant="title">{vehicle.name}</Text>
+                      </View>
+                      {tiimeConfig.vehicleId === vehicle.id && (
+                        <MaterialCommunityIcons name="check" size={22} color={colors.accent} />
+                      )}
+                    </Pressable>
+                  </View>
+                ))
+              )}
+
+              <View style={styles.divider} />
+              <Pressable style={styles.actionRow} onPress={onDisconnectTiime}>
+                <Text variant="title" color={colors.danger}>
+                  {t('settings.tiimeDisconnect')}
+                </Text>
+              </Pressable>
+            </>
+          )}
         </Card>
 
         <Text variant="display" onGround style={styles.section}>
@@ -703,6 +873,9 @@ const styles = StyleSheet.create({
   unprocessedHint: {
     marginTop: space[1],
     opacity: 0.8,
+  },
+  tiimeVehicleLabel: {
+    marginTop: space[1],
   },
   actionRow: {
     flexDirection: 'row',

@@ -139,6 +139,14 @@ export const fr: Record<TranslationKey, string> = {
   'settings.netModalOutro':
     "Ce sont des serveurs communautaires OpenStreetMap publics. Aucun compte n'est utilisé, mais les coordonnées de vos trajets transitent par eux tant que le mode hors-ligne est désactivé.",
   'settings.gotIt': 'Compris',
+  'settings.sectionTiime': 'Compte Tiime',
+  'settings.tiimeConnect': 'Se connecter à Tiime',
+  'settings.tiimeConnectHint': 'Envoyez vos trajets professionnels vers Tiime',
+  'settings.tiimeCompany': 'Société',
+  'settings.tiimeVehicle': 'Véhicule',
+  'settings.tiimeNoVehicles': 'Aucun véhicule actif trouvé.',
+  'settings.tiimeLoadError': 'Impossible de charger les données Tiime : {error}',
+  'settings.tiimeDisconnect': 'Se déconnecter',
 
   // Écran d'erreur (error boundary)
   'errorFallback.title': 'Un problème est survenu',

@@ -20,7 +20,7 @@ export class TiimeAuthError extends Error {
 }
 
 export interface TiimeClient {
-  get<T>(path: string): Promise<T>;
+  get<T>(path: string, opts?: { accept?: string }): Promise<T>;
   post<T>(path: string, body: unknown): Promise<T>;
 }
 
@@ -40,12 +40,21 @@ export function createTiimeClient(opts: {
     return token;
   }
 
-  async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+  async function request<T>(
+    method: 'GET' | 'POST',
+    path: string,
+    body?: unknown,
+    accept?: string
+  ): Promise<T> {
     let token = await validToken();
     const doFetch = (t: string) =>
       fetch(`${base}${path}`, {
         method,
-        headers: { ...BASE_HEADERS, authorization: `Bearer ${t}` },
+        headers: {
+          ...BASE_HEADERS,
+          ...(accept ? { accept } : {}),
+          authorization: `Bearer ${t}`,
+        },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
 
@@ -64,7 +73,8 @@ export function createTiimeClient(opts: {
   }
 
   return {
-    get: <T>(path: string) => request<T>('GET', path),
+    get: <T>(path: string, opts?: { accept?: string }) =>
+      request<T>('GET', path, undefined, opts?.accept),
     post: <T>(path: string, b: unknown) => request<T>('POST', path, b),
   };
 }

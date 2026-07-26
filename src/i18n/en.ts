@@ -141,6 +141,14 @@ export const en = {
   'settings.netModalOutro':
     'These are public OpenStreetMap community servers. No account is used, but your trip’s coordinates do transit through them while offline mode is off.',
   'settings.gotIt': 'Got it',
+  'settings.sectionTiime': 'Tiime account',
+  'settings.tiimeConnect': 'Connect to Tiime',
+  'settings.tiimeConnectHint': 'Send your business trips to Tiime',
+  'settings.tiimeCompany': 'Company',
+  'settings.tiimeVehicle': 'Vehicle',
+  'settings.tiimeNoVehicles': 'No active vehicles found.',
+  'settings.tiimeLoadError': 'Could not load Tiime data: {error}',
+  'settings.tiimeDisconnect': 'Disconnect',
 
   // Screen error boundary
   'errorFallback.title': 'Something went wrong',

@@ -51,4 +51,15 @@ describe('TiimeClient', () => {
     }
     expect(caughtError).toBeInstanceOf(TiimeAuthError);
   });
+
+  it('sends a custom accept header when provided', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch' as any).mockResolvedValue({
+      status: 200, ok: true, json: async () => ({ vehicles: [] }),
+    } as any);
+    const client = createTiimeClient({ refresh: async () => 'GOOD' });
+    await client.get('/v1/x', { accept: 'application/vnd.tiime.vehicles.v2+json' });
+    const call = fetchMock.mock.calls[0]!;
+    const init = call[1] as any;
+    expect(init.headers.accept).toBe('application/vnd.tiime.vehicles.v2+json');
+  });
 });
