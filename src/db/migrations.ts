@@ -240,6 +240,14 @@ CREATE TABLE connector_travels (
 CREATE INDEX IF NOT EXISTS idx_connector_travels_sig ON connector_travels(connector_type, signature);
 `;
 
+// The dedup signature format changed (place-ids -> content coords) once the
+// connector switched to proximity detection. Any pre-release row was keyed by
+// the old format and would no longer match, so clear the ledger. The connector
+// never shipped a working send path, so there is no real sent-history to lose.
+const MIGRATION_014 = `
+DELETE FROM connector_travels;
+`;
+
 export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 1, sql: MIGRATION_001 },
   { version: 2, sql: MIGRATION_002 },
@@ -254,6 +262,7 @@ export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 11, sql: MIGRATION_011 },
   { version: 12, sql: MIGRATION_012 },
   { version: 13, sql: MIGRATION_013 },
+  { version: 14, sql: MIGRATION_014 },
 ];
 
 export async function getSchemaVersion(db: Db): Promise<number> {

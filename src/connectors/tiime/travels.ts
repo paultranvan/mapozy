@@ -71,8 +71,8 @@ interface GeojsonLike {
 function isLonLat(v: unknown): v is [number, number] {
   return (
     Array.isArray(v) &&
-    typeof v[0] === 'number' &&
-    typeof v[1] === 'number'
+    Number.isFinite(v[0]) &&
+    Number.isFinite(v[1])
   );
 }
 
