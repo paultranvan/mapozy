@@ -162,7 +162,12 @@ export default function SettingsScreen() {
       setTiimeVehiclesError(null);
       try {
         const list = await fetchVehicles(tiimeClient, tiimeCompany.id);
-        if (!cancelled) setTiimeVehicles(list);
+        if (cancelled) return;
+        setTiimeVehicles(list);
+        // A single vehicle needs no choice — select it by default.
+        if (list.length === 1 && tiimeConfig.vehicleId == null) {
+          await tiimeConfig.setVehicleId(list[0]!.id);
+        }
       } catch (e) {
         if (!cancelled) setTiimeVehiclesError(String(e));
       } finally {
@@ -172,6 +177,9 @@ export default function SettingsScreen() {
     return () => {
       cancelled = true;
     };
+    // tiimeConfig is intentionally omitted: including it re-runs on every
+    // setVehicleId (which invalidates the config query) → refetch loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tiimeCompany, tiimeClient]);
 
   // "Jun 5 14:02" / "5 juin 14:02" — interruption timestamps.
@@ -416,7 +424,7 @@ export default function SettingsScreen() {
             <>
               <View style={styles.row}>
                 <View style={{ flex: 1 }}>
-                  <Text variant="title">{t('settings.tiimeCompany')}</Text>
+                  <Text variant="label" color={colors.inkSoft}>{t('settings.tiimeCompany')}</Text>
                   {tiimeCompanyLoading ? (
                     <ActivityIndicator size="small" color={colors.ink} />
                   ) : tiimeCompanyError ? (
@@ -424,7 +432,7 @@ export default function SettingsScreen() {
                       {t('settings.tiimeLoadError', { error: tiimeCompanyError })}
                     </Text>
                   ) : (
-                    <Text variant="meta" soft>
+                    <Text variant="title">
                       {tiimeCompany?.name ?? '—'}
                     </Text>
                   )}
@@ -432,7 +440,7 @@ export default function SettingsScreen() {
               </View>
 
               <View style={styles.divider} />
-              <Text variant="title" style={styles.tiimeVehicleLabel}>
+              <Text variant="label" color={colors.inkSoft} style={styles.tiimeVehicleLabel}>
                 {t('settings.tiimeVehicle')}
               </Text>
               {tiimeVehiclesLoading ||
