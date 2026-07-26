@@ -138,13 +138,18 @@ export default function PlaceEditor() {
     const lon = e.geometry.coordinates[0]!;
     const lat = e.geometry.coordinates[1]!;
     setCoord([lon, lat]);
-    const addr = await reverseGeocode(lat, lon);
-    if (addr && seq === dragSeqRef.current) {
+    const [addr, struct] = await Promise.all([
+      reverseGeocode(lat, lon),
+      reverseGeocodeStructured(lat, lon),
+    ]);
+    if (seq !== dragSeqRef.current) return;
+    if (addr) {
       skipSearchRef.current = true;
       setQuery(addr);
     }
-    const struct = await reverseGeocodeStructured(lat, lon);
-    if (seq === dragSeqRef.current) setStructured(struct);
+    // Only overwrite the structured address on a SUCCESSFUL geocode — a failure
+    // (offline / API disabled) returns null and must not wipe a valid address.
+    if (struct) setStructured(struct);
   };
 
   const onSave = async () => {
