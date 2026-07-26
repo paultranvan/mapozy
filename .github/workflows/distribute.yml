@@ -25,6 +25,9 @@ on:
       notes:
         description: 'Release notes (defaults to the latest commit subject)'
         required: false
+      app_id_suffix:
+        description: 'applicationId suffix (e.g. .debug) to install alongside prod. When set, the APK is uploaded as a downloadable artifact instead of Firebase (a suffixed package does not match the prod Firebase app).'
+        required: false
 
 concurrency:
   group: distribute-${{ github.ref }}
@@ -58,6 +61,7 @@ jobs:
         run: npx expo prebuild --platform android --no-install
         env:
           CI: '1'
+          MAPOZY_APP_ID_SUFFIX: ${{ github.event.inputs.app_id_suffix }}
 
       - name: Restore keystore and signing properties
         env:
@@ -96,7 +100,18 @@ jobs:
             echo "ERROR: APK is debug-signed — release keystore was not applied"; exit 1
           fi
 
+      - name: Upload APK artifact (for suffixed / sideload builds)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mapozy-apk${{ github.event.inputs.app_id_suffix }}
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
       - name: Distribute to Firebase App Distribution
+        # A suffixed applicationId (e.g. .debug) does not match the prod Firebase
+        # app, so skip Firebase for those builds — the APK artifact above is the
+        # delivery path. Tag pushes and un-suffixed dispatches distribute normally.
+        if: ${{ github.event.inputs.app_id_suffix == '' }}
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: |

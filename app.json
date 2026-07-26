@@ -49,6 +49,7 @@
       ],
       "expo-font",
       "./plugins/withReleaseSigningConfig",
+      "./plugins/withDebugAppId",
       "./plugins/withAppJsonVersion",
       "expo-localization",
       "expo-secure-store"
