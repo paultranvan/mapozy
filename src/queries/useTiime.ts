@@ -41,11 +41,18 @@ export function useTiimeConfig() {
     queryFn: async () => ({
       companyId: toNum(await getSetting(db, SETTING_KEYS.TIIME_DEFAULT_COMPANY_ID)),
       vehicleId: toNum(await getSetting(db, SETTING_KEYS.TIIME_DEFAULT_VEHICLE_ID)),
-      companyName: await getSetting(db, SETTING_KEYS.TIIME_DEFAULT_COMPANY_NAME),
-      vehicleName: await getSetting(db, SETTING_KEYS.TIIME_DEFAULT_VEHICLE_NAME),
+      companyName: toStr(await getSetting(db, SETTING_KEYS.TIIME_DEFAULT_COMPANY_NAME)),
+      vehicleName: toStr(await getSetting(db, SETTING_KEYS.TIIME_DEFAULT_VEHICLE_NAME)),
     }),
   });
   return {
+    // True once the initial sqlite read has resolved (success OR — see
+    // isSuccess semantics — settled with data). Callers MUST gate any
+    // "is setup missing?" decision on this: companyId/vehicleId are also
+    // null while the query is still in flight, and treating that as "not
+    // set up" is exactly the race that caused spurious API calls on cold
+    // start (see settings.tsx ensure-setup effect).
+    loaded: q.isSuccess,
     companyId: q.data?.companyId ?? null,
     vehicleId: q.data?.vehicleId ?? null,
     companyName: q.data?.companyName ?? null,
@@ -60,6 +67,19 @@ export function useTiimeConfig() {
       await setSetting(db, SETTING_KEYS.TIIME_DEFAULT_VEHICLE_NAME, name);
       qc.invalidateQueries({ queryKey: ['tiime', 'config'] });
     },
+    // Disconnect must wipe the persisted company/vehicle, not just the auth
+    // token — otherwise reconnecting (possibly with a DIFFERENT Tiime
+    // account) sees stale ids, tiimeSetupComplete is immediately true, and
+    // trips get sent against the old account's company/vehicle.
+    // settings.ts has no delete helper, so we write empty strings; toNum('')
+    // and toStr('') both normalize back to null on the next read.
+    clearConfig: async () => {
+      await setSetting(db, SETTING_KEYS.TIIME_DEFAULT_COMPANY_ID, '');
+      await setSetting(db, SETTING_KEYS.TIIME_DEFAULT_COMPANY_NAME, '');
+      await setSetting(db, SETTING_KEYS.TIIME_DEFAULT_VEHICLE_ID, '');
+      await setSetting(db, SETTING_KEYS.TIIME_DEFAULT_VEHICLE_NAME, '');
+      await qc.invalidateQueries({ queryKey: ['tiime', 'config'] });
+    },
   };
 }
 
@@ -67,6 +87,10 @@ function toNum(v: string | null): number | null {
   if (v === null) return null;
   const n = parseInt(v, 10);
   return Number.isFinite(n) ? n : null;
+}
+
+function toStr(v: string | null): string | null {
+  return v || null;
 }
 
 export function useSendToTiime() {

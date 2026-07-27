@@ -140,9 +140,8 @@ export default function SettingsScreen() {
   // locally). Runs the fetch flow ONCE, only when something is missing —
   // never on a mount where setup is already done. `setupStartedRef` guards
   // against re-entry: writing the resolved ids invalidates ['tiime','config'],
-  // which re-runs this effect, and without the guard that would refetch the
-  // company/vehicle list all over again (a loop, since the multi-vehicle case
-  // leaves vehicleId null until the user picks one in the UI below).
+  // which refetches, but (see deps below) that refetch must NOT re-run this
+  // effect.
   useEffect(() => {
     if (!tiimeConnection.connected) {
       setupStartedRef.current = false;
@@ -154,6 +153,12 @@ export default function SettingsScreen() {
       setTiimeVehiclesLoading(false);
       return;
     }
+    // useTiimeConfig also returns null companyId/vehicleId while its 4 sqlite
+    // reads are still in flight — indistinguishable from "not set up" unless
+    // we wait for `loaded`. useTiimeConnection resolves first (1 SecureStore
+    // read) so without this gate a fully-set-up user would still trigger a
+    // fetchDefaultCompany/fetchVehicles round trip on every cold start.
+    if (!tiimeConfig.loaded) return;
     if (tiimeSetupComplete || setupStartedRef.current) return;
     setupStartedRef.current = true;
 
@@ -195,8 +200,20 @@ export default function SettingsScreen() {
     return () => {
       cancelled = true;
     };
+    // tiimeConfig's companyId/vehicleId (and tiimeSetupComplete, derived from
+    // them) are intentionally excluded below. This effect is what WRITES
+    // those ids via setCompany/setVehicle; each write invalidates
+    // ['tiime','config'] and re-renders with a new value BEFORE the in-flight
+    // fetchVehicles network call resolves. If those values were dependencies,
+    // the resulting re-render would re-run this effect, whose cleanup sets
+    // `cancelled = true` on the run still awaiting fetchVehicles — so the
+    // resolved vehicle is silently dropped (never persisted) and the spinner
+    // never clears, since setupStartedRef stays latched and blocks any retry.
+    // Reading tiimeSetupComplete/tiimeConfig inside the effect body (guarded
+    // above) is fine — only *re-running the effect* on their change is the
+    // problem.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tiimeConnection.connected, tiimeConfig.companyId, tiimeConfig.vehicleId, tiimeClient]);
+  }, [tiimeConnection.connected, tiimeConfig.loaded, tiimeClient]);
 
   // "Jun 5 14:02" / "5 juin 14:02" — interruption timestamps.
   const formatInterruptionDate = (ms: number) =>
@@ -357,6 +374,7 @@ export default function SettingsScreen() {
   // trips) that is allowed to hit the Tiime API once setup is complete.
   function onOpenChangeVehicle() {
     if (tiimeConfig.companyId == null) return;
+    if (changeVehicleLoading) return;
     setShowVehiclePicker(true);
     setChangeVehicleList(null);
     setChangeVehicleError(null);
@@ -382,6 +400,11 @@ export default function SettingsScreen() {
 
   async function onDisconnectTiime() {
     await disconnectTiime();
+    // Wipe the persisted company/vehicle too, not just the auth token —
+    // otherwise a reconnect (possibly to a DIFFERENT Tiime account) sees the
+    // stale ids, tiimeSetupComplete is immediately true, and the app sends
+    // trips against the old account's company/vehicle.
+    await tiimeConfig.clearConfig();
     setTiimeCompany(null);
     setTiimeCompanyError(null);
     setTiimeCompanyLoading(false);
