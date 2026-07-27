@@ -44,4 +44,6 @@ export const SETTING_KEYS = {
   // Tiime connector: default company + vehicle chosen at connect time.
   TIIME_DEFAULT_COMPANY_ID: 'tiime_default_company_id',
   TIIME_DEFAULT_VEHICLE_ID: 'tiime_default_vehicle_id',
+  TIIME_DEFAULT_COMPANY_NAME: 'tiime_default_company_name',
+  TIIME_DEFAULT_VEHICLE_NAME: 'tiime_default_vehicle_name',
 } as const;

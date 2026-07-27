@@ -41,17 +41,23 @@ export function useTiimeConfig() {
     queryFn: async () => ({
       companyId: toNum(await getSetting(db, SETTING_KEYS.TIIME_DEFAULT_COMPANY_ID)),
       vehicleId: toNum(await getSetting(db, SETTING_KEYS.TIIME_DEFAULT_VEHICLE_ID)),
+      companyName: await getSetting(db, SETTING_KEYS.TIIME_DEFAULT_COMPANY_NAME),
+      vehicleName: await getSetting(db, SETTING_KEYS.TIIME_DEFAULT_VEHICLE_NAME),
     }),
   });
   return {
     companyId: q.data?.companyId ?? null,
     vehicleId: q.data?.vehicleId ?? null,
-    setCompanyId: async (id: number) => {
+    companyName: q.data?.companyName ?? null,
+    vehicleName: q.data?.vehicleName ?? null,
+    setCompany: async (id: number, name: string) => {
       await setSetting(db, SETTING_KEYS.TIIME_DEFAULT_COMPANY_ID, String(id));
+      await setSetting(db, SETTING_KEYS.TIIME_DEFAULT_COMPANY_NAME, name);
       qc.invalidateQueries({ queryKey: ['tiime', 'config'] });
     },
-    setVehicleId: async (id: number) => {
+    setVehicle: async (id: number, name: string) => {
       await setSetting(db, SETTING_KEYS.TIIME_DEFAULT_VEHICLE_ID, String(id));
+      await setSetting(db, SETTING_KEYS.TIIME_DEFAULT_VEHICLE_NAME, name);
       qc.invalidateQueries({ queryKey: ['tiime', 'config'] });
     },
   };

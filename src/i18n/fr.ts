@@ -148,6 +148,7 @@ export const fr: Record<TranslationKey, string> = {
   'settings.tiimeLoadError': 'Impossible de charger les données Tiime : {error}',
   'settings.tiimeViewQueue': 'Trajets à envoyer',
   'settings.tiimeViewQueueHint': 'Vérifier et pousser tes trajets voiture vers Tiime',
+  'settings.tiimeChangeVehicle': 'Changer de véhicule',
   'settings.tiimeDisconnect': 'Se déconnecter',
 
   // Écran d'erreur (error boundary)

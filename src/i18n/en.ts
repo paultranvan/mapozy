@@ -150,6 +150,7 @@ export const en = {
   'settings.tiimeLoadError': 'Could not load Tiime data: {error}',
   'settings.tiimeViewQueue': 'Trips to send',
   'settings.tiimeViewQueueHint': 'Review and push your car trips to Tiime',
+  'settings.tiimeChangeVehicle': 'Change vehicle',
   'settings.tiimeDisconnect': 'Disconnect',
 
   // Screen error boundary
