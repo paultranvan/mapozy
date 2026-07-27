@@ -78,8 +78,9 @@ jobs:
             const p = JSON.parse(fs.readFileSync("app.json", "utf8"));
             p.expo.android.versionCode = Math.floor(Date.now() / 60000);
             p.expo.version = p.expo.version + "-debug." + process.env.RUN_NUMBER;
+            p.expo.name = "Mapozy debug";
             fs.writeFileSync("app.json", JSON.stringify(p, null, 2));
-            console.log("Test build:", p.expo.version, "code", p.expo.android.versionCode);
+            console.log("Test build:", p.expo.name, p.expo.version, "code", p.expo.android.versionCode);
           '
 
       - name: Generate native Android project
