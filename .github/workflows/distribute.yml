@@ -61,6 +61,27 @@ jobs:
       - name: Install JS dependencies
         run: npm ci
 
+      # Suffixed test builds share app.json's version (e.g. 0.7.2 / code 30), so
+      # every distribution looked identical to App Tester and Android — "no new
+      # version". Give each a unique, monotonic versionCode (minutes since epoch,
+      # int32-safe) and a visible versionName suffix. app.json is the version
+      # source of truth (withAppJsonVersion re-reads it at gradle eval), and this
+      # patch lives only in the CI checkout — the repo and real releases are
+      # untouched.
+      - name: Bump version for suffixed test builds
+        if: ${{ github.event.inputs.app_id_suffix != '' }}
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const p = JSON.parse(fs.readFileSync("app.json", "utf8"));
+            p.expo.android.versionCode = Math.floor(Date.now() / 60000);
+            p.expo.version = p.expo.version + "-debug." + process.env.RUN_NUMBER;
+            fs.writeFileSync("app.json", JSON.stringify(p, null, 2));
+            console.log("Test build:", p.expo.version, "code", p.expo.android.versionCode);
+          '
+
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install
         env:
