@@ -20,6 +20,27 @@ export const READ_TOKEN_JS = `
   })();
 `;
 
+// Auth0 renews the token asynchronously, often with no navigation event to
+// hang a read off (silent iframe auth rewrites localStorage in place). Reading
+// only on navigation therefore misses the renewal entirely and the caller times
+// out. Poll instead, and let the RN side filter: it re-posts the SAME stale
+// token until the fresh one lands, and both hosts drop expired tokens.
+// 60 x 500ms = 30s, comfortably past the 15s refresh timeout.
+export const POLL_TOKEN_JS = `
+  (function () {
+    var tries = 0;
+    function read() {
+      try {
+        var t = window.localStorage.getItem('access_token');
+        window.ReactNativeWebView.postMessage(t || 'null');
+      } catch (e) {}
+      if (++tries < 60) setTimeout(read, 500);
+    }
+    read();
+    true;
+  })();
+`;
+
 /** Visible login WebView. Calls onToken once a token appears post-login. */
 export function TiimeLoginWebView(props: { onToken: (token: string) => void }) {
   const ref = useRef<WebView>(null);
@@ -48,8 +69,9 @@ export function TiimeLoginWebView(props: { onToken: (token: string) => void }) {
       source={{ uri: TIIME_SIGNIN_URL }}
       onNavigationStateChange={() => ref.current?.injectJavaScript(READ_TOKEN_JS)}
       onMessage={onMessage}
-      // Poll after load in case navigation state settles before storage is written.
-      injectedJavaScript={READ_TOKEN_JS}
+      // Poll after load: the SPA writes the token some time after the
+      // navigation that follows sign-in, so a single read is a race.
+      injectedJavaScript={POLL_TOKEN_JS}
     />
   );
 }
@@ -94,10 +116,16 @@ export function useHiddenTiimeRefresher(): {
 
   const onMessage = useCallback(async (e: WebViewMessageEvent) => {
     const data = e.nativeEvent.data;
-    if (data && data !== 'null') {
-      await storeToken(data);
-      resolver.current?.(data);
-    }
+    if (!data || data === 'null') return;
+    // THE token we are trying to replace is still in the SPA's localStorage
+    // when the page loads. Accepting it "succeeds" the refresh with a dead
+    // token, the caller's request 401s, and the 401 path refreshes into the
+    // same stale value — an unbreakable 401 loop. Keep waiting (the poller
+    // re-reads every 500ms) until Auth0 has written a live token, or let the
+    // 15s timeout report an honest failure.
+    if (isTokenExpired(data, Date.now())) return;
+    await storeToken(data);
+    resolver.current?.(data);
   }, []);
 
   const node = active ? (
@@ -107,6 +135,7 @@ export function useHiddenTiimeRefresher(): {
         source={{ uri: TIIME_APP_URL }}
         onNavigationStateChange={() => ref.current?.injectJavaScript(READ_TOKEN_JS)}
         onMessage={onMessage}
+        injectedJavaScript={POLL_TOKEN_JS}
       />
     </View>
   ) : null;

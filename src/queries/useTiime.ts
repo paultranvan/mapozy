@@ -1,9 +1,14 @@
-import { createContext, useContext, useMemo } from 'react';
+import { createContext, useCallback, useContext, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDb } from '@/db/DbContext';
 import { getSetting, setSetting, SETTING_KEYS } from '@/db/settings';
-import { hasStoredToken, clearStoredToken } from '@/connectors/tiime/auth';
-import { createTiimeClient } from '@/connectors/tiime/client';
+import {
+  getStoredToken,
+  clearStoredToken,
+  decodeJwtExpMs,
+  isTokenExpired,
+} from '@/connectors/tiime/auth';
+import { createTiimeClient, TiimeAuthError } from '@/connectors/tiime/client';
 import {
   listCandidates,
   sendCandidate,
@@ -17,12 +22,95 @@ const RefreshCtx = createContext<RefreshFn>(async () => null);
 export const TiimeRefresherProvider = RefreshCtx.Provider;
 export const useTiimeRefresher = () => useContext(RefreshCtx);
 
+export interface TiimeSession {
+  /** A token is stored (expired or not). Presence — not validity — decides
+   *  whether the connector UI shows at all: an expired session must still
+   *  render, otherwise the user has no surface to reconnect from. */
+  connected: boolean;
+  /** The stored token is expired AND the silent renewal could not produce a
+   *  live one. The session is dead: every API call would 401, so callers must
+   *  offer sign-in instead of firing requests. */
+  expired: boolean;
+  /** When the known token dies, for display. Null if the JWT carries no exp. */
+  expiresAtMs: number | null;
+}
+
+const DEAD: TiimeSession = { connected: false, expired: false, expiresAtMs: null };
+
+/**
+ * Session state, evaluated from the JWT's own `exp` rather than discovered by
+ * taking a 401 in the face. An expired access token is not necessarily a dead
+ * session — Auth0's SSO cookies usually renew it silently — so "expired" here
+ * means the renewal was ATTEMPTED and failed. That distinction is what lets
+ * the UI ask for a reconnection at the right moment instead of surfacing a raw
+ * `Tiime API ... failed: 401` from whatever the user happened to tap.
+ */
+export function useTiimeSession() {
+  const refresh = useTiimeRefresher();
+  // Deliberately two queries. Presence is one SecureStore read and gates every
+  // Tiime surface in the app, so it must stay instant; validity can block on a
+  // 15s offscreen renewal. Folding them into one query would make four screens
+  // wait on that renewal before they know whether to show Tiime at all.
+  const presence = useQuery({
+    queryKey: ['tiime', 'connected'],
+    queryFn: () => getStoredToken().then((t) => t !== null),
+  });
+  const validity = useQuery({
+    queryKey: ['tiime', 'session'],
+    enabled: presence.data === true,
+    queryFn: async (): Promise<TiimeSession> => {
+      const token = await getStoredToken();
+      if (!token) return DEAD;
+      if (!isTokenExpired(token, Date.now())) {
+        return { connected: true, expired: false, expiresAtMs: decodeJwtExpMs(token) };
+      }
+      // Expired: renew NOW, before the user triggers anything. The refresher
+      // is single-flight, so a concurrent client-side refresh shares this one.
+      const fresh = await refresh();
+      if (fresh && !isTokenExpired(fresh, Date.now())) {
+        return { connected: true, expired: false, expiresAtMs: decodeJwtExpMs(fresh) };
+      }
+      return { connected: true, expired: true, expiresAtMs: decodeJwtExpMs(token) };
+    },
+    // The renewal spins up an offscreen WebView; don't repeat it on every
+    // screen mount. Any auth failure invalidates this key explicitly.
+    staleTime: 5 * 60_000,
+  });
+  return {
+    connected: presence.data ?? false,
+    // False while the renewal is still in flight: "not yet known to be dead"
+    // must not read as dead, or the reconnect screen flashes on every start.
+    expired: validity.data?.expired ?? false,
+    expiresAtMs: validity.data?.expiresAtMs ?? null,
+    /** True once validity has actually been evaluated. Gate any "the session
+     *  is fine" conclusion on this — `expired` is false before it too. */
+    loaded: validity.isSuccess,
+    refetch: async () => {
+      await presence.refetch();
+      await validity.refetch();
+    },
+  };
+}
+
 export function useTiimeConnection() {
-  // Presence-only: an expired token still counts as connected — the client
-  // refreshes it lazily (validToken / 401 retry). Gating on expiry here would
-  // hide every UI surface and the refresh paths would never get to run.
-  const q = useQuery({ queryKey: ['tiime', 'connected'], queryFn: () => hasStoredToken() });
-  return { connected: q.data ?? false, refetch: q.refetch };
+  const s = useTiimeSession();
+  return { connected: s.connected, expired: s.expired, refetch: s.refetch };
+}
+
+/** Re-evaluate the session after an action failed on auth. Call this from any
+ *  catch that sees a TiimeAuthError so the reconnect affordance appears
+ *  instead of a stringified error the user cannot act on. */
+export function useTiimeAuthFailureHandler() {
+  const qc = useQueryClient();
+  // Stable identity: callers put it in useCallback/useEffect dependency lists.
+  return useCallback(
+    (e: unknown): boolean => {
+      if (!(e instanceof TiimeAuthError)) return false;
+      qc.invalidateQueries({ queryKey: ['tiime', 'session'] });
+      return true;
+    },
+    [qc]
+  );
 }
 
 export function useTiimeCandidates() {
