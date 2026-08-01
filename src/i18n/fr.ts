@@ -150,6 +150,8 @@ export const fr: Record<TranslationKey, string> = {
   'settings.tiimeViewQueueHint': 'Vérifier et pousser tes trajets voiture vers Tiime',
   'settings.tiimeChangeVehicle': 'Changer de véhicule',
   'settings.tiimeDisconnect': 'Se déconnecter',
+  'settings.tiimeSessionExpired': 'Session Tiime expirée',
+  'settings.tiimeSessionExpiredHint': 'Reconnecte-toi pour continuer à envoyer des trajets',
 
   // Écran d'erreur (error boundary)
   'errorFallback.title': 'Un problème est survenu',
@@ -344,6 +346,10 @@ export const fr: Record<TranslationKey, string> = {
   'tiimeQueue.notConnectedBody':
     'Connectez votre compte Tiime pour envoyer vos trajets professionnels.',
   'tiimeQueue.connectCta': 'Connecter Tiime',
+  'tiimeQueue.expiredTitle': 'Session Tiime expirée',
+  'tiimeQueue.expiredBody':
+    'Votre session Tiime a expiré et n\'a pas pu être renouvelée automatiquement. Reconnectez-vous pour envoyer vos trajets.',
+  'tiimeQueue.reconnectCta': 'Se reconnecter',
   'tiimeQueue.noVehicleTitle': 'Véhicule par défaut requis',
   'tiimeQueue.noVehicleBody':
     'Choisissez une société et un véhicule dans les Réglages avant d\'envoyer des trajets.',

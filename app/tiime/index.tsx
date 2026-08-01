@@ -23,6 +23,7 @@ import {
   useTiimeCandidates,
   useTiimeConfig,
   useSendToTiime,
+  useTiimeAuthFailureHandler,
 } from '@/queries/useTiime';
 import { resolveTravelAddresses, type TiimeCandidate } from '@/connectors/tiime/travels';
 import type { StructuredAddress } from '@/db/places';
@@ -48,6 +49,7 @@ export default function TiimeQueueScreen() {
   const config = useTiimeConfig();
   const candidatesQ = useTiimeCandidates();
   const sendMutation = useSendToTiime();
+  const onAuthFailure = useTiimeAuthFailureHandler();
 
   const candidates: TiimeCandidate[] = candidatesQ.data ?? [];
 
@@ -154,6 +156,14 @@ export default function TiimeQueueScreen() {
         } catch (e) {
           // Keep the card (and its selection) so the user can just hit
           // "Envoyer" again once the issue is fixed.
+          if (onAuthFailure(e)) {
+            // The session is dead: every remaining trip in this batch would
+            // fail the same way. Stop, reset the card to idle (nothing was
+            // sent, so it is not an error the user must dismiss) and let the
+            // expired banner drive them to sign in again.
+            patchCard(tripId, { status: 'idle', error: null });
+            break;
+          }
           patchCard(tripId, { status: 'error', error: String(e) });
         }
       }
@@ -161,7 +171,16 @@ export default function TiimeQueueScreen() {
       sendingRef.current = false;
       setSendingBatch(false);
     }
-  }, [selected, candidates, cardState, config.companyId, config.vehicleId, sendMutation, patchCard]);
+  }, [
+    selected,
+    candidates,
+    cardState,
+    config.companyId,
+    config.vehicleId,
+    sendMutation,
+    patchCard,
+    onAuthFailure,
+  ]);
 
   if (!connection.connected) {
     return (
@@ -179,6 +198,33 @@ export default function TiimeQueueScreen() {
             <Pressable style={styles.primaryBtn} onPress={() => router.push('/tiime/login')}>
               <Text variant="label" color={colors.surface}>
                 {t('tiimeQueue.connectCta')}
+              </Text>
+            </Pressable>
+          </Card>
+        </View>
+      </View>
+    );
+  }
+
+  // Dead session: sending is impossible until the user signs in again, and the
+  // queue below would only hand out 401s card by card. Same guard shape as
+  // "not connected", one screen earlier in the funnel.
+  if (connection.expired) {
+    return (
+      <View style={styles.root}>
+        <TopBar title={t('tiimeQueue.title')} />
+        <View style={styles.centerWrap}>
+          <Card style={styles.guardCard}>
+            <MaterialCommunityIcons name="clock-alert-outline" size={32} color={colors.danger} />
+            <Text variant="title" style={styles.guardTitle}>
+              {t('tiimeQueue.expiredTitle')}
+            </Text>
+            <Text variant="body" soft style={styles.guardBody}>
+              {t('tiimeQueue.expiredBody')}
+            </Text>
+            <Pressable style={styles.primaryBtn} onPress={() => router.push('/tiime/login')}>
+              <Text variant="label" color={colors.surface}>
+                {t('tiimeQueue.reconnectCta')}
               </Text>
             </Pressable>
           </Card>

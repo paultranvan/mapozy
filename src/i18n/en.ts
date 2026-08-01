@@ -152,6 +152,8 @@ export const en = {
   'settings.tiimeViewQueueHint': 'Review and push your car trips to Tiime',
   'settings.tiimeChangeVehicle': 'Change vehicle',
   'settings.tiimeDisconnect': 'Disconnect',
+  'settings.tiimeSessionExpired': 'Tiime session expired',
+  'settings.tiimeSessionExpiredHint': 'Sign in again to keep sending trips',
 
   // Screen error boundary
   'errorFallback.title': 'Something went wrong',
@@ -345,6 +347,10 @@ export const en = {
   'tiimeQueue.notConnectedTitle': 'Tiime not connected',
   'tiimeQueue.notConnectedBody': 'Connect your Tiime account to send your business trips.',
   'tiimeQueue.connectCta': 'Connect Tiime',
+  'tiimeQueue.expiredTitle': 'Tiime session expired',
+  'tiimeQueue.expiredBody':
+    'Your Tiime session expired and could not be renewed automatically. Sign in again to send your trips.',
+  'tiimeQueue.reconnectCta': 'Sign in again',
   'tiimeQueue.noVehicleTitle': 'Default vehicle needed',
   'tiimeQueue.noVehicleBody':
     'Pick a company and a vehicle in Settings before sending trips.',

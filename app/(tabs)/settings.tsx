@@ -44,6 +44,7 @@ import {
   useTiimeConnection,
   useTiimeConfig,
   useTiimeRefresher,
+  useTiimeAuthFailureHandler,
   disconnectTiime,
 } from '@/queries/useTiime';
 import { createTiimeClient } from '@/connectors/tiime/client';
@@ -81,6 +82,7 @@ export default function SettingsScreen() {
   const tiimeConnection = useTiimeConnection();
   const tiimeConfig = useTiimeConfig();
   const tiimeRefresh = useTiimeRefresher();
+  const onTiimeAuthFailure = useTiimeAuthFailureHandler();
   // Created unconditionally, but only ever used from the two explicit paths
   // below (first-time setup, "Changer de véhicule") — never on a plain mount.
   const tiimeClient = useMemo(
@@ -88,6 +90,13 @@ export default function SettingsScreen() {
     [tiimeRefresh]
   );
   const tiimeSetupComplete = tiimeConfig.companyId != null && tiimeConfig.vehicleId != null;
+  // Installs configured before the name settings existed hold ids but no
+  // names, and `tiimeSetupComplete` (ids only) short-circuits the effect that
+  // would fetch them — so the connected view rendered "—" forever. Detect
+  // that gap explicitly and let the same flow backfill the names.
+  const tiimeNamesMissing =
+    (tiimeConfig.companyId != null && tiimeConfig.companyName == null) ||
+    (tiimeConfig.vehicleId != null && tiimeConfig.vehicleName == null);
   // First-time setup only (company/vehicle not yet stored locally).
   const [tiimeCompany, setTiimeCompany] = useState<TiimeCompany | null>(null);
   const [tiimeCompanyError, setTiimeCompanyError] = useState<string | null>(null);
@@ -159,7 +168,10 @@ export default function SettingsScreen() {
     // read) so without this gate a fully-set-up user would still trigger a
     // fetchDefaultCompany/fetchVehicles round trip on every cold start.
     if (!tiimeConfig.loaded) return;
-    if (tiimeSetupComplete || setupStartedRef.current) return;
+    // A dead session turns every call below into a 401. Skip them and let the
+    // reconnect row (rendered above) be the only thing the user sees.
+    if (tiimeConnection.expired) return;
+    if ((tiimeSetupComplete && !tiimeNamesMissing) || setupStartedRef.current) return;
     setupStartedRef.current = true;
 
     let cancelled = false;
@@ -171,7 +183,10 @@ export default function SettingsScreen() {
         company = await fetchDefaultCompany(tiimeClient);
       } catch (e) {
         if (!cancelled) {
-          setTiimeCompanyError(String(e));
+          // No auto-navigation here: this runs on mount, and yanking the user
+          // to a login WebView they didn't ask for is hostile. Flagging the
+          // failure re-evaluates the session, which renders the reconnect row.
+          if (!onTiimeAuthFailure(e)) setTiimeCompanyError(String(e));
           setTiimeCompanyLoading(false);
         }
         return;
@@ -187,12 +202,19 @@ export default function SettingsScreen() {
         const list = await fetchVehicles(tiimeClient, company.id);
         if (cancelled) return;
         setTiimeVehicles(list);
-        // A single vehicle needs no choice — select it by default.
-        if (list.length === 1) {
+        // Name backfill: a vehicle is already chosen, we just never stored
+        // its label. Re-persist it by id so the connected view stops showing
+        // "—" without making the user pick again.
+        const chosen = tiimeConfig.vehicleId;
+        const known = chosen != null ? list.find((v) => v.id === chosen) : undefined;
+        if (known) {
+          await tiimeConfig.setVehicle(known.id, known.name);
+        } else if (list.length === 1) {
+          // A single vehicle needs no choice — select it by default.
           await tiimeConfig.setVehicle(list[0]!.id, list[0]!.name);
         }
       } catch (e) {
-        if (!cancelled) setTiimeVehiclesError(String(e));
+        if (!cancelled && !onTiimeAuthFailure(e)) setTiimeVehiclesError(String(e));
       } finally {
         if (!cancelled) setTiimeVehiclesLoading(false);
       }
@@ -209,11 +231,12 @@ export default function SettingsScreen() {
     // `cancelled = true` on the run still awaiting fetchVehicles — so the
     // resolved vehicle is silently dropped (never persisted) and the spinner
     // never clears, since setupStartedRef stays latched and blocks any retry.
-    // Reading tiimeSetupComplete/tiimeConfig inside the effect body (guarded
-    // above) is fine — only *re-running the effect* on their change is the
-    // problem.
+    // Reading tiimeSetupComplete/tiimeNamesMissing/tiimeConfig inside the
+    // effect body (guarded above) is fine — only *re-running the effect* on
+    // their change is the problem. `expired` IS a dependency: nothing here
+    // writes it, and a session that comes back to life must re-enable setup.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tiimeConnection.connected, tiimeConfig.loaded, tiimeClient]);
+  }, [tiimeConnection.connected, tiimeConnection.expired, tiimeConfig.loaded, tiimeClient]);
 
   // "Jun 5 14:02" / "5 juin 14:02" — interruption timestamps.
   const formatInterruptionDate = (ms: number) =>
@@ -375,6 +398,12 @@ export default function SettingsScreen() {
   function onOpenChangeVehicle() {
     if (tiimeConfig.companyId == null) return;
     if (changeVehicleLoading) return;
+    // Known-dead session: don't spend a request (and 15s of silent-refresh
+    // timeout) to learn what the JWT's exp already told us. Ask for sign-in.
+    if (tiimeConnection.expired) {
+      router.push('/tiime/login');
+      return;
+    }
     setShowVehiclePicker(true);
     setChangeVehicleList(null);
     setChangeVehicleError(null);
@@ -384,6 +413,15 @@ export default function SettingsScreen() {
         const list = await fetchVehicles(tiimeClient, tiimeConfig.companyId!);
         setChangeVehicleList(list);
       } catch (e) {
+        // The session died between the check above and this call (revoked
+        // token, SSO cookies gone). Turn it into the reconnect affordance
+        // rather than a raw "failed: 401" the user cannot act on.
+        if (onTiimeAuthFailure(e)) {
+          setShowVehiclePicker(false);
+          setChangeVehicleLoading(false);
+          router.push('/tiime/login');
+          return;
+        }
         setChangeVehicleError(String(e));
       } finally {
         setChangeVehicleLoading(false);
@@ -490,6 +528,39 @@ export default function SettingsScreen() {
               </View>
               <MaterialCommunityIcons name="chevron-right" size={22} color={colors.inkSoft} />
             </Pressable>
+          ) : tiimeConnection.expired ? (
+            // Session dead (token expired AND silent renewal failed). Every
+            // other row would fire a request that can only 401, so they are
+            // replaced by sign-in — plus disconnect, the one action that
+            // still works offline and must stay reachable.
+            <>
+              <Pressable
+                style={styles.actionRow}
+                onPress={() => router.push('/tiime/login')}
+              >
+                <MaterialCommunityIcons
+                  name="alert-circle-outline"
+                  size={22}
+                  color={colors.danger}
+                  style={styles.tiimeExpiredIcon}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text variant="title" color={colors.danger}>
+                    {t('settings.tiimeSessionExpired')}
+                  </Text>
+                  <Text variant="meta" soft>
+                    {t('settings.tiimeSessionExpiredHint')}
+                  </Text>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={22} color={colors.inkSoft} />
+              </Pressable>
+              <View style={styles.divider} />
+              <Pressable style={styles.actionRow} onPress={onDisconnectTiime}>
+                <Text variant="title" color={colors.danger}>
+                  {t('settings.tiimeDisconnect')}
+                </Text>
+              </Pressable>
+            </>
           ) : tiimeSetupComplete ? (
             <>
               <View style={styles.row}>
@@ -1046,6 +1117,9 @@ const styles = StyleSheet.create({
   },
   tiimeVehicleLabel: {
     marginTop: space[1],
+  },
+  tiimeExpiredIcon: {
+    marginRight: space[2],
   },
   actionRow: {
     flexDirection: 'row',
