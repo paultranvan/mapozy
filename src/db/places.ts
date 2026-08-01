@@ -14,6 +14,11 @@ interface Row {
   longitude: number;
   radius_m: number;
   display_name: string | null;
+  street: string | null;
+  house_number: string | null;
+  postal_code: string | null;
+  city: string | null;
+  country: string | null;
   visit_count: number;
   first_seen_ms: number;
   last_seen_ms: number;
@@ -32,6 +37,11 @@ function rowToPlace(r: Row): Place {
     longitude: r.longitude,
     radiusM: r.radius_m,
     displayName: r.display_name,
+    street: r.street ?? null,
+    houseNumber: r.house_number ?? null,
+    postalCode: r.postal_code ?? null,
+    city: r.city ?? null,
+    country: r.country ?? null,
     visitCount: r.visit_count,
     firstSeenMs: r.first_seen_ms,
     lastSeenMs: r.last_seen_ms,
@@ -115,6 +125,30 @@ export async function setPlaceDisplayName(
   await db.runAsync(`UPDATE places SET display_name = ? WHERE id = ?`, displayName, id);
 }
 
+export interface StructuredAddress {
+  street: string | null;
+  houseNumber: string | null;
+  postalCode: string | null;
+  city: string | null;
+  country: string | null;
+}
+
+export async function setPlaceStructuredAddress(
+  db: Db,
+  id: number,
+  addr: StructuredAddress
+): Promise<void> {
+  await db.runAsync(
+    `UPDATE places SET street = ?, house_number = ?, postal_code = ?, city = ?, country = ? WHERE id = ?`,
+    addr.street,
+    addr.houseNumber,
+    addr.postalCode,
+    addr.city,
+    addr.country,
+    id
+  );
+}
+
 export interface UserPlaceInput {
   name: string;
   category: string;
@@ -122,23 +156,33 @@ export interface UserPlaceInput {
   longitude: number;
   radiusM: number;
   displayName?: string | null;
+  street?: string | null;
+  houseNumber?: string | null;
+  postalCode?: string | null;
+  city?: string | null;
+  country?: string | null;
 }
 
 export async function createUserPlace(db: Db, input: UserPlaceInput): Promise<number> {
   const now = Date.now();
   const res = await db.runAsync(
-    `INSERT INTO places (kind, name, category, latitude, longitude, radius_m, display_name, visit_count, first_seen_ms, last_seen_ms)
-     VALUES ('user', ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-    input.name, input.category, input.latitude, input.longitude, input.radiusM, input.displayName ?? null, now, now
+    `INSERT INTO places (kind, name, category, latitude, longitude, radius_m, display_name, street, house_number, postal_code, city, country, visit_count, first_seen_ms, last_seen_ms)
+     VALUES ('user', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+    input.name, input.category, input.latitude, input.longitude, input.radiusM, input.displayName ?? null,
+    input.street ?? null, input.houseNumber ?? null, input.postalCode ?? null, input.city ?? null, input.country ?? null,
+    now, now
   );
   return res.lastInsertRowId;
 }
 
 export async function updateUserPlace(db: Db, id: number, input: UserPlaceInput): Promise<void> {
   await db.runAsync(
-    `UPDATE places SET name = ?, category = ?, latitude = ?, longitude = ?, radius_m = ?, display_name = ?
+    `UPDATE places SET name = ?, category = ?, latitude = ?, longitude = ?, radius_m = ?, display_name = ?,
+       street = ?, house_number = ?, postal_code = ?, city = ?, country = ?
      WHERE id = ? AND kind = 'user'`,
-    input.name, input.category, input.latitude, input.longitude, input.radiusM, input.displayName ?? null, id
+    input.name, input.category, input.latitude, input.longitude, input.radiusM, input.displayName ?? null,
+    input.street ?? null, input.houseNumber ?? null, input.postalCode ?? null, input.city ?? null, input.country ?? null,
+    id
   );
 }
 

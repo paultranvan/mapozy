@@ -25,6 +25,9 @@ on:
       notes:
         description: 'Release notes (defaults to the latest commit subject)'
         required: false
+      app_id_suffix:
+        description: 'applicationId suffix (e.g. .debug) to install alongside prod. When set, the build is distributed to the separate Firebase Debug app (com.paul.mapozy.debug) and also uploaded as an artifact.'
+        required: false
 
 concurrency:
   group: distribute-${{ github.ref }}
@@ -32,6 +35,10 @@ concurrency:
 
 env:
   FIREBASE_APP_ID: '1:736958471752:android:dd125d6adef895b482c27d'
+  # Separate Firebase Android app registered for com.paul.mapozy.debug, used for
+  # suffixed side-by-side test builds (App Distribution ties an upload to the
+  # app whose package matches the APK).
+  FIREBASE_APP_ID_DEBUG: '1:736958471752:android:9a6ff5893088fdc982c27d'
   TESTER_GROUP: testers
 
 jobs:
@@ -54,10 +61,33 @@ jobs:
       - name: Install JS dependencies
         run: npm ci
 
+      # Suffixed test builds share app.json's version (e.g. 0.7.2 / code 30), so
+      # every distribution looked identical to App Tester and Android — "no new
+      # version". Give each a unique, monotonic versionCode (minutes since epoch,
+      # int32-safe) and a visible versionName suffix. app.json is the version
+      # source of truth (withAppJsonVersion re-reads it at gradle eval), and this
+      # patch lives only in the CI checkout — the repo and real releases are
+      # untouched.
+      - name: Bump version for suffixed test builds
+        if: ${{ github.event.inputs.app_id_suffix != '' }}
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const p = JSON.parse(fs.readFileSync("app.json", "utf8"));
+            p.expo.android.versionCode = Math.floor(Date.now() / 60000);
+            p.expo.version = p.expo.version + "-debug." + process.env.RUN_NUMBER;
+            p.expo.name = "Mapozy debug";
+            fs.writeFileSync("app.json", JSON.stringify(p, null, 2));
+            console.log("Test build:", p.expo.name, p.expo.version, "code", p.expo.android.versionCode);
+          '
+
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install
         env:
           CI: '1'
+          MAPOZY_APP_ID_SUFFIX: ${{ github.event.inputs.app_id_suffix }}
 
       - name: Restore keystore and signing properties
         env:
@@ -96,16 +126,29 @@ jobs:
             echo "ERROR: APK is debug-signed — release keystore was not applied"; exit 1
           fi
 
+      - name: Upload APK artifact (for suffixed / sideload builds)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mapozy-apk${{ github.event.inputs.app_id_suffix }}
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
       - name: Distribute to Firebase App Distribution
+        # Suffixed builds (e.g. .debug) go to the matching Firebase Debug app;
+        # un-suffixed builds (tag pushes, normal dispatches) go to the prod app.
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          APP_ID_SUFFIX: ${{ github.event.inputs.app_id_suffix }}
         run: |
           NOTES="${{ github.event.inputs.notes }}"
           if [ -z "$NOTES" ]; then NOTES="$(git log -1 --pretty=%s)"; fi
+          APP="$FIREBASE_APP_ID"
+          if [ -n "$APP_ID_SUFFIX" ]; then APP="$FIREBASE_APP_ID_DEBUG"; fi
           echo "Release notes: $NOTES"
+          echo "Distributing to Firebase app: $APP (suffix: '${APP_ID_SUFFIX:-none}')"
           npx -y firebase-tools appdistribution:distribute \
             android/app/build/outputs/apk/release/app-release.apk \
-            --app "$FIREBASE_APP_ID" \
+            --app "$APP" \
             --groups "$TESTER_GROUP" \
             --release-notes "$NOTES" \
             --token "$FIREBASE_TOKEN"

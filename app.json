@@ -49,8 +49,10 @@
       ],
       "expo-font",
       "./plugins/withReleaseSigningConfig",
+      "./plugins/withDebugAppId",
       "./plugins/withAppJsonVersion",
-      "expo-localization"
+      "expo-localization",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true

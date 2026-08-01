@@ -4,7 +4,8 @@ import type { Place } from '../../types';
 const userPoi: Place = {
   id: 5, kind: 'user', name: 'Basic-Fit', category: 'sport',
   latitude: 45.75, longitude: 4.85, radiusM: 100,
-  displayName: null, visitCount: 0, firstSeenMs: 0, lastSeenMs: 0,
+  displayName: null, street: null, houseNumber: null, postalCode: null, city: null, country: null,
+  visitCount: 0, firstSeenMs: 0, lastSeenMs: 0,
 };
 
 describe('placeLabels', () => {

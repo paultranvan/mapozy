@@ -198,6 +198,56 @@ const MIGRATION_011 = `
 DROP TABLE IF EXISTS transit_cache;
 `;
 
+// Structured place addresses (captured from Nominatim addressdetails) so
+// connectors can emit street/postcode/city/country without re-geocoding, plus a
+// connector-agnostic ledger of trips already exported to an external service.
+const MIGRATION_012 = `
+ALTER TABLE places ADD COLUMN street TEXT;
+ALTER TABLE places ADD COLUMN house_number TEXT;
+ALTER TABLE places ADD COLUMN postal_code TEXT;
+ALTER TABLE places ADD COLUMN city TEXT;
+ALTER TABLE places ADD COLUMN country TEXT;
+
+CREATE TABLE IF NOT EXISTS connector_travels (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  connector_type TEXT NOT NULL,
+  mapozy_trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+  external_travel_id TEXT NOT NULL,
+  sent_at INTEGER NOT NULL,
+  UNIQUE(connector_type, mapozy_trip_id)
+);
+CREATE INDEX IF NOT EXISTS idx_connector_travels_trip ON connector_travels(mapozy_trip_id);
+`;
+
+// Mapozy recompute deletes+recreates trips with NEW ids, and the old
+// mapozy_trip_id FK's ON DELETE CASCADE erased the dedup row along with it,
+// so a previously-sent trip reappeared as a candidate and got re-sent to the
+// connector. Places persist across a recompute (only trips are
+// deleted/recreated), so dedup switches to a content signature keyed on
+// stable place ids instead of the volatile trip id. This table is new
+// (migration 012) and holds no production data, so drop+recreate is safe.
+const MIGRATION_013 = `
+DROP TABLE IF EXISTS connector_travels;
+CREATE TABLE connector_travels (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  connector_type TEXT NOT NULL,
+  signature TEXT NOT NULL,
+  mapozy_trip_id INTEGER,
+  external_travel_id TEXT NOT NULL,
+  sent_at INTEGER NOT NULL,
+  UNIQUE(connector_type, signature)
+);
+CREATE INDEX IF NOT EXISTS idx_connector_travels_sig ON connector_travels(connector_type, signature);
+`;
+
+// The dedup signature format changed (place-ids -> content coords) once the
+// connector switched to proximity detection. Any pre-release row was keyed by
+// the old format and would no longer match, so clear the ledger. The connector
+// never shipped a working send path, so there is no real sent-history to lose.
+const MIGRATION_014 = `
+DELETE FROM connector_travels;
+`;
+
 export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 1, sql: MIGRATION_001 },
   { version: 2, sql: MIGRATION_002 },
@@ -210,6 +260,9 @@ export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 9, sql: MIGRATION_009 },
   { version: 10, sql: MIGRATION_010 },
   { version: 11, sql: MIGRATION_011 },
+  { version: 12, sql: MIGRATION_012 },
+  { version: 13, sql: MIGRATION_013 },
+  { version: 14, sql: MIGRATION_014 },
 ];
 
 export async function getSchemaVersion(db: Db): Promise<number> {

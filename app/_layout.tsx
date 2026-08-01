@@ -31,6 +31,8 @@ import {
   subscribeStationary,
 } from '@/tracking/tracker';
 import { shouldRunPipelineOnAppStateChange } from '@/tracking/foregroundTrigger';
+import { useHiddenTiimeRefresher } from '@/connectors/tiime/webview';
+import { TiimeRefresherProvider } from '@/queries/useTiime';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -53,6 +55,8 @@ export default function RootLayout() {
     Inter_500Medium,
     Inter_600SemiBold,
   });
+
+  const { node: tiimeRefresherNode, refresh: tiimeRefresh } = useHiddenTiimeRefresher();
 
   useEffect(() => {
     let mounted = true;
@@ -154,6 +158,7 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <DbProvider db={db}>
             <I18nProvider db={db} initialLanguage={language}>
+            <TiimeRefresherProvider value={tiimeRefresh}>
             <Stack
               screenOptions={{
                 headerShown: false,
@@ -169,7 +174,23 @@ export default function RootLayout() {
                   animation: 'slide_from_right',
                 }}
               />
+              <Stack.Screen
+                name="tiime/index"
+                options={{
+                  presentation: 'card',
+                  animation: 'slide_from_right',
+                }}
+              />
+              <Stack.Screen
+                name="tiime/login"
+                options={{
+                  presentation: 'card',
+                  animation: 'slide_from_right',
+                }}
+              />
             </Stack>
+            {tiimeRefresherNode}
+            </TiimeRefresherProvider>
             </I18nProvider>
           </DbProvider>
         </QueryClientProvider>

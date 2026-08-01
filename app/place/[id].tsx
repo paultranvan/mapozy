@@ -21,7 +21,7 @@ import { useCategories } from '@/queries/useCategories';
 import { circlePolygon } from '@/lib/circle';
 import { externalApiAllowed } from '@/lib/net';
 import { searchAddress, type AddressHit } from '@/lib/geocodeSearch';
-import { reverseGeocode } from '@/pipeline/geocoding';
+import { reverseGeocode, reverseGeocodeStructured } from '@/pipeline/geocoding';
 import {
   useUserPlace,
   useCreateUserPlace,
@@ -30,6 +30,7 @@ import {
   useUnnamedClusters,
 } from '@/queries/usePlaces';
 import type { Place } from '@/types';
+import type { StructuredAddress } from '@/db/places';
 
 MapLibreGL.setAccessToken(null);
 const DEFAULT_RADIUS = 100;
@@ -61,6 +62,7 @@ export default function PlaceEditor() {
   ]);
   const [radius, setRadius] = useState(DEFAULT_RADIUS);
   const [query, setQuery] = useState('');
+  const [structured, setStructured] = useState<StructuredAddress | null>(null);
   const [hits, setHits] = useState<AddressHit[]>([]);
   const [focused, setFocused] = useState(false);
   const [showRadiusHelp, setShowRadiusHelp] = useState(false);
@@ -80,6 +82,13 @@ export default function PlaceEditor() {
       setCoord([existing.data.longitude, existing.data.latitude]);
       setRadius(existing.data.radiusM);
       if (existing.data.displayName) setQuery(existing.data.displayName);
+      setStructured({
+        street: existing.data.street,
+        houseNumber: existing.data.houseNumber,
+        postalCode: existing.data.postalCode,
+        city: existing.data.city,
+        country: existing.data.country,
+      });
     }
   }, [existing.data]);
 
@@ -115,9 +124,10 @@ export default function PlaceEditor() {
   const showFrequent = focused && query.trim().length < 3 && (clusters.data?.length ?? 0) > 0;
   const showHits = focused && hits.length > 0;
 
-  const moveTo = (lon: number, lat: number, label: string) => {
+  const moveTo = (lon: number, lat: number, label: string, hitStructured?: StructuredAddress | null) => {
     setCoord([lon, lat]);
     setQuery(label);
+    setStructured(hitStructured ?? null);
     setHits([]);
     setFocused(false);
   };
@@ -128,11 +138,18 @@ export default function PlaceEditor() {
     const lon = e.geometry.coordinates[0]!;
     const lat = e.geometry.coordinates[1]!;
     setCoord([lon, lat]);
-    const addr = await reverseGeocode(lat, lon);
-    if (addr && seq === dragSeqRef.current) {
+    const [addr, struct] = await Promise.all([
+      reverseGeocode(lat, lon),
+      reverseGeocodeStructured(lat, lon),
+    ]);
+    if (seq !== dragSeqRef.current) return;
+    if (addr) {
       skipSearchRef.current = true;
       setQuery(addr);
     }
+    // Only overwrite the structured address on a SUCCESSFUL geocode — a failure
+    // (offline / API disabled) returns null and must not wipe a valid address.
+    if (struct) setStructured(struct);
   };
 
   const onSave = async () => {
@@ -148,6 +165,11 @@ export default function PlaceEditor() {
       longitude: coord[0],
       radiusM: Math.round(radius),
       displayName: query.trim() || null,
+      street: structured?.street ?? null,
+      houseNumber: structured?.houseNumber ?? null,
+      postalCode: structured?.postalCode ?? null,
+      city: structured?.city ?? null,
+      country: structured?.country ?? null,
     };
     try {
       if (isNew) await create.mutateAsync(input);
@@ -224,7 +246,7 @@ export default function PlaceEditor() {
                 <Pressable
                   key={i}
                   style={styles.drow}
-                  onPress={() => moveTo(h.lon, h.lat, h.label)}
+                  onPress={() => moveTo(h.lon, h.lat, h.label, h.structured)}
                 >
                   <MaterialCommunityIcons
                     name="map-marker-outline"

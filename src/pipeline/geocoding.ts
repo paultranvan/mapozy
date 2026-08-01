@@ -1,5 +1,5 @@
 import type { Db } from '../db/client';
-import { getPlaceById, setPlaceDisplayName } from '../db/places';
+import { getPlaceById, setPlaceDisplayName, setPlaceStructuredAddress, type StructuredAddress } from '../db/places';
 import { externalApiAllowed } from '../lib/net';
 import { nominatimFetch } from '../lib/nominatim';
 
@@ -27,6 +27,9 @@ interface NominatimAddress {
   city?: string;
   town?: string;
   village?: string;
+  postcode?: string;
+  country?: string;
+  country_code?: string;
 }
 
 interface NominatimResponse {
@@ -82,4 +85,56 @@ export async function geocodePlaceLazy(db: Db, placeId: number): Promise<string 
 
 export function fallbackPlaceLabel(lat: number, lon: number): string {
   return `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+}
+
+export function extractStructuredAddress(data: NominatimResponse): StructuredAddress {
+  const a = data.address ?? {};
+  const street =
+    a.road ?? a.pedestrian ?? a.footway ?? a.cycleway ?? a.path ?? a.square ?? null;
+  const city = a.city ?? a.town ?? a.village ?? null;
+  return {
+    street,
+    houseNumber: a.house_number ?? null,
+    postalCode: a.postcode ?? null,
+    city,
+    country: a.country ?? null,
+  };
+}
+
+export async function reverseGeocodeStructured(
+  lat: number,
+  lon: number
+): Promise<StructuredAddress | null> {
+  if (!externalApiAllowed()) return null;
+  try {
+    const resp = await nominatimFetch(
+      `/reverse?lat=${lat}&lon=${lon}&format=json&zoom=18&addressdetails=1`
+    );
+    if (!resp.ok) return null;
+    const data = (await resp.json()) as NominatimResponse;
+    return extractStructuredAddress(data);
+  } catch {
+    return null;
+  }
+}
+
+/** Return the place's structured address, geocoding + persisting it on first
+ *  need. Returns null if unavailable (e.g. external API disabled + never seen). */
+export async function ensurePlaceAddress(
+  db: Db,
+  placeId: number
+): Promise<StructuredAddress | null> {
+  const p = await getPlaceById(db, placeId);
+  if (!p) return null;
+  const existing: StructuredAddress = {
+    street: p.street,
+    houseNumber: p.houseNumber,
+    postalCode: p.postalCode,
+    city: p.city,
+    country: p.country,
+  };
+  if (existing.city || existing.street) return existing;
+  const fresh = await reverseGeocodeStructured(p.latitude, p.longitude);
+  if (fresh) await setPlaceStructuredAddress(db, placeId, fresh);
+  return fresh;
 }

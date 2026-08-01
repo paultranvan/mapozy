@@ -141,6 +141,19 @@ export const en = {
   'settings.netModalOutro':
     'These are public OpenStreetMap community servers. No account is used, but your trip’s coordinates do transit through them while offline mode is off.',
   'settings.gotIt': 'Got it',
+  'settings.sectionTiime': 'Tiime account',
+  'settings.tiimeConnect': 'Connect to Tiime',
+  'settings.tiimeConnectHint': 'Send your business trips to Tiime',
+  'settings.tiimeCompany': 'Company',
+  'settings.tiimeVehicle': 'Vehicle',
+  'settings.tiimeNoVehicles': 'No active vehicles found.',
+  'settings.tiimeLoadError': 'Could not load Tiime data: {error}',
+  'settings.tiimeViewQueue': 'Trips to send',
+  'settings.tiimeViewQueueHint': 'Review and push your car trips to Tiime',
+  'settings.tiimeChangeVehicle': 'Change vehicle',
+  'settings.tiimeDisconnect': 'Disconnect',
+  'settings.tiimeSessionExpired': 'Tiime session expired',
+  'settings.tiimeSessionExpiredHint': 'Sign in again to keep sending trips',
 
   // Screen error boundary
   'errorFallback.title': 'Something went wrong',
@@ -244,6 +257,7 @@ export const en = {
   'trips.transitBusyBody': 'OpenStreetMap rate-limited the request. Some trips are still draft — pull to refresh again in a moment.',
   'trips.emptyTitle': 'No trips yet',
   'trips.emptyBody': 'Move around — trips will appear here.',
+  'trips.tiimePendingBanner': '{count} trip(s) ready to send to Tiime',
   'day.today': 'Today',
   'day.yesterday': 'Yesterday',
   'day.noTrips': 'No trips on this day.',
@@ -256,6 +270,7 @@ export const en = {
   'trip.mergeWithNext': 'Merge with next trip',
   'trip.resetToAuto': 'Reset to auto-detected',
   'trip.deleteTrip': 'Delete trip',
+  'trip.sendToTiime': 'Send to Tiime',
   'trip.cantResetTitle': 'Can\'t reset',
   'trip.cantResetBody': 'The raw GPS data behind this trip has been cleaned up (90-day retention), so it can no longer be rebuilt.',
   'trip.start': 'Start',
@@ -326,6 +341,34 @@ export const en = {
   'places.frequentPlace': 'Frequent place',
   'places.visitCount': '{count} visit(s)',
   'places.seeMoreSuggestions': 'See more suggestions ({count})',
+
+  // Tiime validation queue
+  'tiimeQueue.title': 'Tiime queue',
+  'tiimeQueue.notConnectedTitle': 'Tiime not connected',
+  'tiimeQueue.notConnectedBody': 'Connect your Tiime account to send your business trips.',
+  'tiimeQueue.connectCta': 'Connect Tiime',
+  'tiimeQueue.expiredTitle': 'Tiime session expired',
+  'tiimeQueue.expiredBody':
+    'Your Tiime session expired and could not be renewed automatically. Sign in again to send your trips.',
+  'tiimeQueue.reconnectCta': 'Sign in again',
+  'tiimeQueue.noVehicleTitle': 'Default vehicle needed',
+  'tiimeQueue.noVehicleBody':
+    'Pick a company and a vehicle in Settings before sending trips.',
+  'tiimeQueue.goToSettings': 'Go to Settings',
+  'tiimeQueue.empty': 'No trips to send yet. A trip shows up here once it is a car trip that starts or ends at a place you tagged as "work".',
+  'tiimeQueue.arrivalCompanyLabel': 'Company at arrival',
+  'tiimeQueue.arrivalCompanyPlaceholder': 'Company name',
+  'tiimeQueue.roundTrip': 'Round trip',
+  'tiimeQueue.departureAddress': 'Departure address',
+  'tiimeQueue.arrivalAddress': 'Arrival address',
+  'tiimeQueue.houseNumberPlaceholder': 'No.',
+  'tiimeQueue.streetPlaceholder': 'Street',
+  'tiimeQueue.postalCodePlaceholder': 'Postal code',
+  'tiimeQueue.cityPlaceholder': 'City',
+  'tiimeQueue.sendSelected': 'Send ({count})',
+  'tiimeQueue.sending': 'Sending…',
+  'tiimeQueue.sent': 'Sent',
+  'tiimeQueue.errorPrefix': 'Error: {error}',
 } as const;
 
 export type TranslationKey = keyof typeof en;

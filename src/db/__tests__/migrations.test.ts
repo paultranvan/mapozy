@@ -111,3 +111,53 @@ describe('migration 011: drop transit_cache', () => {
     expect(row).toBeNull();
   });
 });
+
+describe('migration 012', () => {
+  it('adds structured address columns to places', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    const cols = await db.getAllAsync<{ name: string }>(
+      `PRAGMA table_info(places)`
+    );
+    const names = cols.map((c) => c.name);
+    for (const c of ['street', 'house_number', 'postal_code', 'city', 'country']) {
+      expect(names).toContain(c);
+    }
+  });
+
+});
+
+describe('migration 013', () => {
+  it('creates connector_travels with a unique (type, signature) constraint and no trip FK', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    // mapozy_trip_id is now plain informational data (nullable, no FK), so no
+    // real trips row is required to insert here.
+    await db.runAsync(
+      `INSERT INTO connector_travels(connector_type, signature, mapozy_trip_id, external_travel_id, sent_at) VALUES('tiime', 'sig-1', NULL, 'x', 100)`
+    );
+    let rejected = false;
+    try {
+      await db.runAsync(
+        `INSERT INTO connector_travels(connector_type, signature, mapozy_trip_id, external_travel_id, sent_at) VALUES('tiime', 'sig-1', NULL, 'y', 200)`
+      );
+    } catch {
+      rejected = true;
+    }
+    expect(rejected).toBe(true);
+  });
+
+  it('allows mapozy_trip_id to reference a trip that no longer exists', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    // A trip id that was never created (or has since been deleted by a
+    // recompute) must not be rejected: there is no FK on this column anymore.
+    await db.runAsync(
+      `INSERT INTO connector_travels(connector_type, signature, mapozy_trip_id, external_travel_id, sent_at) VALUES('tiime', 'sig-2', 999999, 'z', 300)`
+    );
+    const row = await db.getFirstAsync<{ mapozy_trip_id: number }>(
+      `SELECT mapozy_trip_id FROM connector_travels WHERE signature = 'sig-2'`
+    );
+    expect(row?.mapozy_trip_id).toBe(999999);
+  });
+});

@@ -4,7 +4,8 @@ import type { Place } from '../../types';
 const poi = (over: Partial<Place>): Place => ({
   id: 1, kind: 'user', name: 'P', category: 'home',
   latitude: 45.75, longitude: 4.85, radiusM: 100,
-  displayName: null, visitCount: 0, firstSeenMs: 0, lastSeenMs: 0, ...over,
+  displayName: null, street: null, houseNumber: null, postalCode: null, city: null, country: null,
+  visitCount: 0, firstSeenMs: 0, lastSeenMs: 0, ...over,
 });
 
 describe('nearestUserPoi', () => {
