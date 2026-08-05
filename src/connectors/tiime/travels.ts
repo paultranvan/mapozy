@@ -1,17 +1,38 @@
 import type { Db } from '../../db/client';
 import type { StructuredAddress } from '../../db/places';
 import { getUserPlaces } from '../../db/places';
-import { getSentSignatures, recordSentTravel } from '../../db/connectorTravels';
+import {
+  getSentSignatures,
+  markExpenseReportDone,
+  markExpenseReportFailed,
+  recordSentTravel,
+  type FailedExpenseReport,
+} from '../../db/connectorTravels';
 import { insertDiagnosticEvent } from '../../db/diagnostics';
 import { nearestUserPoi } from '../../lib/poiResolve';
 import { ensurePlaceAddress, reverseGeocodeStructured } from '../../pipeline/geocoding';
 import { buildTravelPayload } from './mappers';
 import { TiimeApiError, type TiimeClient } from './client';
-import type { TiimeTravelResponse } from './types';
+import {
+  buildComputeTravelDto,
+  buildExpenseReportPayload,
+  computeTravelAmount,
+  createExpenseReport,
+  toExpenseReportTravel,
+} from './expenseReports';
+import type {
+  TiimeExpenseReportTravel,
+  TiimeExpenseReportVehicleRaw,
+  TiimeOwner,
+  TiimeTravelResponse,
+} from './types';
 
 /** Diagnostic event type for a Tiime travel send (success or failure). Logged
  *  to tracker_diagnostics so it exports with "Send data to Paul". */
 const TIIME_SEND_EVENT = 'tiime_send';
+
+/** Same rationale as TIIME_SEND_EVENT, for the expense-report leg. */
+const TIIME_EXPENSE_REPORT_EVENT = 'tiime_expense_report';
 
 function pad(n: number): string {
   return String(n).padStart(2, '0');
@@ -188,6 +209,13 @@ export async function resolveTravelAddresses(
   return { departure, arrival };
 }
 
+/** Everything the expense-report leg needs that the travel leg does not. Both
+ *  values are per-account, not per-trip, so they are fetched once per batch. */
+export interface ExpenseReportContext {
+  owner: TiimeOwner;
+  vehicle: TiimeExpenseReportVehicleRaw;
+}
+
 export interface SendOptions {
   vehicleId: number;
   companyId: number;
@@ -195,6 +223,22 @@ export interface SendOptions {
   arrivalCompanyName: string | null;
   departure: StructuredAddress;
   arrival: StructuredAddress;
+  /** Omit to create the travel only — exactly the calls made before expense
+   *  reports existed. */
+  expenseReport?: ExpenseReportContext;
+}
+
+export interface SendResult {
+  travelId: number;
+  expenseReportId: number | null;
+  /** Set when the travel was created but its report was not. This is NOT a
+   *  failed send: the travel exists in Tiime and is deduped. */
+  expenseReportError: string | null;
+}
+
+function describeError(e: unknown): string {
+  if (e instanceof TiimeApiError) return `${e.message} — ${e.body}`;
+  return e instanceof Error ? e.message : String(e);
 }
 
 export async function sendCandidate(
@@ -202,7 +246,7 @@ export async function sendCandidate(
   client: TiimeClient,
   candidate: TiimeCandidate,
   opts: SendOptions
-): Promise<number> {
+): Promise<SendResult> {
   const payload = buildTravelPayload({
     startMs: candidate.startMs,
     distanceM: candidate.distanceM,
@@ -219,8 +263,11 @@ export async function sendCandidate(
     departure: candidate.departure,
     arrival: candidate.arrival,
   });
+
+  let travelId: number;
   try {
     const res = await client.post<TiimeTravelResponse>(path, payload);
+    travelId = res.id;
     // Full send record (success + failure) lands in tracker_diagnostics, which
     // ships with the "Send data to Paul" export — so a failed send is
     // diagnosable after the fact (payload + status + Tiime's response body).
@@ -229,11 +276,9 @@ export async function sendCandidate(
       tripId: candidate.tripId,
       path,
       status: 201,
-      travelId: res.id,
+      travelId,
       payload,
     });
-    await recordSentTravel(db, 'tiime', signature, String(res.id), Date.now(), candidate.tripId);
-    return res.id;
   } catch (e) {
     await insertDiagnosticEvent(db, Date.now(), TIIME_SEND_EVENT, {
       ok: false,
@@ -244,6 +289,104 @@ export async function sendCandidate(
       error: e instanceof Error ? e.message : String(e),
       payload,
     });
+    throw e;
+  }
+
+  // Dedup BEFORE the expense report. The travel exists in Tiime now; if
+  // anything below fails, re-sending it would create a duplicate.
+  await recordSentTravel(db, 'tiime', signature, String(travelId), Date.now(), candidate.tripId);
+
+  if (!opts.expenseReport) {
+    return { travelId, expenseReportId: null, expenseReportError: null };
+  }
+
+  // A report failure leaves the travel in place and is reported, not thrown:
+  // the send succeeded, and the retry section is what resolves the rest.
+  let computedTravel: TiimeExpenseReportTravel | null = null;
+  try {
+    const dto = buildComputeTravelDto({
+      travelId,
+      travel: payload,
+      vehicle: opts.expenseReport.vehicle,
+    });
+    const computed = await computeTravelAmount(client, opts.companyId, dto);
+    computedTravel = toExpenseReportTravel(computed);
+    const reportId = await postExpenseReport(db, client, {
+      companyId: opts.companyId,
+      owner: opts.expenseReport.owner,
+      travel: computedTravel,
+      tripId: candidate.tripId,
+    });
+    await markExpenseReportDone(db, 'tiime', signature, String(reportId));
+    return { travelId, expenseReportId: reportId, expenseReportError: null };
+  } catch (e) {
+    const message = describeError(e);
+    await markExpenseReportFailed(db, 'tiime', signature, message, computedTravel);
+    return { travelId, expenseReportId: null, expenseReportError: message };
+  }
+}
+
+/** The final POST plus its diagnostic. Shared by the send path and the retry
+ *  path so both log the same event with the same payload. */
+async function postExpenseReport(
+  db: Db,
+  client: TiimeClient,
+  args: {
+    companyId: number;
+    owner: TiimeOwner;
+    travel: TiimeExpenseReportTravel;
+    tripId: number | null;
+  }
+): Promise<number> {
+  const payload = buildExpenseReportPayload({ travel: args.travel, owner: args.owner });
+  try {
+    const res = await createExpenseReport(client, args.companyId, payload);
+    await insertDiagnosticEvent(db, Date.now(), TIIME_EXPENSE_REPORT_EVENT, {
+      ok: true,
+      tripId: args.tripId,
+      travelId: args.travel.id,
+      expenseReportId: res.id,
+      estimatedAmount: args.travel.estimated_amount,
+      payload,
+    });
+    return res.id;
+  } catch (e) {
+    await insertDiagnosticEvent(db, Date.now(), TIIME_EXPENSE_REPORT_EVENT, {
+      ok: false,
+      tripId: args.tripId,
+      travelId: args.travel.id,
+      status: e instanceof TiimeApiError ? e.status : null,
+      body: e instanceof TiimeApiError ? e.body : null,
+      error: e instanceof Error ? e.message : String(e),
+      payload,
+    });
+    throw e;
+  }
+}
+
+/** Replay a failed expense report from the stored, already-computed travel —
+ *  one call, no travel recreation and no second amount computation (which
+ *  could come back different and silently change what is claimed). */
+export async function retryExpenseReport(
+  db: Db,
+  client: TiimeClient,
+  row: FailedExpenseReport,
+  opts: { companyId: number; owner: TiimeOwner }
+): Promise<number> {
+  if (!row.travel) {
+    throw new Error('This travel has no computed body stored; send it again from Tiime.');
+  }
+  try {
+    const reportId = await postExpenseReport(db, client, {
+      companyId: opts.companyId,
+      owner: opts.owner,
+      travel: row.travel,
+      tripId: null,
+    });
+    await markExpenseReportDone(db, 'tiime', row.signature, String(reportId));
+    return reportId;
+  } catch (e) {
+    await markExpenseReportFailed(db, 'tiime', row.signature, describeError(e), row.travel);
     throw e;
   }
 }

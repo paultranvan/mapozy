@@ -368,4 +368,14 @@ export const fr: Record<TranslationKey, string> = {
   'tiimeQueue.sending': 'Envoi…',
   'tiimeQueue.sent': 'Envoyé',
   'tiimeQueue.errorPrefix': 'Erreur : {error}',
+  'tiimeQueue.createExpenseReport': 'Créer la note de frais kilométrique',
+  'tiimeQueue.expenseReportCreated': 'NDF créée',
+  'tiimeQueue.expenseReportFailed': 'NDF non créée',
+  'tiimeQueue.retryExpenseReport': 'Réessayer la NDF',
+  'tiimeQueue.failedSectionTitle': 'NOTES DE FRAIS À REPRENDRE',
+  'tiimeQueue.failedSectionBody':
+    'Ces déplacements sont bien dans Tiime, mais leur note de frais n\'a pas pu être créée.',
+  'tiimeQueue.failedTravelLabel': 'Déplacement du {date} · {distance} km',
+  'tiimeQueue.failedNoBody':
+    'Impossible de reprendre automatiquement : créez la note de frais depuis Tiime.',
 };

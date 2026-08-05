@@ -1,4 +1,5 @@
 import type { TiimeClient } from './client';
+import type { TiimeOwner } from './types';
 
 export interface TiimeCompany {
   id: number;
@@ -29,6 +30,13 @@ export async function fetchDefaultCompany(client: TiimeClient): Promise<TiimeCom
   const me = await client.get<UserMeResponse>('/v1/users/me');
   const company = await client.get<CompanyResponse>(`/v1/companies/${me.active_company}`);
   return { id: company.id, name: company.name };
+}
+
+/** The same /v1/users/me call, kept whole: an expense report's `owner` block is
+ *  this response verbatim (id, firstname, lastname, phone, email,
+ *  active_company, roles). */
+export async function fetchOwner(client: TiimeClient): Promise<TiimeOwner> {
+  return client.get<TiimeOwner>('/v1/users/me');
 }
 
 // Verified endpoint; the vendor media type is REQUIRED to get the v2 shape.

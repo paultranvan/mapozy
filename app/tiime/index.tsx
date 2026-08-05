@@ -24,13 +24,25 @@ import {
   useTiimeConfig,
   useSendToTiime,
   useTiimeAuthFailureHandler,
+  useExpenseReportContext,
+  useFailedExpenseReports,
+  useRetryExpenseReport,
 } from '@/queries/useTiime';
-import { resolveTravelAddresses, type TiimeCandidate } from '@/connectors/tiime/travels';
+import {
+  resolveTravelAddresses,
+  type ExpenseReportContext,
+  type TiimeCandidate,
+} from '@/connectors/tiime/travels';
+import type { FailedExpenseReport } from '@/db/connectorTravels';
 import type { StructuredAddress } from '@/db/places';
 
 type Translate = (key: TranslationKey, params?: TParams) => string;
 
 type CardStatus = 'idle' | 'sending' | 'sent' | 'error';
+
+/** Outcome of the expense-report leg, tracked separately from `status`: a
+ *  travel can be 'sent' while its report failed, and that is not a failed send. */
+type ExpenseReportOutcome = 'none' | 'done' | 'failed';
 
 interface CardState {
   arrivalCompanyName: string;
@@ -39,6 +51,8 @@ interface CardState {
   arrival: StructuredAddress;
   status: CardStatus;
   error: string | null;
+  expenseReport: ExpenseReportOutcome;
+  expenseReportError: string | null;
 }
 
 export default function TiimeQueueScreen() {
@@ -50,14 +64,26 @@ export default function TiimeQueueScreen() {
   const candidatesQ = useTiimeCandidates();
   const sendMutation = useSendToTiime();
   const onAuthFailure = useTiimeAuthFailureHandler();
+  const getExpenseReportContext = useExpenseReportContext();
+  const failedReportsQ = useFailedExpenseReports();
+  const retryMutation = useRetryExpenseReport();
 
   const candidates: TiimeCandidate[] = candidatesQ.data ?? [];
+  const failedReports: FailedExpenseReport[] = failedReportsQ.data ?? [];
 
   // Per-card editable state, keyed by tripId. Addresses are hydrated lazily
   // (below) since ensurePlaceAddress can hit the network for reverse geocoding.
   const [cardState, setCardState] = useState<Record<number, CardState>>({});
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [sendingBatch, setSendingBatch] = useState(false);
+  // Deliberately not persisted: it resets to checked on every mount, so a
+  // one-off unchecked send never silently becomes the new default.
+  const [createExpenseReport, setCreateExpenseReport] = useState(true);
+  // Set when the per-account lookups (user + vehicle) that the expense-report
+  // leg needs could not be fetched — the travels are still sent, without
+  // reports, rather than the whole batch being blocked.
+  const [contextError, setContextError] = useState<string | null>(null);
+  const [retryingSignature, setRetryingSignature] = useState<string | null>(null);
   // Tracks which tripIds already had their default state (incl. addresses)
   // initialized, so a later re-render / refetch doesn't clobber user edits.
   const initializedRef = useRef<Set<number>>(new Set());
@@ -84,6 +110,8 @@ export default function TiimeQueueScreen() {
             arrival,
             status: 'idle',
             error: null,
+            expenseReport: 'none',
+            expenseReportError: null,
           },
         }));
       }
@@ -125,6 +153,25 @@ export default function TiimeQueueScreen() {
       const ids = Array.from(selected);
       if (ids.length === 0) return;
       setSendingBatch(true);
+      setContextError(null);
+
+      // Owner + vehicle are per-account, so they are resolved once for the
+      // whole batch. If they cannot be fetched, the travels are still sent —
+      // losing the reports is recoverable from the retry section, losing the
+      // travels is not.
+      let expenseReport: ExpenseReportContext | undefined;
+      if (createExpenseReport) {
+        try {
+          expenseReport = await getExpenseReportContext(companyId, vehicleId);
+        } catch (e) {
+          if (onAuthFailure(e)) {
+            setSendingBatch(false);
+            return;
+          }
+          setContextError(String(e));
+        }
+      }
+
       // Sequential on purpose: keeps per-card status updates easy to reason
       // about and avoids hammering the Tiime API with a burst of requests.
       for (const tripId of ids) {
@@ -136,18 +183,29 @@ export default function TiimeQueueScreen() {
         if (state.status === 'sent' || state.status === 'sending') continue;
         patchCard(tripId, { status: 'sending', error: null });
         try {
-          await sendMutation.mutateAsync({
+          const result = await sendMutation.mutateAsync({
             candidate,
             companyId,
             vehicleId,
             roundTrip: state.roundTrip,
+            expenseReport,
             overrides: {
               arrivalCompanyName: state.arrivalCompanyName || candidate.arrivalCompanyName,
               departure: state.departure,
               arrival: state.arrival,
             },
           });
-          patchCard(tripId, { status: 'sent', error: null });
+          patchCard(tripId, {
+            status: 'sent',
+            error: null,
+            // A failed report keeps the card in 'sent': the travel did land.
+            expenseReport: result.expenseReportError
+              ? 'failed'
+              : result.expenseReportId != null
+                ? 'done'
+                : 'none',
+            expenseReportError: result.expenseReportError,
+          });
           setSelected((prev) => {
             const next = new Set(prev);
             next.delete(tripId);
@@ -180,7 +238,28 @@ export default function TiimeQueueScreen() {
     sendMutation,
     patchCard,
     onAuthFailure,
+    createExpenseReport,
+    getExpenseReportContext,
   ]);
+
+  const onRetryReport = useCallback(
+    async (row: FailedExpenseReport) => {
+      const companyId = config.companyId;
+      const vehicleId = config.vehicleId;
+      if (companyId == null || vehicleId == null) return;
+      setRetryingSignature(row.signature);
+      setContextError(null);
+      try {
+        const context = await getExpenseReportContext(companyId, vehicleId);
+        await retryMutation.mutateAsync({ row, companyId, vehicleId, context });
+      } catch (e) {
+        if (!onAuthFailure(e)) setContextError(String(e));
+      } finally {
+        setRetryingSignature(null);
+      }
+    },
+    [config.companyId, config.vehicleId, getExpenseReportContext, retryMutation, onAuthFailure]
+  );
 
   if (!connection.connected) {
     return (
@@ -265,6 +344,17 @@ export default function TiimeQueueScreen() {
         data={candidates}
         keyExtractor={(c) => String(c.tripId)}
         contentContainerStyle={styles.listContent}
+        ListHeaderComponent={
+          failedReports.length > 0 ? (
+            <FailedReportsSection
+              rows={failedReports}
+              retryingSignature={retryingSignature}
+              onRetry={onRetryReport}
+              formatDate={formatCandidateDate}
+              t={t}
+            />
+          ) : null
+        }
         ListEmptyComponent={
           candidatesQ.isLoading ? (
             <ActivityIndicator size="small" color={colors.ink} style={styles.emptyIndicator} />
@@ -287,6 +377,26 @@ export default function TiimeQueueScreen() {
         )}
       />
       <View style={styles.footer}>
+        {contextError ? (
+          <Text variant="meta" color={colors.danger} style={styles.contextError}>
+            {t('tiimeQueue.errorPrefix', { error: contextError })}
+          </Text>
+        ) : null}
+        <Pressable
+          style={styles.expenseReportToggle}
+          onPress={() => setCreateExpenseReport((v) => !v)}
+          disabled={sendingBatch}
+          hitSlop={6}
+        >
+          <MaterialCommunityIcons
+            name={createExpenseReport ? 'checkbox-marked' : 'checkbox-blank-outline'}
+            size={22}
+            color={createExpenseReport ? colors.accent : colors.inkSoft}
+          />
+          <Text variant="body" style={styles.expenseReportToggleLabel}>
+            {t('tiimeQueue.createExpenseReport')}
+          </Text>
+        </Pressable>
         <Pressable
           style={[
             styles.sendBtn,
@@ -304,6 +414,90 @@ export default function TiimeQueueScreen() {
           )}
         </Pressable>
       </View>
+    </View>
+  );
+}
+
+/** Tiime stores 'YYYY-MM-DD HH:mm:ss' local wall-clock time. Turning the space
+ *  into a 'T' makes it an ISO local datetime, which Date parses without a
+ *  timezone shift. */
+function tiimeDateToMs(date: string): number {
+  return new Date(date.replace(' ', 'T')).getTime();
+}
+
+/**
+ * Travels that reached Tiime but whose expense report did not. They are no
+ * longer candidates — `listCandidates` filters out sent signatures — so
+ * without this section the persisted 'failed' state would be unreachable after
+ * a restart.
+ */
+function FailedReportsSection({
+  rows,
+  retryingSignature,
+  onRetry,
+  formatDate,
+  t,
+}: {
+  rows: FailedExpenseReport[];
+  retryingSignature: string | null;
+  onRetry: (row: FailedExpenseReport) => void;
+  formatDate: (ms: number) => string;
+  t: Translate;
+}) {
+  return (
+    <View style={styles.failedSection}>
+      <Text variant="label" color={colors.inkSoft}>
+        {t('tiimeQueue.failedSectionTitle')}
+      </Text>
+      <Text variant="meta" soft style={styles.failedSectionBody}>
+        {t('tiimeQueue.failedSectionBody')}
+      </Text>
+      {rows.map((row) => {
+        const busy = retryingSignature === row.signature;
+        return (
+          <Card key={row.signature} style={styles.failedCard}>
+            <View style={styles.failedHeader}>
+              <MaterialCommunityIcons
+                name="receipt"
+                size={20}
+                color={colors.danger}
+              />
+              <Text variant="body" style={styles.failedLabel}>
+                {row.travel
+                  ? t('tiimeQueue.failedTravelLabel', {
+                      date: formatDate(tiimeDateToMs(row.travel.date)),
+                      distance: row.travel.distance,
+                    })
+                  : formatDate(row.sentAtMs)}
+              </Text>
+            </View>
+            {row.error ? (
+              <Text variant="meta" color={colors.danger}>
+                {t('tiimeQueue.errorPrefix', { error: row.error })}
+              </Text>
+            ) : null}
+            {row.travel ? (
+              <Pressable
+                style={[styles.retryBtn, busy && styles.sendBtnDisabled]}
+                onPress={() => onRetry(row)}
+                disabled={busy}
+              >
+                {busy ? (
+                  <ActivityIndicator size="small" color={colors.accent} />
+                ) : (
+                  <Text variant="label" color={colors.accent}>
+                    {t('tiimeQueue.retryExpenseReport')}
+                  </Text>
+                )}
+              </Pressable>
+            ) : (
+              <Text variant="meta" soft>
+                {t('tiimeQueue.failedNoBody')}
+              </Text>
+            )}
+          </Card>
+        );
+      })}
     </View>
   );
 }
@@ -437,6 +631,32 @@ function CandidateCard({
             <Text variant="meta" color={colors.danger} style={styles.errorText}>
               {t('tiimeQueue.errorPrefix', { error: state.error })}
             </Text>
+          ) : null}
+
+          {state.expenseReport === 'done' ? (
+            <View style={styles.statusRow}>
+              <MaterialCommunityIcons name="receipt" size={18} color={colors.start} />
+              <Text variant="meta" color={colors.start} style={styles.statusText}>
+                {t('tiimeQueue.expenseReportCreated')}
+              </Text>
+            </View>
+          ) : null}
+
+          {/* The travel DID land — only the report is missing, so this is a
+              warning next to a 'sent' badge, never an error state. The card
+              disappears on the next load; the retry section above is what
+              carries this forward. */}
+          {state.expenseReport === 'failed' ? (
+            <View style={styles.statusRow}>
+              <MaterialCommunityIcons
+                name="receipt"
+                size={18}
+                color={colors.danger}
+              />
+              <Text variant="meta" color={colors.danger} style={styles.statusText}>
+                {t('tiimeQueue.expenseReportFailed')}
+              </Text>
+            </View>
           ) : null}
         </>
       )}
@@ -623,5 +843,43 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: {
     opacity: 0.5,
+  },
+  expenseReportToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
+    marginBottom: space[3],
+  },
+  expenseReportToggleLabel: {
+    flex: 1,
+  },
+  contextError: {
+    marginBottom: space[2],
+  },
+  failedSection: {
+    gap: space[2],
+    marginBottom: space[2],
+  },
+  failedSectionBody: {
+    marginTop: -space[1],
+  },
+  failedCard: {
+    gap: space[2],
+  },
+  failedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
+  },
+  failedLabel: {
+    flex: 1,
+  },
+  retryBtn: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: space[4],
+    paddingVertical: space[2],
+    borderRadius: radii.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.accent,
   },
 });

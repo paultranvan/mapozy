@@ -369,6 +369,16 @@ export const en = {
   'tiimeQueue.sending': 'Sending…',
   'tiimeQueue.sent': 'Sent',
   'tiimeQueue.errorPrefix': 'Error: {error}',
+  'tiimeQueue.createExpenseReport': 'Create the mileage expense report',
+  'tiimeQueue.expenseReportCreated': 'Expense report created',
+  'tiimeQueue.expenseReportFailed': 'Expense report not created',
+  'tiimeQueue.retryExpenseReport': 'Retry the expense report',
+  'tiimeQueue.failedSectionTitle': 'EXPENSE REPORTS TO RETRY',
+  'tiimeQueue.failedSectionBody':
+    'These travels did reach Tiime, but their expense report could not be created.',
+  'tiimeQueue.failedTravelLabel': 'Travel on {date} · {distance} km',
+  'tiimeQueue.failedNoBody':
+    'Cannot be retried automatically: create the expense report from Tiime.',
 } as const;
 
 export type TranslationKey = keyof typeof en;
