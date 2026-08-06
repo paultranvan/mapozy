@@ -8,7 +8,7 @@ import {
   TextInput,
   ActivityIndicator,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { fr as dateFnsFr } from 'date-fns/locale';
@@ -27,6 +27,7 @@ import {
   useExpenseReportContext,
   useFailedExpenseReports,
   useRetryExpenseReport,
+  useDismissExpenseReport,
 } from '@/queries/useTiime';
 import {
   resolveTravelAddresses,
@@ -45,7 +46,7 @@ type CardStatus = 'idle' | 'sending' | 'sent' | 'error';
 type ExpenseReportOutcome = 'none' | 'done' | 'failed';
 
 interface CardState {
-  arrivalCompanyName: string;
+  companyName: string;
   roundTrip: boolean;
   departure: StructuredAddress;
   arrival: StructuredAddress;
@@ -67,6 +68,7 @@ export default function TiimeQueueScreen() {
   const getExpenseReportContext = useExpenseReportContext();
   const failedReportsQ = useFailedExpenseReports();
   const retryMutation = useRetryExpenseReport();
+  const dismissMutation = useDismissExpenseReport();
 
   const candidates: TiimeCandidate[] = candidatesQ.data ?? [];
   const failedReports: FailedExpenseReport[] = failedReportsQ.data ?? [];
@@ -92,6 +94,19 @@ export default function TiimeQueueScreen() {
   // loop twice with a stale cardState (per-card guards still see 'idle').
   const sendingRef = useRef(false);
 
+  // Candidacy depends on the user's work-tagged places, which are edited on
+  // ANOTHER screen. This route stays mounted in the stack, so coming back from
+  // Places with a new work place would otherwise show the same stale list —
+  // re-evaluate on every focus, not just on mount.
+  const refetchCandidates = candidatesQ.refetch;
+  const refetchFailed = failedReportsQ.refetch;
+  useFocusEffect(
+    useCallback(() => {
+      refetchCandidates();
+      refetchFailed();
+    }, [refetchCandidates, refetchFailed])
+  );
+
   useEffect(() => {
     const toInit = candidates.filter((c) => !initializedRef.current.has(c.tripId));
     if (toInit.length === 0) return;
@@ -104,7 +119,7 @@ export default function TiimeQueueScreen() {
         setCardState((prev) => ({
           ...prev,
           [c.tripId]: {
-            arrivalCompanyName: c.arrivalCompanyName ?? '',
+            companyName: c.companyName ?? '',
             roundTrip: false,
             departure,
             arrival,
@@ -190,7 +205,7 @@ export default function TiimeQueueScreen() {
             roundTrip: state.roundTrip,
             expenseReport,
             overrides: {
-              arrivalCompanyName: state.arrivalCompanyName || candidate.arrivalCompanyName,
+              arrivalCompanyName: state.companyName || candidate.companyName,
               departure: state.departure,
               arrival: state.arrival,
             },
@@ -350,6 +365,7 @@ export default function TiimeQueueScreen() {
               rows={failedReports}
               retryingSignature={retryingSignature}
               onRetry={onRetryReport}
+              onDismiss={(row) => dismissMutation.mutate(row.signature)}
               formatDate={formatCandidateDate}
               t={t}
             />
@@ -435,12 +451,14 @@ function FailedReportsSection({
   rows,
   retryingSignature,
   onRetry,
+  onDismiss,
   formatDate,
   t,
 }: {
   rows: FailedExpenseReport[];
   retryingSignature: string | null;
   onRetry: (row: FailedExpenseReport) => void;
+  onDismiss: (row: FailedExpenseReport) => void;
   formatDate: (ms: number) => string;
   t: Translate;
 }) {
@@ -476,25 +494,41 @@ function FailedReportsSection({
                 {t('tiimeQueue.errorPrefix', { error: row.error })}
               </Text>
             ) : null}
-            {row.travel ? (
-              <Pressable
-                style={[styles.retryBtn, busy && styles.sendBtnDisabled]}
-                onPress={() => onRetry(row)}
-                disabled={busy}
-              >
-                {busy ? (
-                  <ActivityIndicator size="small" color={colors.accent} />
-                ) : (
-                  <Text variant="label" color={colors.accent}>
-                    {t('tiimeQueue.retryExpenseReport')}
-                  </Text>
-                )}
-              </Pressable>
-            ) : (
+            {row.travel ? null : (
               <Text variant="meta" soft>
                 {t('tiimeQueue.failedNoBody')}
               </Text>
             )}
+            {/* Dismiss is offered unconditionally: a row that cannot be
+                retried (no stored travel) would otherwise sit there forever
+                with no way out. */}
+            <View style={styles.failedActions}>
+              {row.travel ? (
+                <Pressable
+                  style={[styles.retryBtn, busy && styles.sendBtnDisabled]}
+                  onPress={() => onRetry(row)}
+                  disabled={busy}
+                >
+                  {busy ? (
+                    <ActivityIndicator size="small" color={colors.accent} />
+                  ) : (
+                    <Text variant="label" color={colors.accent}>
+                      {t('tiimeQueue.retryExpenseReport')}
+                    </Text>
+                  )}
+                </Pressable>
+              ) : null}
+              <Pressable
+                style={styles.dismissBtn}
+                onPress={() => onDismiss(row)}
+                disabled={busy}
+                hitSlop={8}
+              >
+                <Text variant="label" color={colors.inkSoft}>
+                  {t('tiimeQueue.dismiss')}
+                </Text>
+              </Pressable>
+            </View>
           </Card>
         );
       })}
@@ -590,12 +624,12 @@ function CandidateCard({
           <View style={styles.divider} />
 
           <Text variant="label" color={colors.inkSoft}>
-            {t('tiimeQueue.arrivalCompanyLabel')}
+            {t('tiimeQueue.companyLabel')}
           </Text>
           <TextInput
-            value={state.arrivalCompanyName}
-            onChangeText={(v) => onPatch({ arrivalCompanyName: v })}
-            placeholder={t('tiimeQueue.arrivalCompanyPlaceholder')}
+            value={state.companyName}
+            onChangeText={(v) => onPatch({ companyName: v })}
+            placeholder={t('tiimeQueue.companyPlaceholder')}
             placeholderTextColor={colors.inkSoft}
             style={styles.input}
             editable={!locked}
@@ -874,8 +908,16 @@ const styles = StyleSheet.create({
   failedLabel: {
     flex: 1,
   },
+  failedActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
+  },
+  dismissBtn: {
+    paddingHorizontal: space[3],
+    paddingVertical: space[2],
+  },
   retryBtn: {
-    alignSelf: 'flex-start',
     paddingHorizontal: space[4],
     paddingVertical: space[2],
     borderRadius: radii.pill,

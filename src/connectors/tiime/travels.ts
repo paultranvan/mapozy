@@ -80,9 +80,11 @@ export interface TiimeCandidate {
   distanceM: number;
   departure: Coord;
   arrival: Coord;
-  // Name of the user place at the ARRIVAL endpoint (work place, or any user
-  // place there), else null. Prefills Tiime's arrival_company_name.
-  arrivalCompanyName: string | null;
+  /** Name of the WORK place this trip touches, whichever end it sits at.
+   *  Prefills Tiime's `arrival_company_name`, which despite its name wants the
+   *  company, not "whatever place the trip ended at": a commute home from work
+   *  used to prefill "Home", which is not an employer. */
+  companyName: string | null;
 }
 
 interface TripRow {
@@ -157,22 +159,23 @@ export async function listCandidates(db: Db): Promise<TiimeCandidate[]> {
     const endpoints = extractEndpoints(r.geojson);
     if (!endpoints) continue;
     const { departure, arrival } = endpoints;
-    const touchesWork =
-      nearestUserPoi(departure.lat, departure.lon, workPlaces) != null ||
-      nearestUserPoi(arrival.lat, arrival.lon, workPlaces) != null;
-    if (!touchesWork) continue;
+    const workAtArrival = nearestUserPoi(arrival.lat, arrival.lon, workPlaces);
+    const workAtDeparture = nearestUserPoi(departure.lat, departure.lon, workPlaces);
+    if (!workAtArrival && !workAtDeparture) continue;
 
     const signature = travelSignature({ startMs: r.start_time_ms, distanceM: r.distance_m, departure, arrival });
     if (sent.has(signature)) continue;
 
-    const arrivalPoi = nearestUserPoi(arrival.lat, arrival.lon, userPlaces);
     out.push({
       tripId: r.id,
       startMs: r.start_time_ms,
       distanceM: r.distance_m,
       departure,
       arrival,
-      arrivalCompanyName: arrivalPoi?.name ?? null,
+      // The WORK place, from either end — arrival first, since a commute to
+      // work is the common case. Reading the arrival place regardless of its
+      // category prefilled "Home" on the way back, which is never a company.
+      companyName: (workAtArrival ?? workAtDeparture)?.name ?? null,
     });
   }
   return out;

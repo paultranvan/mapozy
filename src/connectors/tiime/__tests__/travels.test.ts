@@ -19,7 +19,10 @@ import {
   type ExpenseReportContext,
   type TiimeCandidate,
 } from '../travels';
-import { listFailedExpenseReports } from '../../../db/connectorTravels';
+import {
+  dismissExpenseReport,
+  listFailedExpenseReports,
+} from '../../../db/connectorTravels';
 import { TiimeApiError } from '../client';
 
 const EMPTY_ADDR = {
@@ -132,7 +135,7 @@ describe('travelSignature', () => {
 });
 
 describe('listCandidates', () => {
-  it('includes a car trip whose ARRIVAL lands inside a work-tagged place zone, with the place name as arrivalCompanyName', async () => {
+  it('includes a car trip whose ARRIVAL lands inside a work-tagged place zone, with the work place name as companyName', async () => {
     const db = createMockDb();
     await runMigrations(db);
     await insertUserPlace(db, { name: 'Acme Corp', category: 'work', coord: WORK });
@@ -141,19 +144,33 @@ describe('listCandidates', () => {
     const cands = await listCandidates(db);
     const found = findCandidate(cands, trip);
     expect(found).toBeDefined();
-    expect(found?.arrivalCompanyName).toBe('Acme Corp');
+    expect(found?.companyName).toBe('Acme Corp');
     expect(found?.departure).toEqual(HOME);
     expect(found?.arrival).toEqual(WORK);
   });
 
-  it('includes a car trip whose DEPARTURE lands inside a work-tagged place zone', async () => {
+  it('names the WORK place even when it is the departure, not the arrival', async () => {
+    // The commute home: reading whatever place sits at the arrival used to
+    // prefill "Home" as the company, which is never an employer.
     const db = createMockDb();
     await runMigrations(db);
     await insertUserPlace(db, { name: 'Acme Corp', category: 'work', coord: WORK });
+    await insertUserPlace(db, { name: 'Home', category: 'home', coord: HOME });
     const trip = await insertTrip(db, { departure: WORK, arrival: HOME });
 
-    const cands = await listCandidates(db);
-    expect(findCandidate(cands, trip)).toBeDefined();
+    const found = findCandidate(await listCandidates(db), trip);
+    expect(found).toBeDefined();
+    expect(found?.companyName).toBe('Acme Corp');
+  });
+
+  it('prefers the arrival work place when both ends are work places', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    await insertUserPlace(db, { name: 'Office A', category: 'work', coord: WORK });
+    await insertUserPlace(db, { name: 'Office B', category: 'work', coord: ELSEWHERE_A });
+    const trip = await insertTrip(db, { departure: WORK, arrival: ELSEWHERE_A });
+
+    expect(findCandidate(await listCandidates(db), trip)?.companyName).toBe('Office B');
   });
 
   it('excludes a car trip far from every work place', async () => {
@@ -501,6 +518,29 @@ describe('sendCandidate — expense report leg', () => {
     });
     // The request that provoked it is logged too — both halves are needed.
     expect((events[0]!.payload as any).request.id).toBe(999);
+  });
+});
+
+describe('dismissExpenseReport', () => {
+  it('removes a failed report from the retry list without un-sending the travel', async () => {
+    const db = createMockDb();
+    const candidate = await seedCandidate(db);
+    const { client } = routedClient({
+      compute_travels_amount: async () => {
+        throw new TiimeApiError('POST', '/v1/x', 500, 'boom');
+      },
+    });
+    await sendCandidate(db, client, candidate, { ...SEND_OPTS, expenseReport: REPORT_CONTEXT });
+    const row = (await listFailedExpenseReports(db, 'tiime'))[0]!;
+    // This row has no stored travel, so retry is impossible — dismiss is the
+    // only way out, and without it the banner would never clear.
+    expect(row.travel).toBeNull();
+
+    await dismissExpenseReport(db, 'tiime', row.signature);
+
+    expect(await listFailedExpenseReports(db, 'tiime')).toEqual([]);
+    // The travel is still in Tiime, so it must stay deduped.
+    expect(findCandidate(await listCandidates(db), candidate.tripId)).toBeUndefined();
   });
 });
 

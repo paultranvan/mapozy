@@ -4,8 +4,10 @@ import type { TiimeExpenseReportTravel } from '../connectors/tiime/types';
 export type ConnectorType = 'tiime';
 
 /** Outcome of the mileage expense report attached to a sent travel.
- *  'none' = never attempted (the user unchecked the box). */
-export type ExpenseReportStatus = 'none' | 'done' | 'failed';
+ *  'none' = never attempted (the user unchecked the box).
+ *  'dismissed' = failed, and the user acknowledged it — kept distinct from
+ *  'none' so the history still records that a report was owed and never made. */
+export type ExpenseReportStatus = 'none' | 'done' | 'failed' | 'dismissed';
 
 /** Record that a travel was exported to a connector, keyed by a content
  *  signature rather than the (volatile) Mapozy trip id: a recompute deletes
@@ -102,6 +104,23 @@ export async function markExpenseReportFailed(
       WHERE connector_type = ? AND signature = ?`,
     error,
     travelBody ? JSON.stringify(travelBody) : null,
+    connector,
+    signature
+  );
+}
+
+/** Stop surfacing a failed report. The travel stays recorded as sent (it does
+ *  exist in Tiime), only the retry prompt goes away — a permanent banner the
+ *  user cannot clear is worse than no banner at all. */
+export async function dismissExpenseReport(
+  db: Db,
+  connector: ConnectorType,
+  signature: string
+): Promise<void> {
+  await db.runAsync(
+    `UPDATE connector_travels
+        SET expense_report_status = 'dismissed'
+      WHERE connector_type = ? AND signature = ? AND expense_report_status = 'failed'`,
     connector,
     signature
   );

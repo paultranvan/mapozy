@@ -21,6 +21,7 @@ import {
 import { fetchOwner } from '@/connectors/tiime/config-api';
 import { fetchExpenseReportVehicle } from '@/connectors/tiime/expenseReports';
 import {
+  dismissExpenseReport,
   listFailedExpenseReports,
   type FailedExpenseReport,
 } from '@/db/connectorTravels';
@@ -256,7 +257,7 @@ export function useSendToTiime() {
         companyId,
         vehicleId,
         roundTrip: args.roundTrip ?? false,
-        arrivalCompanyName: args.overrides?.arrivalCompanyName ?? candidate.arrivalCompanyName,
+        arrivalCompanyName: args.overrides?.arrivalCompanyName ?? candidate.companyName,
         departure,
         arrival,
         expenseReport: args.expenseReport,
@@ -276,6 +277,19 @@ export function useFailedExpenseReports() {
   return useQuery({
     queryKey: ['tiime', 'failedExpenseReports'],
     queryFn: () => listFailedExpenseReports(db, 'tiime'),
+  });
+}
+
+/** Acknowledge a failed report so it stops being surfaced. Deliberately a
+ *  local-only write: the travel remains in Tiime and remains deduped. */
+export function useDismissExpenseReport() {
+  const db = useDb();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (signature: string) => dismissExpenseReport(db, 'tiime', signature),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['tiime', 'failedExpenseReports'] });
+    },
   });
 }
 
