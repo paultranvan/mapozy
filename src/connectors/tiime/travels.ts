@@ -17,6 +17,7 @@ import {
   buildComputeTravelDto,
   buildExpenseReportPayload,
   createExpenseReport,
+  extractReportAmount,
   extractComputedAmount,
   postComputeTravelsAmount,
   toExpenseReportTravel,
@@ -411,6 +412,10 @@ async function postExpenseReport(
       travelId: args.travel.id,
       expenseReportId: res.id,
       estimatedAmount: args.travel.estimated_amount,
+      // Tiime recomputes the report total and ignores the amount we send. A
+      // divergence here is the only signal that our computed amount is wrong,
+      // since the report itself would still be correct.
+      reportAmount: extractReportAmount(res),
       payload,
     });
     return res.id;

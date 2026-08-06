@@ -11,6 +11,7 @@ import {
   buildExpenseReportPayload,
   computeTravelAmount,
   extractComputedAmount,
+  extractReportAmount,
   createExpenseReport,
   fetchExpenseReportVehicle,
   toComputeVehicle,
@@ -353,6 +354,34 @@ describe('extractComputedAmount', () => {
 });
 
 describe('endpoints (continued)', () => {
+
+  it('fails loudly rather than recording an undefined report id', async () => {
+    // The silent-failure path: a differently shaped response would otherwise
+    // be stored as expense_report_id "undefined" and shown as a success.
+    const client = { get: jest.fn(), post: jest.fn(async () => ({ expense_report: { id: 1 } })) } as any;
+    await expect(
+      createExpenseReport(
+        client,
+        243813,
+        buildExpenseReportPayload({ travel: reportTravel(), owner: OWNER })
+      )
+    ).rejects.toThrow(/no report id/);
+  });
+
+  it('reads the server-computed total out of the report metadata', () => {
+    // Captured: a report created with estimated_amount 7.69 came back at 11.45.
+    expect(
+      extractReportAmount({
+        id: 111693030,
+        metadata: [
+          { key: 'date', value: '2026-08-05 00:00:00' },
+          { key: 'amount', value: { value: 11.45, currency: 'EUR' }, display_value: '11,45 €' },
+        ],
+      })
+    ).toBe(11.45);
+    expect(extractReportAmount({ id: 1 })).toBeNull();
+    expect(extractReportAmount({ id: 1, metadata: [{ key: 'amount' }] })).toBeNull();
+  });
 
   it('posts the expense report to the captured path, expand included', async () => {
     const post = jest.fn(async () => ({ id: 4242 }));

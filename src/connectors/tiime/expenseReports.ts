@@ -254,13 +254,30 @@ export async function computeTravelAmount(
   return amount;
 }
 
+/** The report's own total, as Tiime computed it — `metadata` entry keyed
+ *  `amount`, whose value is `{ value, currency }`. Null when absent or shaped
+ *  otherwise; this is for reporting, never for deciding success. */
+export function extractReportAmount(res: TiimeExpenseReportResponse): number | null {
+  const entry = res.metadata?.find((m) => m.key === 'amount');
+  const value = (entry?.value as { value?: unknown } | undefined)?.value;
+  return typeof value === 'number' ? value : null;
+}
+
 export async function createExpenseReport(
   client: TiimeClient,
   companyId: number,
   payload: TiimeExpenseReportPayload
 ): Promise<TiimeExpenseReportResponse> {
-  return client.post<TiimeExpenseReportResponse>(
+  const res = await client.post<TiimeExpenseReportResponse>(
     `/v1/accounts/companies/${companyId}/users/me/expense_reports?expand=preview_available`,
     payload
   );
+  // Without this check a response shaped differently would sail through: the
+  // report would exist in Tiime, the row would record the id "undefined", and
+  // the UI would report success. An explicit failure is recoverable — the
+  // retry section exists for exactly that — a silent one is not.
+  if (typeof res?.id !== 'number') {
+    throw new Error('Tiime expense_reports returned no report id');
+  }
+  return res;
 }

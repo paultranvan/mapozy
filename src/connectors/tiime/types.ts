@@ -192,6 +192,19 @@ export interface TiimeExpenseReportPayload {
   lifecycle_status: 'saved';
 }
 
+/** The created report. The real response is large (category, label, employee,
+ *  metadata, echoed travels…); only the parts worth acting on are typed.
+ *
+ *  `metadata` is where the report's own total lives, and it is SERVER-COMPUTED:
+ *  a report created with `estimated_amount: 7.69` came back showing 11,45 € —
+ *  the amount `compute_travels_amount` returns for that distance. So the value
+ *  we send is not what gets claimed; comparing the two is how a bad amount on
+ *  our side becomes visible instead of silent. */
 export interface TiimeExpenseReportResponse {
   id: number;
+  metadata?: {
+    key: string;
+    value?: unknown;
+    display_value?: string;
+  }[];
 }
