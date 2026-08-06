@@ -10,6 +10,7 @@ import {
   buildComputeTravelDto,
   buildExpenseReportPayload,
   computeTravelAmount,
+  extractComputedTravel,
   createExpenseReport,
   fetchExpenseReportVehicle,
   toComputeVehicle,
@@ -294,6 +295,20 @@ describe('endpoints', () => {
       travels: [dto],
       expense_report_id: null,
     });
+  });
+
+  it('also reads a computed travel out of a bare array response', async () => {
+    // Defensive, not evidence-based: the envelope is the only shape we have
+    // captured, but a hard failure on a plausible variant costs a whole
+    // build-and-test round trip to discover.
+    expect(extractComputedTravel([computedTravel()])?.estimatedAmount).toBe(7.69);
+  });
+
+  it('returns null (never throws) on a response it cannot read', () => {
+    expect(extractComputedTravel({ travels: [] })).toBeNull();
+    expect(extractComputedTravel({ message: 'nope' })).toBeNull();
+    expect(extractComputedTravel([])).toBeNull();
+    expect(extractComputedTravel(null)).toBeNull();
   });
 
   it('posts the expense report to the captured path, expand included', async () => {

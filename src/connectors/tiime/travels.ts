@@ -16,11 +16,13 @@ import { TiimeApiError, type TiimeClient } from './client';
 import {
   buildComputeTravelDto,
   buildExpenseReportPayload,
-  computeTravelAmount,
   createExpenseReport,
+  extractComputedTravel,
+  postComputeTravelsAmount,
   toExpenseReportTravel,
 } from './expenseReports';
 import type {
+  TiimeComputeTravel,
   TiimeExpenseReportTravel,
   TiimeExpenseReportVehicleRaw,
   TiimeOwner,
@@ -309,7 +311,11 @@ export async function sendCandidate(
       travel: payload,
       vehicle: opts.expenseReport.vehicle,
     });
-    const computed = await computeTravelAmount(client, opts.companyId, dto);
+    const computed = await computeAmountWithDiagnostics(db, client, {
+      companyId: opts.companyId,
+      dto,
+      tripId: candidate.tripId,
+    });
     computedTravel = toExpenseReportTravel(computed);
     const reportId = await postExpenseReport(db, client, {
       companyId: opts.companyId,
@@ -324,6 +330,61 @@ export async function sendCandidate(
     await markExpenseReportFailed(db, 'tiime', signature, message, computedTravel);
     return { travelId, expenseReportId: null, expenseReportError: message };
   }
+}
+
+/**
+ * The amount computation plus its diagnostic. Logs the response VERBATIM when
+ * the travel cannot be extracted from it: this step is the one part of the
+ * chain whose response shape was never captured from live traffic, and a
+ * failure here that logs nothing is undiagnosable — which is exactly how the
+ * first on-device failure went.
+ */
+async function computeAmountWithDiagnostics(
+  db: Db,
+  client: TiimeClient,
+  args: { companyId: number; dto: TiimeComputeTravel; tripId: number | null }
+): Promise<TiimeComputeTravel> {
+  let raw: unknown;
+  try {
+    raw = await postComputeTravelsAmount(client, args.companyId, args.dto);
+  } catch (e) {
+    await insertDiagnosticEvent(db, Date.now(), TIIME_EXPENSE_REPORT_EVENT, {
+      ok: false,
+      step: 'compute',
+      tripId: args.tripId,
+      travelId: args.dto.id,
+      status: e instanceof TiimeApiError ? e.status : null,
+      body: e instanceof TiimeApiError ? e.body : null,
+      error: e instanceof Error ? e.message : String(e),
+      request: args.dto,
+    });
+    throw e;
+  }
+
+  const computed = extractComputedTravel(raw);
+  if (!computed) {
+    await insertDiagnosticEvent(db, Date.now(), TIIME_EXPENSE_REPORT_EVENT, {
+      ok: false,
+      step: 'compute',
+      tripId: args.tripId,
+      travelId: args.dto.id,
+      error: 'no travel in response',
+      // The whole point of this event: whatever Tiime actually replied.
+      response: raw,
+      request: args.dto,
+    });
+    throw new Error('Tiime compute_travels_amount returned no travel');
+  }
+
+  await insertDiagnosticEvent(db, Date.now(), TIIME_EXPENSE_REPORT_EVENT, {
+    ok: true,
+    step: 'compute',
+    tripId: args.tripId,
+    travelId: args.dto.id,
+    estimatedAmount: computed.estimatedAmount,
+    response: raw,
+  });
+  return computed;
 }
 
 /** The final POST plus its diagnostic. Shared by the send path and the retry
@@ -343,6 +404,7 @@ async function postExpenseReport(
     const res = await createExpenseReport(client, args.companyId, payload);
     await insertDiagnosticEvent(db, Date.now(), TIIME_EXPENSE_REPORT_EVENT, {
       ok: true,
+      step: 'create',
       tripId: args.tripId,
       travelId: args.travel.id,
       expenseReportId: res.id,
@@ -353,6 +415,7 @@ async function postExpenseReport(
   } catch (e) {
     await insertDiagnosticEvent(db, Date.now(), TIIME_EXPENSE_REPORT_EVENT, {
       ok: false,
+      step: 'create',
       tripId: args.tripId,
       travelId: args.travel.id,
       status: e instanceof TiimeApiError ? e.status : null,

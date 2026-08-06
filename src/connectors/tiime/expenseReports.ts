@@ -204,16 +204,45 @@ export async function fetchExpenseReportVehicle(
   return found;
 }
 
+/** The raw call, response unparsed. Split out from `computeTravelAmount` so the
+ *  caller can log exactly what came back when extraction fails — the shape of
+ *  this response is the one thing about the chain we have never captured. */
+export async function postComputeTravelsAmount(
+  client: TiimeClient,
+  companyId: number,
+  travel: TiimeComputeTravel
+): Promise<unknown> {
+  return client.post<unknown>(`/v1/accounts/companies/${companyId}/compute_travels_amount`, {
+    travels: [travel],
+    expense_report_id: null,
+  });
+}
+
+function isComputeTravel(v: unknown): v is TiimeComputeTravel {
+  return typeof v === 'object' && v !== null && typeof (v as TiimeComputeTravel).id === 'number';
+}
+
+/**
+ * Pull the computed travel out of the response, accepting either the
+ * `{ travels: [...] }` envelope or a bare array. Only the envelope is
+ * documented by the traffic we captured; the bare array is tolerated because
+ * the alternative is a hard failure on a response we may simply have
+ * mis-transcribed. Returns null rather than throwing so the caller can log the
+ * body it could not read.
+ */
+export function extractComputedTravel(res: unknown): TiimeComputeTravel | null {
+  if (Array.isArray(res)) return isComputeTravel(res[0]) ? res[0] : null;
+  const envelope = res as TiimeComputeResponse | null;
+  const first = envelope?.travels?.[0];
+  return isComputeTravel(first) ? first : null;
+}
+
 export async function computeTravelAmount(
   client: TiimeClient,
   companyId: number,
   travel: TiimeComputeTravel
 ): Promise<TiimeComputeTravel> {
-  const res = await client.post<TiimeComputeResponse>(
-    `/v1/accounts/companies/${companyId}/compute_travels_amount`,
-    { travels: [travel], expense_report_id: null }
-  );
-  const computed = res.travels?.[0];
+  const computed = extractComputedTravel(await postComputeTravelsAmount(client, companyId, travel));
   if (!computed) throw new Error('Tiime compute_travels_amount returned no travel');
   return computed;
 }

@@ -462,9 +462,41 @@ describe('sendCandidate — expense report leg', () => {
 
     await sendCandidate(db, client, candidate, { ...SEND_OPTS, expenseReport: REPORT_CONTEXT });
 
+    // Every step of the chain logs, so a failure is attributable to one of
+    // them without reproducing it.
+    const events = await listDiagnosticEvents(db, { type: 'tiime_expense_report' });
+    const byStep = Object.fromEntries(
+      events.map((e) => [(e.payload as any).step, e.payload as any])
+    );
+    expect(byStep.compute).toMatchObject({ ok: true, estimatedAmount: 7.69 });
+    expect(byStep.create).toMatchObject({ ok: false, status: 422, body: 'bad' });
+  });
+
+  it('logs the response verbatim when no travel can be read out of it', async () => {
+    // The failure seen on-device: HTTP 200, but nothing we could parse. Without
+    // the body in the log there is nothing to debug from.
+    const db = createMockDb();
+    const candidate = await seedCandidate(db);
+    const { client } = routedClient({
+      compute_travels_amount: async () => ({ message: 'something else entirely' }),
+    });
+
+    const result = await sendCandidate(db, client, candidate, {
+      ...SEND_OPTS,
+      expenseReport: REPORT_CONTEXT,
+    });
+
+    expect(result.expenseReportError).toContain('returned no travel');
     const events = await listDiagnosticEvents(db, { type: 'tiime_expense_report' });
     expect(events).toHaveLength(1);
-    expect(events[0]!.payload).toMatchObject({ ok: false, status: 422, body: 'bad' });
+    expect(events[0]!.payload).toMatchObject({
+      ok: false,
+      step: 'compute',
+      error: 'no travel in response',
+      response: { message: 'something else entirely' },
+    });
+    // The request that provoked it is logged too — both halves are needed.
+    expect((events[0]!.payload as any).request.id).toBe(999);
   });
 });
 
