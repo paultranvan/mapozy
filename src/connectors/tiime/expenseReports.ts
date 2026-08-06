@@ -117,19 +117,26 @@ export function buildComputeTravelDto(input: BuildComputeTravelInput): TiimeComp
 }
 
 /**
- * camelCase (compute) -> snake_case (expense report). Written field by field
- * rather than with a generic converter because the two shapes genuinely
+ * camelCase (compute request) -> snake_case (expense report). Written field by
+ * field rather than with a generic converter because the two shapes genuinely
  * differ: `vehicleOwner` exists only in camel, `vehicle_id` and
  * `vehicle.owner_id` only in snake, and `firstName` becomes `firstname` (not
  * `first_name`).
+ *
+ * The source is the DTO we SENT, not something Tiime returned — the compute
+ * response carries an amount and nothing else — so the amount is passed in
+ * separately rather than read off `c.estimatedAmount` (which is the 0 we sent).
  */
-export function toExpenseReportTravel(c: TiimeComputeTravel): TiimeExpenseReportTravel {
+export function toExpenseReportTravel(
+  c: TiimeComputeTravel,
+  estimatedAmount: number
+): TiimeExpenseReportTravel {
   return {
     id: c.id,
     date: c.date,
     locked: c.locked,
     distance: c.distance,
-    estimated_amount: c.estimatedAmount,
+    estimated_amount: estimatedAmount,
     comment: c.comment,
     vehicle: toExpenseReportVehicle(c.vehicle),
     vehicle_id: c.vehicle.id,
@@ -218,33 +225,33 @@ export async function postComputeTravelsAmount(
   });
 }
 
-function isComputeTravel(v: unknown): v is TiimeComputeTravel {
-  return typeof v === 'object' && v !== null && typeof (v as TiimeComputeTravel).id === 'number';
-}
-
 /**
- * Pull the computed travel out of the response, accepting either the
- * `{ travels: [...] }` envelope or a bare array. Only the envelope is
- * documented by the traffic we captured; the bare array is tolerated because
- * the alternative is a hard failure on a response we may simply have
- * mis-transcribed. Returns null rather than throwing so the caller can log the
- * body it could not read.
+ * Read the amount out of a compute response. The response echoes no travel at
+ * all — it reports `amount` (total for the request) plus a per-vehicle
+ * breakdown — so with one travel per call, `amount` is that travel's amount.
+ * Falls back to the single vehicle line when the top-level total is missing.
+ * Returns null rather than throwing, so the caller can log the body it could
+ * not read.
  */
-export function extractComputedTravel(res: unknown): TiimeComputeTravel | null {
-  if (Array.isArray(res)) return isComputeTravel(res[0]) ? res[0] : null;
-  const envelope = res as TiimeComputeResponse | null;
-  const first = envelope?.travels?.[0];
-  return isComputeTravel(first) ? first : null;
+export function extractComputedAmount(res: unknown): number | null {
+  if (typeof res !== 'object' || res === null) return null;
+  const r = res as Partial<TiimeComputeResponse>;
+  if (typeof r.amount === 'number') return r.amount;
+  const lines = r.compute_vehicle_responses;
+  if (Array.isArray(lines) && lines.length === 1 && typeof lines[0]?.total === 'number') {
+    return lines[0].total;
+  }
+  return null;
 }
 
 export async function computeTravelAmount(
   client: TiimeClient,
   companyId: number,
   travel: TiimeComputeTravel
-): Promise<TiimeComputeTravel> {
-  const computed = extractComputedTravel(await postComputeTravelsAmount(client, companyId, travel));
-  if (!computed) throw new Error('Tiime compute_travels_amount returned no travel');
-  return computed;
+): Promise<number> {
+  const amount = extractComputedAmount(await postComputeTravelsAmount(client, companyId, travel));
+  if (amount === null) throw new Error('Tiime compute_travels_amount returned no amount');
+  return amount;
 }
 
 export async function createExpenseReport(

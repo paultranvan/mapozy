@@ -17,7 +17,7 @@ import {
   buildComputeTravelDto,
   buildExpenseReportPayload,
   createExpenseReport,
-  extractComputedTravel,
+  extractComputedAmount,
   postComputeTravelsAmount,
   toExpenseReportTravel,
 } from './expenseReports';
@@ -311,12 +311,12 @@ export async function sendCandidate(
       travel: payload,
       vehicle: opts.expenseReport.vehicle,
     });
-    const computed = await computeAmountWithDiagnostics(db, client, {
+    const amount = await computeAmountWithDiagnostics(db, client, {
       companyId: opts.companyId,
       dto,
       tripId: candidate.tripId,
     });
-    computedTravel = toExpenseReportTravel(computed);
+    computedTravel = toExpenseReportTravel(dto, amount);
     const reportId = await postExpenseReport(db, client, {
       companyId: opts.companyId,
       owner: opts.expenseReport.owner,
@@ -333,17 +333,16 @@ export async function sendCandidate(
 }
 
 /**
- * The amount computation plus its diagnostic. Logs the response VERBATIM when
- * the travel cannot be extracted from it: this step is the one part of the
- * chain whose response shape was never captured from live traffic, and a
- * failure here that logs nothing is undiagnosable — which is exactly how the
- * first on-device failure went.
+ * The amount computation plus its diagnostic. Logs the response VERBATIM,
+ * success or failure: this step's shape was assumed rather than captured on
+ * the first attempt, and the resulting failure logged nothing at all — which
+ * made it undiagnosable from an export.
  */
 async function computeAmountWithDiagnostics(
   db: Db,
   client: TiimeClient,
   args: { companyId: number; dto: TiimeComputeTravel; tripId: number | null }
-): Promise<TiimeComputeTravel> {
+): Promise<number> {
   let raw: unknown;
   try {
     raw = await postComputeTravelsAmount(client, args.companyId, args.dto);
@@ -361,30 +360,33 @@ async function computeAmountWithDiagnostics(
     throw e;
   }
 
-  const computed = extractComputedTravel(raw);
-  if (!computed) {
+  const amount = extractComputedAmount(raw);
+  if (amount === null) {
     await insertDiagnosticEvent(db, Date.now(), TIIME_EXPENSE_REPORT_EVENT, {
       ok: false,
       step: 'compute',
       tripId: args.tripId,
       travelId: args.dto.id,
-      error: 'no travel in response',
+      error: 'no amount in response',
       // The whole point of this event: whatever Tiime actually replied.
       response: raw,
       request: args.dto,
     });
-    throw new Error('Tiime compute_travels_amount returned no travel');
+    throw new Error('Tiime compute_travels_amount returned no amount');
   }
 
+  // Logged on success too: an amount that parses but is wrong (0, or computed
+  // against the wrong vehicle) is a silent failure the user would only ever
+  // notice inside Tiime.
   await insertDiagnosticEvent(db, Date.now(), TIIME_EXPENSE_REPORT_EVENT, {
     ok: true,
     step: 'compute',
     tripId: args.tripId,
     travelId: args.dto.id,
-    estimatedAmount: computed.estimatedAmount,
+    estimatedAmount: amount,
     response: raw,
   });
-  return computed;
+  return amount;
 }
 
 /** The final POST plus its diagnostic. Shared by the send path and the retry

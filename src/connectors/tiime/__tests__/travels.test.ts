@@ -339,7 +339,11 @@ function routedClient(overrides: Record<string, () => Promise<unknown>> = {}) {
     if (override) return override[1]();
     if (path.includes('/travels')) return { id: 999 };
     if (path.includes('compute_travels_amount')) {
-      return { travels: [{ ...body.travels[0], estimatedAmount: 7.69 }], expense_report_id: null };
+      // The real response shape: an aggregate amount, no travel echoed back.
+      return {
+        amount: 7.69,
+        compute_vehicle_responses: [{ vehicle_id: body.travels[0].vehicle.id, total: 7.69 }],
+      };
     }
     if (path.includes('expense_reports')) return { id: 4242 };
     throw new Error(`unexpected POST ${path}`);
@@ -472,7 +476,7 @@ describe('sendCandidate — expense report leg', () => {
     expect(byStep.create).toMatchObject({ ok: false, status: 422, body: 'bad' });
   });
 
-  it('logs the response verbatim when no travel can be read out of it', async () => {
+  it('logs the response verbatim when no amount can be read out of it', async () => {
     // The failure seen on-device: HTTP 200, but nothing we could parse. Without
     // the body in the log there is nothing to debug from.
     const db = createMockDb();
@@ -486,13 +490,13 @@ describe('sendCandidate — expense report leg', () => {
       expenseReport: REPORT_CONTEXT,
     });
 
-    expect(result.expenseReportError).toContain('returned no travel');
+    expect(result.expenseReportError).toContain('returned no amount');
     const events = await listDiagnosticEvents(db, { type: 'tiime_expense_report' });
     expect(events).toHaveLength(1);
     expect(events[0]!.payload).toMatchObject({
       ok: false,
       step: 'compute',
-      error: 'no travel in response',
+      error: 'no amount in response',
       response: { message: 'something else entirely' },
     });
     // The request that provoked it is logged too — both halves are needed.

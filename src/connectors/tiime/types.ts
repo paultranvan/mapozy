@@ -119,7 +119,37 @@ export interface TiimeComputeRequest {
   expense_report_id: number | null;
 }
 
-export type TiimeComputeResponse = TiimeComputeRequest;
+/** Per-vehicle breakdown. `compensation_rate` is a display string with a French
+ *  decimal comma and a euro sign ("0,636€") — never parse it, the amount is
+ *  already computed. */
+export interface TiimeComputeVehicleResponse {
+  vehicle_id: number;
+  is_electric: boolean;
+  travels_distance: number;
+  sub_total_distance: number;
+  distance: number;
+  compensation_rate: string;
+  compensation_rate_legend: string;
+  already_paid: number;
+  external_already_paid: number;
+  total: number;
+}
+
+/**
+ * The response is an AGGREGATE, not an echo of the travels: `amount` is the
+ * total for everything in the request, broken down per vehicle. The request is
+ * camelCase but this response is snake_case — one more place where the two
+ * conventions meet.
+ *
+ * Because Mapozy creates one expense report per travel, each compute call
+ * carries exactly one travel, so `amount` IS that travel's amount and there is
+ * no aggregate to split. Sending several travels at once would break that
+ * equivalence.
+ */
+export interface TiimeComputeResponse {
+  amount: number;
+  compute_vehicle_responses: TiimeComputeVehicleResponse[];
+}
 
 export interface TiimeExpenseReportVehicle {
   id: number;

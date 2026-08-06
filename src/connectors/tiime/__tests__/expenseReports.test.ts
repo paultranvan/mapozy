@@ -10,7 +10,7 @@ import {
   buildComputeTravelDto,
   buildExpenseReportPayload,
   computeTravelAmount,
-  extractComputedTravel,
+  extractComputedAmount,
   createExpenseReport,
   fetchExpenseReportVehicle,
   toComputeVehicle,
@@ -72,12 +72,34 @@ const TRAVEL_PAYLOAD: TiimeTravelPayload = {
   round_trip: false,
 };
 
-function computedTravel(): TiimeComputeTravel {
-  // What compute_travels_amount returns: the DTO we sent, with the amount.
-  return {
-    ...buildComputeTravelDto({ travelId: 5561847, travel: TRAVEL_PAYLOAD, vehicle: RAW_VEHICLE }),
-    estimatedAmount: 7.69,
-  };
+/** The DTO we send to compute_travels_amount. NOT a response: that endpoint
+ *  echoes no travel, only an amount. */
+function sentDto(): TiimeComputeTravel {
+  return buildComputeTravelDto({ travelId: 5561847, travel: TRAVEL_PAYLOAD, vehicle: RAW_VEHICLE });
+}
+
+/** Captured verbatim from a real compute_travels_amount response. */
+const COMPUTE_RESPONSE = {
+  amount: 11.448,
+  compute_vehicle_responses: [
+    {
+      vehicle_id: 58697,
+      is_electric: false,
+      travels_distance: 18,
+      sub_total_distance: 18,
+      distance: 18,
+      compensation_rate: '0,636\u20ac',
+      compensation_rate_legend:
+        "Bar\u00e8me l\u00e9gal applicable pour un v\u00e9hicule hybride de 5cv qui a effectu\u00e9 18 km sur l'ann\u00e9e civile 2026",
+      already_paid: 0.0,
+      external_already_paid: 0.0,
+      total: 11.448,
+    },
+  ],
+};
+
+function reportTravel() {
+  return toExpenseReportTravel(sentDto(), 11.448);
 }
 
 describe('toComputeVehicle', () => {
@@ -163,13 +185,13 @@ describe('buildComputeTravelDto', () => {
 
 describe('toExpenseReportTravel', () => {
   it('maps camelCase to snake_case, adding vehicle_id and dropping vehicleOwner', () => {
-    const snake = toExpenseReportTravel(computedTravel());
+    const snake = reportTravel();
     expect(snake).toEqual({
       id: 5561847,
       date: '2026-07-22 07:45:28',
       locked: false,
       distance: 18,
-      estimated_amount: 7.69,
+      estimated_amount: 11.448,
       comment: '',
       vehicle: {
         id: 58697,
@@ -204,15 +226,16 @@ describe('toExpenseReportTravel', () => {
     expect('vehicle_owner' in snake).toBe(false);
   });
 
-  it('carries the server-computed amount through, not the 0 we sent', () => {
-    expect(toExpenseReportTravel(computedTravel()).estimated_amount).toBe(7.69);
+  it('takes the amount from the compute response, not from the 0 we sent', () => {
+    expect(sentDto().estimatedAmount).toBe(0);
+    expect(reportTravel().estimated_amount).toBe(11.448);
   });
 });
 
 describe('buildExpenseReportPayload', () => {
   it('names and dates the report from the TRAVEL day, not from today', () => {
     const payload = buildExpenseReportPayload({
-      travel: toExpenseReportTravel(computedTravel()),
+      travel: reportTravel(),
       owner: OWNER,
     });
     expect(payload.name).toBe('Note de frais kilométrique du 22/07/2026');
@@ -221,7 +244,7 @@ describe('buildExpenseReportPayload', () => {
 
   it('matches the captured expense_reports request envelope', () => {
     const payload = buildExpenseReportPayload({
-      travel: toExpenseReportTravel(computedTravel()),
+      travel: reportTravel(),
       owner: OWNER,
     });
     expect(payload).toMatchObject({
@@ -239,7 +262,7 @@ describe('buildExpenseReportPayload', () => {
 
   it('keeps the French Tiime-side label whatever the app locale is', () => {
     const payload = buildExpenseReportPayload({
-      travel: toExpenseReportTravel(computedTravel()),
+      travel: reportTravel(),
       owner: OWNER,
     });
     expect(payload.name.startsWith('Note de frais kilométrique du ')).toBe(true);
@@ -278,44 +301,64 @@ describe('endpoints', () => {
     ).rejects.toThrow(/999/);
   });
 
-  it('posts one travel to compute_travels_amount and returns the computed one', async () => {
-    const computed = computedTravel();
-    const post = jest.fn(async () => ({ travels: [computed], expense_report_id: null }));
+  it('posts one travel to compute_travels_amount and returns the amount', async () => {
+    const post = jest.fn(async () => COMPUTE_RESPONSE);
     const client = { get: jest.fn(), post } as any;
-    const dto = buildComputeTravelDto({
-      travelId: 5561847,
-      travel: TRAVEL_PAYLOAD,
-      vehicle: RAW_VEHICLE,
-    });
+    const dto = sentDto();
 
-    const res = await computeTravelAmount(client, 243813, dto);
+    const amount = await computeTravelAmount(client, 243813, dto);
 
-    expect(res.estimatedAmount).toBe(7.69);
+    expect(amount).toBe(11.448);
     expect(post).toHaveBeenCalledWith('/v1/accounts/companies/243813/compute_travels_amount', {
       travels: [dto],
       expense_report_id: null,
     });
   });
+});
 
-  it('also reads a computed travel out of a bare array response', async () => {
-    // Defensive, not evidence-based: the envelope is the only shape we have
-    // captured, but a hard failure on a plausible variant costs a whole
-    // build-and-test round trip to discover.
-    expect(extractComputedTravel([computedTravel()])?.estimatedAmount).toBe(7.69);
+describe('extractComputedAmount', () => {
+  it('reads the top-level total of the captured response', () => {
+    // The response echoes NO travel: only an aggregate amount plus a
+    // per-vehicle breakdown. One travel per call means amount == its amount.
+    expect(extractComputedAmount(COMPUTE_RESPONSE)).toBe(11.448);
+    expect((COMPUTE_RESPONSE as any).travels).toBeUndefined();
+  });
+
+  it('falls back to the single vehicle line when the total is missing', () => {
+    const { amount, ...noTotal } = COMPUTE_RESPONSE;
+    expect(extractComputedAmount(noTotal)).toBe(11.448);
+  });
+
+  it('does not guess when several vehicles are billed', () => {
+    // Splitting an aggregate across vehicles would be inventing a number.
+    const two = {
+      compute_vehicle_responses: [
+        COMPUTE_RESPONSE.compute_vehicle_responses[0],
+        COMPUTE_RESPONSE.compute_vehicle_responses[0],
+      ],
+    };
+    expect(extractComputedAmount(two)).toBeNull();
   });
 
   it('returns null (never throws) on a response it cannot read', () => {
-    expect(extractComputedTravel({ travels: [] })).toBeNull();
-    expect(extractComputedTravel({ message: 'nope' })).toBeNull();
-    expect(extractComputedTravel([])).toBeNull();
-    expect(extractComputedTravel(null)).toBeNull();
+    expect(extractComputedAmount({ message: 'nope' })).toBeNull();
+    expect(extractComputedAmount({ compute_vehicle_responses: [] })).toBeNull();
+    expect(extractComputedAmount([])).toBeNull();
+    expect(extractComputedAmount(null)).toBeNull();
   });
+
+  it('accepts a zero amount as a real value, not a missing one', () => {
+    expect(extractComputedAmount({ amount: 0, compute_vehicle_responses: [] })).toBe(0);
+  });
+});
+
+describe('endpoints (continued)', () => {
 
   it('posts the expense report to the captured path, expand included', async () => {
     const post = jest.fn(async () => ({ id: 4242 }));
     const client = { get: jest.fn(), post } as any;
     const payload = buildExpenseReportPayload({
-      travel: toExpenseReportTravel(computedTravel()),
+      travel: reportTravel(),
       owner: OWNER,
     });
 
