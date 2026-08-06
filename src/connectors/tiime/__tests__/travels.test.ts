@@ -12,11 +12,17 @@ import { runMigrations } from '../../../db/migrations';
 import { listDiagnosticEvents } from '../../../db/diagnostics';
 import {
   listCandidates,
+  retryExpenseReport,
   sendCandidate,
   travelSignature,
   type Coord,
+  type ExpenseReportContext,
   type TiimeCandidate,
 } from '../travels';
+import {
+  dismissExpenseReport,
+  listFailedExpenseReports,
+} from '../../../db/connectorTravels';
 import { TiimeApiError } from '../client';
 
 const EMPTY_ADDR = {
@@ -129,7 +135,7 @@ describe('travelSignature', () => {
 });
 
 describe('listCandidates', () => {
-  it('includes a car trip whose ARRIVAL lands inside a work-tagged place zone, with the place name as arrivalCompanyName', async () => {
+  it('includes a car trip whose ARRIVAL lands inside a work-tagged place zone, with the work place name as companyName', async () => {
     const db = createMockDb();
     await runMigrations(db);
     await insertUserPlace(db, { name: 'Acme Corp', category: 'work', coord: WORK });
@@ -138,19 +144,33 @@ describe('listCandidates', () => {
     const cands = await listCandidates(db);
     const found = findCandidate(cands, trip);
     expect(found).toBeDefined();
-    expect(found?.arrivalCompanyName).toBe('Acme Corp');
+    expect(found?.companyName).toBe('Acme Corp');
     expect(found?.departure).toEqual(HOME);
     expect(found?.arrival).toEqual(WORK);
   });
 
-  it('includes a car trip whose DEPARTURE lands inside a work-tagged place zone', async () => {
+  it('names the WORK place even when it is the departure, not the arrival', async () => {
+    // The commute home: reading whatever place sits at the arrival used to
+    // prefill "Home" as the company, which is never an employer.
     const db = createMockDb();
     await runMigrations(db);
     await insertUserPlace(db, { name: 'Acme Corp', category: 'work', coord: WORK });
+    await insertUserPlace(db, { name: 'Home', category: 'home', coord: HOME });
     const trip = await insertTrip(db, { departure: WORK, arrival: HOME });
 
-    const cands = await listCandidates(db);
-    expect(findCandidate(cands, trip)).toBeDefined();
+    const found = findCandidate(await listCandidates(db), trip);
+    expect(found).toBeDefined();
+    expect(found?.companyName).toBe('Acme Corp');
+  });
+
+  it('prefers the arrival work place when both ends are work places', async () => {
+    const db = createMockDb();
+    await runMigrations(db);
+    await insertUserPlace(db, { name: 'Office A', category: 'work', coord: WORK });
+    await insertUserPlace(db, { name: 'Office B', category: 'work', coord: ELSEWHERE_A });
+    const trip = await insertTrip(db, { departure: WORK, arrival: ELSEWHERE_A });
+
+    expect(findCandidate(await listCandidates(db), trip)?.companyName).toBe('Office B');
   });
 
   it('excludes a car trip far from every work place', async () => {
@@ -231,7 +251,7 @@ describe('listCandidates', () => {
     const candidate = findCandidate(cands, trip);
     if (!candidate) throw new Error('expected a candidate');
 
-    const id = await sendCandidate(db, client, candidate, {
+    const result = await sendCandidate(db, client, candidate, {
       vehicleId: 58697,
       companyId: 243813,
       roundTrip: false,
@@ -240,7 +260,7 @@ describe('listCandidates', () => {
       arrival: EMPTY_ADDR,
     });
 
-    expect(id).toBe(999);
+    expect(result.travelId).toBe(999);
     expect(post).toHaveBeenCalledWith(
       '/v1/companies/243813/users/me/travels',
       expect.objectContaining({ vehicle_id: 58697 })
@@ -288,5 +308,295 @@ describe('listCandidates', () => {
     });
     // A failed send must NOT record dedup — the trip stays a candidate.
     expect(findCandidate(await listCandidates(db), trip)).toBeDefined();
+  });
+});
+
+// --------------------------------------------------------------------------
+// Expense reports. A Tiime travel is not claimable until it is attached to a
+// mileage expense report, so a send optionally chains three more calls. The
+// invariant under test throughout: creating the travel and creating its report
+// are separate outcomes, and a failed report never un-sends a landed travel.
+// --------------------------------------------------------------------------
+
+const REPORT_CONTEXT: ExpenseReportContext = {
+  owner: {
+    id: 802498,
+    firstname: 'Paul',
+    lastname: 'Tran Van ',
+    phone: null,
+    email: 'paul@example.com',
+    active_company: 243813,
+    roles: ['ROLE_USER'],
+  },
+  vehicle: {
+    id: 58697,
+    name: 'Yaris ',
+    created_at: '2026-07-25 14:46:25',
+    is_mileage_updatable: true,
+    owner: { id: 802498, firstname: 'Paul', lastname: 'Tran Van ' },
+  },
+};
+
+const SEND_OPTS = {
+  vehicleId: 58697,
+  companyId: 243813,
+  roundTrip: false,
+  arrivalCompanyName: 'Acme Corp',
+  departure: EMPTY_ADDR,
+  arrival: EMPTY_ADDR,
+};
+
+/** A client whose POSTs are routed by path, so a test can fail exactly one leg
+ *  of the chain while the others behave. */
+function routedClient(overrides: Record<string, () => Promise<unknown>> = {}) {
+  const calls: string[] = [];
+  const post = jest.fn(async (path: string, body: any) => {
+    calls.push(path);
+    const override = Object.entries(overrides).find(([frag]) => path.includes(frag));
+    if (override) return override[1]();
+    if (path.includes('/travels')) return { id: 999 };
+    if (path.includes('compute_travels_amount')) {
+      // The real response shape: an aggregate amount, no travel echoed back.
+      return {
+        amount: 7.69,
+        compute_vehicle_responses: [{ vehicle_id: body.travels[0].vehicle.id, total: 7.69 }],
+      };
+    }
+    if (path.includes('expense_reports')) return { id: 4242 };
+    throw new Error(`unexpected POST ${path}`);
+  });
+  return { calls, client: { get: jest.fn(), post } as any };
+}
+
+async function candidateFor(db: Db, trip: number): Promise<TiimeCandidate> {
+  const c = findCandidate(await listCandidates(db), trip);
+  if (!c) throw new Error('expected a candidate');
+  return c;
+}
+
+async function seedCandidate(db: Db): Promise<TiimeCandidate> {
+  await runMigrations(db);
+  await insertUserPlace(db, { name: 'Acme Corp', category: 'work', coord: WORK });
+  const trip = await insertTrip(db, { departure: HOME, arrival: WORK });
+  return candidateFor(db, trip);
+}
+
+describe('sendCandidate — expense report leg', () => {
+  it('chains compute then create, and reports both ids', async () => {
+    const db = createMockDb();
+    const candidate = await seedCandidate(db);
+    const { calls, client } = routedClient();
+
+    const result = await sendCandidate(db, client, candidate, {
+      ...SEND_OPTS,
+      expenseReport: REPORT_CONTEXT,
+    });
+
+    expect(result).toEqual({ travelId: 999, expenseReportId: 4242, expenseReportError: null });
+    expect(calls).toEqual([
+      '/v1/companies/243813/users/me/travels',
+      '/v1/accounts/companies/243813/compute_travels_amount',
+      '/v1/accounts/companies/243813/users/me/expense_reports?expand=preview_available',
+    ]);
+  });
+
+  it('sends the server-computed amount, not the 0 placeholder', async () => {
+    const db = createMockDb();
+    const candidate = await seedCandidate(db);
+    const { client } = routedClient();
+
+    await sendCandidate(db, client, candidate, { ...SEND_OPTS, expenseReport: REPORT_CONTEXT });
+
+    const reportCall = client.post.mock.calls.find(([p]: [string]) =>
+      p.includes('expense_reports')
+    );
+    expect(reportCall[1].travels[0].estimated_amount).toBe(7.69);
+  });
+
+  it('makes no /v1/accounts call at all when the report was not requested', async () => {
+    const db = createMockDb();
+    const candidate = await seedCandidate(db);
+    const { calls, client } = routedClient();
+
+    const result = await sendCandidate(db, client, candidate, SEND_OPTS);
+
+    expect(result).toEqual({ travelId: 999, expenseReportId: null, expenseReportError: null });
+    expect(calls.some((p) => p.includes('/v1/accounts/'))).toBe(false);
+    expect(await listFailedExpenseReports(db, 'tiime')).toEqual([]);
+  });
+
+  it('keeps the travel deduped and does NOT throw when the report fails', async () => {
+    const db = createMockDb();
+    const candidate = await seedCandidate(db);
+    const { client } = routedClient({
+      expense_reports: async () => {
+        throw new TiimeApiError('POST', '/v1/x', 422, '{"message":"nope"}');
+      },
+    });
+
+    const result = await sendCandidate(db, client, candidate, {
+      ...SEND_OPTS,
+      expenseReport: REPORT_CONTEXT,
+    });
+
+    // The travel DID land in Tiime: re-sending it would duplicate it.
+    expect(result.travelId).toBe(999);
+    expect(result.expenseReportId).toBeNull();
+    expect(result.expenseReportError).toContain('nope');
+    expect(findCandidate(await listCandidates(db), candidate.tripId)).toBeUndefined();
+
+    const failed = await listFailedExpenseReports(db, 'tiime');
+    expect(failed).toHaveLength(1);
+    // The computed travel is persisted, so the retry is a single call.
+    expect(failed[0]!.travel?.estimated_amount).toBe(7.69);
+    expect(failed[0]!.externalTravelId).toBe('999');
+  });
+
+  it('records a failure with no replayable body when the amount call is what failed', async () => {
+    const db = createMockDb();
+    const candidate = await seedCandidate(db);
+    const { client } = routedClient({
+      compute_travels_amount: async () => {
+        throw new TiimeApiError('POST', '/v1/x', 500, 'boom');
+      },
+    });
+
+    const result = await sendCandidate(db, client, candidate, {
+      ...SEND_OPTS,
+      expenseReport: REPORT_CONTEXT,
+    });
+
+    expect(result.travelId).toBe(999);
+    expect(result.expenseReportError).toContain('boom');
+    const failed = await listFailedExpenseReports(db, 'tiime');
+    expect(failed[0]!.travel).toBeNull();
+  });
+
+  it('logs a diagnostic for the report leg on success and failure', async () => {
+    const db = createMockDb();
+    const candidate = await seedCandidate(db);
+    const { client } = routedClient({
+      expense_reports: async () => {
+        throw new TiimeApiError('POST', '/v1/x', 422, 'bad');
+      },
+    });
+
+    await sendCandidate(db, client, candidate, { ...SEND_OPTS, expenseReport: REPORT_CONTEXT });
+
+    // Every step of the chain logs, so a failure is attributable to one of
+    // them without reproducing it.
+    const events = await listDiagnosticEvents(db, { type: 'tiime_expense_report' });
+    const byStep = Object.fromEntries(
+      events.map((e) => [(e.payload as any).step, e.payload as any])
+    );
+    expect(byStep.compute).toMatchObject({ ok: true, estimatedAmount: 7.69 });
+    expect(byStep.create).toMatchObject({ ok: false, status: 422, body: 'bad' });
+  });
+
+  it('logs the response verbatim when no amount can be read out of it', async () => {
+    // The failure seen on-device: HTTP 200, but nothing we could parse. Without
+    // the body in the log there is nothing to debug from.
+    const db = createMockDb();
+    const candidate = await seedCandidate(db);
+    const { client } = routedClient({
+      compute_travels_amount: async () => ({ message: 'something else entirely' }),
+    });
+
+    const result = await sendCandidate(db, client, candidate, {
+      ...SEND_OPTS,
+      expenseReport: REPORT_CONTEXT,
+    });
+
+    expect(result.expenseReportError).toContain('returned no amount');
+    const events = await listDiagnosticEvents(db, { type: 'tiime_expense_report' });
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload).toMatchObject({
+      ok: false,
+      step: 'compute',
+      error: 'no amount in response',
+      response: { message: 'something else entirely' },
+    });
+    // The request that provoked it is logged too — both halves are needed.
+    expect((events[0]!.payload as any).request.id).toBe(999);
+  });
+});
+
+describe('dismissExpenseReport', () => {
+  it('removes a failed report from the retry list without un-sending the travel', async () => {
+    const db = createMockDb();
+    const candidate = await seedCandidate(db);
+    const { client } = routedClient({
+      compute_travels_amount: async () => {
+        throw new TiimeApiError('POST', '/v1/x', 500, 'boom');
+      },
+    });
+    await sendCandidate(db, client, candidate, { ...SEND_OPTS, expenseReport: REPORT_CONTEXT });
+    const row = (await listFailedExpenseReports(db, 'tiime'))[0]!;
+    // This row has no stored travel, so retry is impossible — dismiss is the
+    // only way out, and without it the banner would never clear.
+    expect(row.travel).toBeNull();
+
+    await dismissExpenseReport(db, 'tiime', row.signature);
+
+    expect(await listFailedExpenseReports(db, 'tiime')).toEqual([]);
+    // The travel is still in Tiime, so it must stay deduped.
+    expect(findCandidate(await listCandidates(db), candidate.tripId)).toBeUndefined();
+  });
+});
+
+describe('retryExpenseReport', () => {
+  it('replays only the final POST, from the stored computed travel', async () => {
+    const db = createMockDb();
+    const candidate = await seedCandidate(db);
+    const failing = routedClient({
+      expense_reports: async () => {
+        throw new TiimeApiError('POST', '/v1/x', 500, 'down');
+      },
+    });
+    await sendCandidate(db, failing.client, candidate, {
+      ...SEND_OPTS,
+      expenseReport: REPORT_CONTEXT,
+    });
+    const row = (await listFailedExpenseReports(db, 'tiime'))[0]!;
+
+    const retry = routedClient();
+    const reportId = await retryExpenseReport(db, retry.client, row, {
+      companyId: 243813,
+      owner: REPORT_CONTEXT.owner,
+    });
+
+    expect(reportId).toBe(4242);
+    // No travel recreation, no second amount computation — a recomputed amount
+    // could differ and silently change what is claimed.
+    expect(retry.calls).toEqual([
+      '/v1/accounts/companies/243813/users/me/expense_reports?expand=preview_available',
+    ]);
+    expect(await listFailedExpenseReports(db, 'tiime')).toEqual([]);
+  });
+
+  it('leaves the row retryable when the replay fails again', async () => {
+    const db = createMockDb();
+    const candidate = await seedCandidate(db);
+    const failing = routedClient({
+      expense_reports: async () => {
+        throw new TiimeApiError('POST', '/v1/x', 500, 'down');
+      },
+    });
+    await sendCandidate(db, failing.client, candidate, {
+      ...SEND_OPTS,
+      expenseReport: REPORT_CONTEXT,
+    });
+    const row = (await listFailedExpenseReports(db, 'tiime'))[0]!;
+
+    await expect(
+      retryExpenseReport(db, failing.client, row, {
+        companyId: 243813,
+        owner: REPORT_CONTEXT.owner,
+      })
+    ).rejects.toThrow();
+
+    const still = await listFailedExpenseReports(db, 'tiime');
+    expect(still).toHaveLength(1);
+    expect(still[0]!.travel?.estimated_amount).toBe(7.69);
   });
 });

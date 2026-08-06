@@ -1,17 +1,41 @@
 import type { Db } from '../../db/client';
 import type { StructuredAddress } from '../../db/places';
 import { getUserPlaces } from '../../db/places';
-import { getSentSignatures, recordSentTravel } from '../../db/connectorTravels';
+import {
+  getSentSignatures,
+  markExpenseReportDone,
+  markExpenseReportFailed,
+  recordSentTravel,
+  type FailedExpenseReport,
+} from '../../db/connectorTravels';
 import { insertDiagnosticEvent } from '../../db/diagnostics';
 import { nearestUserPoi } from '../../lib/poiResolve';
 import { ensurePlaceAddress, reverseGeocodeStructured } from '../../pipeline/geocoding';
 import { buildTravelPayload } from './mappers';
 import { TiimeApiError, type TiimeClient } from './client';
-import type { TiimeTravelResponse } from './types';
+import {
+  buildComputeTravelDto,
+  buildExpenseReportPayload,
+  createExpenseReport,
+  extractReportAmount,
+  extractComputedAmount,
+  postComputeTravelsAmount,
+  toExpenseReportTravel,
+} from './expenseReports';
+import type {
+  TiimeComputeTravel,
+  TiimeExpenseReportTravel,
+  TiimeExpenseReportVehicleRaw,
+  TiimeOwner,
+  TiimeTravelResponse,
+} from './types';
 
 /** Diagnostic event type for a Tiime travel send (success or failure). Logged
  *  to tracker_diagnostics so it exports with "Send data to Paul". */
 const TIIME_SEND_EVENT = 'tiime_send';
+
+/** Same rationale as TIIME_SEND_EVENT, for the expense-report leg. */
+const TIIME_EXPENSE_REPORT_EVENT = 'tiime_expense_report';
 
 function pad(n: number): string {
   return String(n).padStart(2, '0');
@@ -56,9 +80,11 @@ export interface TiimeCandidate {
   distanceM: number;
   departure: Coord;
   arrival: Coord;
-  // Name of the user place at the ARRIVAL endpoint (work place, or any user
-  // place there), else null. Prefills Tiime's arrival_company_name.
-  arrivalCompanyName: string | null;
+  /** Name of the WORK place this trip touches, whichever end it sits at.
+   *  Prefills Tiime's `arrival_company_name`, which despite its name wants the
+   *  company, not "whatever place the trip ended at": a commute home from work
+   *  used to prefill "Home", which is not an employer. */
+  companyName: string | null;
 }
 
 interface TripRow {
@@ -133,22 +159,23 @@ export async function listCandidates(db: Db): Promise<TiimeCandidate[]> {
     const endpoints = extractEndpoints(r.geojson);
     if (!endpoints) continue;
     const { departure, arrival } = endpoints;
-    const touchesWork =
-      nearestUserPoi(departure.lat, departure.lon, workPlaces) != null ||
-      nearestUserPoi(arrival.lat, arrival.lon, workPlaces) != null;
-    if (!touchesWork) continue;
+    const workAtArrival = nearestUserPoi(arrival.lat, arrival.lon, workPlaces);
+    const workAtDeparture = nearestUserPoi(departure.lat, departure.lon, workPlaces);
+    if (!workAtArrival && !workAtDeparture) continue;
 
     const signature = travelSignature({ startMs: r.start_time_ms, distanceM: r.distance_m, departure, arrival });
     if (sent.has(signature)) continue;
 
-    const arrivalPoi = nearestUserPoi(arrival.lat, arrival.lon, userPlaces);
     out.push({
       tripId: r.id,
       startMs: r.start_time_ms,
       distanceM: r.distance_m,
       departure,
       arrival,
-      arrivalCompanyName: arrivalPoi?.name ?? null,
+      // The WORK place, from either end — arrival first, since a commute to
+      // work is the common case. Reading the arrival place regardless of its
+      // category prefilled "Home" on the way back, which is never a company.
+      companyName: (workAtArrival ?? workAtDeparture)?.name ?? null,
     });
   }
   return out;
@@ -188,6 +215,13 @@ export async function resolveTravelAddresses(
   return { departure, arrival };
 }
 
+/** Everything the expense-report leg needs that the travel leg does not. Both
+ *  values are per-account, not per-trip, so they are fetched once per batch. */
+export interface ExpenseReportContext {
+  owner: TiimeOwner;
+  vehicle: TiimeExpenseReportVehicleRaw;
+}
+
 export interface SendOptions {
   vehicleId: number;
   companyId: number;
@@ -195,6 +229,22 @@ export interface SendOptions {
   arrivalCompanyName: string | null;
   departure: StructuredAddress;
   arrival: StructuredAddress;
+  /** Omit to create the travel only — exactly the calls made before expense
+   *  reports existed. */
+  expenseReport?: ExpenseReportContext;
+}
+
+export interface SendResult {
+  travelId: number;
+  expenseReportId: number | null;
+  /** Set when the travel was created but its report was not. This is NOT a
+   *  failed send: the travel exists in Tiime and is deduped. */
+  expenseReportError: string | null;
+}
+
+function describeError(e: unknown): string {
+  if (e instanceof TiimeApiError) return `${e.message} — ${e.body}`;
+  return e instanceof Error ? e.message : String(e);
 }
 
 export async function sendCandidate(
@@ -202,7 +252,7 @@ export async function sendCandidate(
   client: TiimeClient,
   candidate: TiimeCandidate,
   opts: SendOptions
-): Promise<number> {
+): Promise<SendResult> {
   const payload = buildTravelPayload({
     startMs: candidate.startMs,
     distanceM: candidate.distanceM,
@@ -219,8 +269,11 @@ export async function sendCandidate(
     departure: candidate.departure,
     arrival: candidate.arrival,
   });
+
+  let travelId: number;
   try {
     const res = await client.post<TiimeTravelResponse>(path, payload);
+    travelId = res.id;
     // Full send record (success + failure) lands in tracker_diagnostics, which
     // ships with the "Send data to Paul" export — so a failed send is
     // diagnosable after the fact (payload + status + Tiime's response body).
@@ -229,11 +282,9 @@ export async function sendCandidate(
       tripId: candidate.tripId,
       path,
       status: 201,
-      travelId: res.id,
+      travelId,
       payload,
     });
-    await recordSentTravel(db, 'tiime', signature, String(res.id), Date.now(), candidate.tripId);
-    return res.id;
   } catch (e) {
     await insertDiagnosticEvent(db, Date.now(), TIIME_SEND_EVENT, {
       ok: false,
@@ -244,6 +295,171 @@ export async function sendCandidate(
       error: e instanceof Error ? e.message : String(e),
       payload,
     });
+    throw e;
+  }
+
+  // Dedup BEFORE the expense report. The travel exists in Tiime now; if
+  // anything below fails, re-sending it would create a duplicate.
+  await recordSentTravel(db, 'tiime', signature, String(travelId), Date.now(), candidate.tripId);
+
+  if (!opts.expenseReport) {
+    return { travelId, expenseReportId: null, expenseReportError: null };
+  }
+
+  // A report failure leaves the travel in place and is reported, not thrown:
+  // the send succeeded, and the retry section is what resolves the rest.
+  let computedTravel: TiimeExpenseReportTravel | null = null;
+  try {
+    const dto = buildComputeTravelDto({
+      travelId,
+      travel: payload,
+      vehicle: opts.expenseReport.vehicle,
+    });
+    const amount = await computeAmountWithDiagnostics(db, client, {
+      companyId: opts.companyId,
+      dto,
+      tripId: candidate.tripId,
+    });
+    computedTravel = toExpenseReportTravel(dto, amount);
+    const reportId = await postExpenseReport(db, client, {
+      companyId: opts.companyId,
+      owner: opts.expenseReport.owner,
+      travel: computedTravel,
+      tripId: candidate.tripId,
+    });
+    await markExpenseReportDone(db, 'tiime', signature, String(reportId));
+    return { travelId, expenseReportId: reportId, expenseReportError: null };
+  } catch (e) {
+    const message = describeError(e);
+    await markExpenseReportFailed(db, 'tiime', signature, message, computedTravel);
+    return { travelId, expenseReportId: null, expenseReportError: message };
+  }
+}
+
+/**
+ * The amount computation plus its diagnostic. Logs the response VERBATIM,
+ * success or failure: this step's shape was assumed rather than captured on
+ * the first attempt, and the resulting failure logged nothing at all — which
+ * made it undiagnosable from an export.
+ */
+async function computeAmountWithDiagnostics(
+  db: Db,
+  client: TiimeClient,
+  args: { companyId: number; dto: TiimeComputeTravel; tripId: number | null }
+): Promise<number> {
+  let raw: unknown;
+  try {
+    raw = await postComputeTravelsAmount(client, args.companyId, args.dto);
+  } catch (e) {
+    await insertDiagnosticEvent(db, Date.now(), TIIME_EXPENSE_REPORT_EVENT, {
+      ok: false,
+      step: 'compute',
+      tripId: args.tripId,
+      travelId: args.dto.id,
+      status: e instanceof TiimeApiError ? e.status : null,
+      body: e instanceof TiimeApiError ? e.body : null,
+      error: e instanceof Error ? e.message : String(e),
+      request: args.dto,
+    });
+    throw e;
+  }
+
+  const amount = extractComputedAmount(raw);
+  if (amount === null) {
+    await insertDiagnosticEvent(db, Date.now(), TIIME_EXPENSE_REPORT_EVENT, {
+      ok: false,
+      step: 'compute',
+      tripId: args.tripId,
+      travelId: args.dto.id,
+      error: 'no amount in response',
+      // The whole point of this event: whatever Tiime actually replied.
+      response: raw,
+      request: args.dto,
+    });
+    throw new Error('Tiime compute_travels_amount returned no amount');
+  }
+
+  // Logged on success too: an amount that parses but is wrong (0, or computed
+  // against the wrong vehicle) is a silent failure the user would only ever
+  // notice inside Tiime.
+  await insertDiagnosticEvent(db, Date.now(), TIIME_EXPENSE_REPORT_EVENT, {
+    ok: true,
+    step: 'compute',
+    tripId: args.tripId,
+    travelId: args.dto.id,
+    estimatedAmount: amount,
+    response: raw,
+  });
+  return amount;
+}
+
+/** The final POST plus its diagnostic. Shared by the send path and the retry
+ *  path so both log the same event with the same payload. */
+async function postExpenseReport(
+  db: Db,
+  client: TiimeClient,
+  args: {
+    companyId: number;
+    owner: TiimeOwner;
+    travel: TiimeExpenseReportTravel;
+    tripId: number | null;
+  }
+): Promise<number> {
+  const payload = buildExpenseReportPayload({ travel: args.travel, owner: args.owner });
+  try {
+    const res = await createExpenseReport(client, args.companyId, payload);
+    await insertDiagnosticEvent(db, Date.now(), TIIME_EXPENSE_REPORT_EVENT, {
+      ok: true,
+      step: 'create',
+      tripId: args.tripId,
+      travelId: args.travel.id,
+      expenseReportId: res.id,
+      estimatedAmount: args.travel.estimated_amount,
+      // Tiime recomputes the report total and ignores the amount we send. A
+      // divergence here is the only signal that our computed amount is wrong,
+      // since the report itself would still be correct.
+      reportAmount: extractReportAmount(res),
+      payload,
+    });
+    return res.id;
+  } catch (e) {
+    await insertDiagnosticEvent(db, Date.now(), TIIME_EXPENSE_REPORT_EVENT, {
+      ok: false,
+      step: 'create',
+      tripId: args.tripId,
+      travelId: args.travel.id,
+      status: e instanceof TiimeApiError ? e.status : null,
+      body: e instanceof TiimeApiError ? e.body : null,
+      error: e instanceof Error ? e.message : String(e),
+      payload,
+    });
+    throw e;
+  }
+}
+
+/** Replay a failed expense report from the stored, already-computed travel —
+ *  one call, no travel recreation and no second amount computation (which
+ *  could come back different and silently change what is claimed). */
+export async function retryExpenseReport(
+  db: Db,
+  client: TiimeClient,
+  row: FailedExpenseReport,
+  opts: { companyId: number; owner: TiimeOwner }
+): Promise<number> {
+  if (!row.travel) {
+    throw new Error('This travel has no computed body stored; send it again from Tiime.');
+  }
+  try {
+    const reportId = await postExpenseReport(db, client, {
+      companyId: opts.companyId,
+      owner: opts.owner,
+      travel: row.travel,
+      tripId: null,
+    });
+    await markExpenseReportDone(db, 'tiime', row.signature, String(reportId));
+    return reportId;
+  } catch (e) {
+    await markExpenseReportFailed(db, 'tiime', row.signature, describeError(e), row.travel);
     throw e;
   }
 }

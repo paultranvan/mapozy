@@ -12,10 +12,19 @@ import { createTiimeClient, TiimeAuthError } from '@/connectors/tiime/client';
 import {
   listCandidates,
   sendCandidate,
+  retryExpenseReport,
   resolveTravelAddresses,
+  type ExpenseReportContext,
   type TiimeCandidate,
   type SendOptions,
 } from '@/connectors/tiime/travels';
+import { fetchOwner } from '@/connectors/tiime/config-api';
+import { fetchExpenseReportVehicle } from '@/connectors/tiime/expenseReports';
+import {
+  dismissExpenseReport,
+  listFailedExpenseReports,
+  type FailedExpenseReport,
+} from '@/db/connectorTravels';
 
 type RefreshFn = () => Promise<string | null>;
 const RefreshCtx = createContext<RefreshFn>(async () => null);
@@ -181,11 +190,51 @@ function toStr(v: string | null): string | null {
   return v || null;
 }
 
+/** A memoised client bound to the silent-refresh WebView. */
+function useTiimeClient() {
+  const refresh = useTiimeRefresher();
+  return useMemo(() => createTiimeClient({ refresh }), [refresh]);
+}
+
+/**
+ * Lazily resolve the two per-account values the expense-report leg needs (the
+ * user object, which is the report's `owner` block, and the full vehicle
+ * object). Returned as a getter rather than a query because they are only
+ * needed when the "create the expense report" box is ticked — an unchecked
+ * send must make exactly the calls it made before this feature existed.
+ * `fetchQuery` caches them, so a batch of ten trips fetches them once.
+ */
+export function useExpenseReportContext() {
+  const qc = useQueryClient();
+  const client = useTiimeClient();
+  return useCallback(
+    async (companyId: number, vehicleId: number): Promise<ExpenseReportContext> => {
+      const owner = await qc.fetchQuery({
+        queryKey: ['tiime', 'owner'],
+        queryFn: () => fetchOwner(client),
+        staleTime: 60 * 60_000,
+      });
+      const vehicle = await qc.fetchQuery({
+        queryKey: ['tiime', 'erVehicle', companyId, vehicleId, owner.id],
+        queryFn: () =>
+          fetchExpenseReportVehicle(client, {
+            companyId,
+            vehicleId,
+            ownerId: owner.id,
+            nowMs: Date.now(),
+          }),
+        staleTime: 60 * 60_000,
+      });
+      return { owner, vehicle };
+    },
+    [qc, client]
+  );
+}
+
 export function useSendToTiime() {
   const db = useDb();
   const qc = useQueryClient();
-  const refresh = useTiimeRefresher();
-  const client = useMemo(() => createTiimeClient({ refresh }), [refresh]);
+  const client = useTiimeClient();
 
   return useMutation({
     mutationFn: async (args: {
@@ -193,6 +242,7 @@ export function useSendToTiime() {
       companyId: number;
       vehicleId: number;
       roundTrip?: boolean;
+      expenseReport?: ExpenseReportContext;
       overrides?: Partial<Pick<SendOptions, 'departure' | 'arrival' | 'arrivalCompanyName'>>;
     }) => {
       const { candidate, companyId, vehicleId } = args;
@@ -207,13 +257,60 @@ export function useSendToTiime() {
         companyId,
         vehicleId,
         roundTrip: args.roundTrip ?? false,
-        arrivalCompanyName: args.overrides?.arrivalCompanyName ?? candidate.arrivalCompanyName,
+        arrivalCompanyName: args.overrides?.arrivalCompanyName ?? candidate.companyName,
         departure,
         arrival,
+        expenseReport: args.expenseReport,
       });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tiime', 'candidates'] });
+      qc.invalidateQueries({ queryKey: ['tiime', 'failedExpenseReports'] });
+    },
+  });
+}
+
+/** Travels created in Tiime whose expense report failed. Survives a restart —
+ *  they are no longer candidates, so this is their only retry surface. */
+export function useFailedExpenseReports() {
+  const db = useDb();
+  return useQuery({
+    queryKey: ['tiime', 'failedExpenseReports'],
+    queryFn: () => listFailedExpenseReports(db, 'tiime'),
+  });
+}
+
+/** Acknowledge a failed report so it stops being surfaced. Deliberately a
+ *  local-only write: the travel remains in Tiime and remains deduped. */
+export function useDismissExpenseReport() {
+  const db = useDb();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (signature: string) => dismissExpenseReport(db, 'tiime', signature),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['tiime', 'failedExpenseReports'] });
+    },
+  });
+}
+
+export function useRetryExpenseReport() {
+  const db = useDb();
+  const qc = useQueryClient();
+  const client = useTiimeClient();
+
+  return useMutation({
+    mutationFn: async (args: {
+      row: FailedExpenseReport;
+      companyId: number;
+      vehicleId: number;
+      context: ExpenseReportContext;
+    }) =>
+      retryExpenseReport(db, client, args.row, {
+        companyId: args.companyId,
+        owner: args.context.owner,
+      }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['tiime', 'failedExpenseReports'] });
     },
   });
 }

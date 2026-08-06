@@ -248,6 +248,20 @@ const MIGRATION_014 = `
 DELETE FROM connector_travels;
 `;
 
+// A Tiime travel is not claimable on its own: it must be attached to a mileage
+// expense report ("note de frais kilométrique"). The report is created right
+// after the travel, so its outcome is tracked per sent travel rather than in a
+// table of its own. `travel_body` stores the fully-computed snake-case travel
+// (server-computed amount included) so a failed report can be replayed with a
+// single call — without recreating the travel or recomputing an amount that
+// could come back different.
+const MIGRATION_015 = `
+ALTER TABLE connector_travels ADD COLUMN travel_body TEXT;
+ALTER TABLE connector_travels ADD COLUMN expense_report_id TEXT;
+ALTER TABLE connector_travels ADD COLUMN expense_report_status TEXT NOT NULL DEFAULT 'none';
+ALTER TABLE connector_travels ADD COLUMN expense_report_error TEXT;
+`;
+
 export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 1, sql: MIGRATION_001 },
   { version: 2, sql: MIGRATION_002 },
@@ -263,6 +277,7 @@ export const MIGRATIONS: Array<{ version: number; sql: string }> = [
   { version: 12, sql: MIGRATION_012 },
   { version: 13, sql: MIGRATION_013 },
   { version: 14, sql: MIGRATION_014 },
+  { version: 15, sql: MIGRATION_015 },
 ];
 
 export async function getSchemaVersion(db: Db): Promise<number> {
