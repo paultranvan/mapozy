@@ -1,6 +1,7 @@
 // Rules implemented here (see ./rules.ts):
 //   RULE_MODE_SPEED_FALLBACK   — classify by speed when activity is `unknown`
 //   RULE_VEHICLE_SPEED_SANITY  — distrust an in_vehicle label on a stationary section
+//   RULE_WALK_SPEED_SANITY     — distrust a walking/still label on a section at vehicle pace
 import type { Mode } from '../types';
 import type { RawSection } from './sectionSegmentation';
 import { haversineMeters } from '../lib/distance';
@@ -39,8 +40,19 @@ export function modeForSection(s: RawSection): Mode {
     case 'running':
       return 'run';
     case 'walking':
-      return 'walk';
     case 'still':
+      // RULE_WALK_SPEED_SANITY: nobody walks at vehicle pace — the label is
+      // stale or belongs to a different moment; let the speed decide. Both
+      // the fix-level speed AND the section's actual ground pace must be
+      // beyond walking: an arrival stub can carry stale Doppler readings from
+      // the drive while barely moving (123 m in 230 s), and that IS a walk.
+      if (
+        s.points.length >= 2 &&
+        classifyingSpeedMps(s) > RULES.WALK_SPEED_SANITY.defaults.maxWalkP75Mps &&
+        avgSpeedMps(s) > RULES.WALK_SPEED_BOUNDARY.defaults.maxWalkSpeedMps
+      ) {
+        return classifyBySpeed(s);
+      }
       return 'walk';
     case 'unknown':
     default:

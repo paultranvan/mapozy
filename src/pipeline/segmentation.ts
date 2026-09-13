@@ -3,7 +3,7 @@
 //   RULE_STATIONARY_BOUNDARY     — refine trip/stay split inside a detected dwell
 //   RULE_STROLL_DWELL_DISCARD    — drop short dwells with no confirmed stillness
 //   RULE_STALLED_VEHICLE_GUARD   — disqualify dwells overlapping confident in_vehicle
-//   RULE_GAP_DWELL               — long tracking gap with non-trivial distance → stay
+//   RULE_GAP_DWELL               — long tracking gap → stay (or stretch the adjacent dwell when same-place)
 //   RULE_GAP_PLAUSIBILITY        — overrides RULE_GAP_DWELL when avg gap speed looks like real motion
 //   RULE_INFERRED_TRIP_INJECTION — synthetic trip between consecutive stays at different places
 import type { RawPoint, RawActivity } from '../types';
@@ -141,7 +141,6 @@ export function segmentation(
       points[i + 1]!.latitude,
       points[i + 1]!.longitude
     );
-    if (dist <= radius) continue;
     // RULE_STALLED_VEHICLE_GUARD ceiling — mirror the dwell path: only a *short*
     // gap with in_vehicle is a moving vehicle that briefly lost signal (tunnel,
     // urban canyon). A multi-hour gap whose endpoints barely moved is a genuine
@@ -168,6 +167,38 @@ export function segmentation(
     if (inPlausWindow) {
       const avgSpeedMps = dist / (gap / 1000);
       if (avgSpeedMps >= gapPlaus.plausibleSpeedMps) continue;
+    }
+
+    // Same-place gap (endpoints within the dwell radius): the phone sat still
+    // without fixes. RULE_DWELL_STAY's sliding window normally spans it, but
+    // its running centroid can drift so the post-gap fix lands just outside
+    // the radius (observed: 98 m from the last pre-gap fix, ~110 m from the
+    // centroid) — the window then closes ON the last pre-gap fix and the
+    // silence is neither dwell nor gap stay: a 1h47 bar stop, a 3h dinner and
+    // a whole night at home each got swallowed into one trip (tester export
+    // 2026-08-02). Stretch the adjacent dwell across the gap (merging the
+    // post-gap dwell when one starts right there); with no adjacent dwell,
+    // fall through to a plain gap stay.
+    if (dist <= radius) {
+      if (dwells.some((d) => d.startIdx <= i && d.endIdx >= i + 1)) continue;
+      const before = dwells.find((d) => d.endIdx === i);
+      const after = dwells.find((d) => d.startIdx === i + 1);
+      if (before && after) {
+        before.end = after.end;
+        before.endIdx = after.endIdx;
+        dwells.splice(dwells.indexOf(after), 1);
+        continue;
+      }
+      if (before) {
+        before.end = t2;
+        before.endIdx = i + 1;
+        continue;
+      }
+      if (after) {
+        after.start = t1;
+        after.startIdx = i;
+        continue;
+      }
     }
 
     dwells.push({

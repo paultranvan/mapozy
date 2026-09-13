@@ -234,9 +234,17 @@ async function runPipelineLocked(
       db,
       points.filter((p) => p.timestampMs < heldStartMs).map((p) => p.id)
     );
+    // Activities are read RULE_SECTION_ACTIVITY_WINDOW.startLookbackMs before
+    // a trip's first fix (the recogniser fires in_vehicle ~20-30 s before GPS
+    // shows the departure). Hold that window too, or the next run rebuilds
+    // the tail without its opening in_vehicle and the whole drive inherits the
+    // arrival "walking" event (tester export 2026-08-02: three commutes shown
+    // as 14-42 km walks).
+    const heldActivityStartMs =
+      heldStartMs - RULES.SECTION_ACTIVITY_WINDOW.defaults.startLookbackMs;
     await markActivitiesConsumed(
       db,
-      activities.filter((a) => a.timestampMs < heldStartMs).map((a) => a.id)
+      activities.filter((a) => a.timestampMs < heldActivityStartMs).map((a) => a.id)
     );
   } else {
     await markPointsConsumed(db, points.map((p) => p.id));

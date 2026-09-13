@@ -135,3 +135,39 @@ describe('modeInference', () => {
     });
   });
 });
+
+describe('RULE_WALK_SPEED_SANITY', () => {
+  beforeEach(() => resetIds());
+
+  it('a "walking" section moving at vehicle pace is classified by speed', () => {
+    // 8 km in 5 min (an inferred/synthetic leg across a GPS gap whose only
+    // nearby activity event says walking). Nobody walks at 96 km/h.
+    const pts = [mkPoint(0, 0, 0), mkPoint(150_000, 0, 0.036), mkPoint(300_000, 0, 0.072)];
+    expect(modeForSection(mkSection('walking', pts))).toBe('car');
+  });
+
+  it('a "still" section moving at vehicle pace is classified by speed', () => {
+    const pts = [mkPoint(0, 0, 0), mkPoint(150_000, 0, 0.036), mkPoint(300_000, 0, 0.072)];
+    expect(modeForSection(mkSection('still', pts))).toBe('car');
+  });
+
+  it('an arrival stub with stale vehicle Doppler speeds but no ground pace stays a walk', () => {
+    // 4 fixes reporting 8 m/s (the chip still reports the drive's speed for a
+    // few seconds after parking) while the position moves ~120 m in 230 s.
+    const pts = [];
+    for (let i = 0; i < 4; i++) {
+      pts.push(mkPoint(i * 76_000, 0, 0.00036 * i, 5, 8));
+    }
+    expect(modeForSection(mkSection('walking', pts))).toBe('walk');
+  });
+
+  it('a genuine walk with a couple of fast fixes stays a walk', () => {
+    // p75 of reported speed is what matters: 8 fixes at 1.4 m/s, 2 GPS
+    // glitches at 12 m/s.
+    const pts = [];
+    for (let i = 0; i < 10; i++) {
+      pts.push(mkPoint(i * 10_000, 0, 0.00013 * i, 5, i === 3 || i === 7 ? 12 : 1.4));
+    }
+    expect(modeForSection(mkSection('walking', pts))).toBe('walk');
+  });
+});

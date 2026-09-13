@@ -90,7 +90,13 @@ export const RULES = {
 
   GAP_DWELL: rule(
     'RULE_GAP_DWELL',
-    'A multi-minute tracking gap with non-trivial endpoint distance is treated as a stay at the prior point.',
+    'A multi-minute tracking gap is a stay: at the prior point when the ' +
+      'endpoints are apart (power-save dropout, then departure), or stretching ' +
+      'the adjacent RULE_DWELL_STAY window when the endpoints sit within the ' +
+      'dwell radius (the phone stayed put and simply stopped fixing). The ' +
+      'same-place case matters because the sliding window\'s running centroid ' +
+      'drifts and can close ON the last pre-gap fix, leaving the silence in ' +
+      'the trip — a whole night at home came out inside a 12 h trip.',
     { gapMinutes: 10 }
   ),
 
@@ -151,6 +157,24 @@ export const RULES = {
       'in_vehicle while parked). Reclassify it by speed instead of trusting the ' +
       'activity. Skipped when there are too few points to judge speed.',
     { minClassifyingSpeedMps: 2.0 }
+  ),
+
+  WALK_SPEED_SANITY: rule(
+    'RULE_WALK_SPEED_SANITY',
+    'A section the activity classifier labeled walking/still but whose p75 ' +
+      'speed is above any pace on foot is not a walk — classify it by speed ' +
+      'instead. Mirror of RULE_VEHICLE_SPEED_SANITY. Exists because the ' +
+      'activity label can be stale or unrelated to the section: an inferred ' +
+      'leg synthesized across a GPS gap (RULE_INFERRED_TRIP_INJECTION) only ' +
+      'sees the activity events near its own synthetic timestamps, and a ' +
+      'drive whose in_vehicle event was lost reads as the next "walking" ' +
+      'event (tester export 2026-08-02: 8 km in 5 min and 42 km in 55 min ' +
+      'both shown as walks). Threshold is the car floor: p75 (not max) so a ' +
+      'couple of GPS speed glitches never flip a real walk; and the section\'s ' +
+      'ground pace (distance / duration) must also exceed ' +
+      'RULE_WALK_SPEED_BOUNDARY.maxWalkSpeedMps, since an arrival stub can ' +
+      'carry stale Doppler readings from the drive while barely moving.',
+    { maxWalkP75Mps: 6.94 }
   ),
 
   WALK_SPEED_BOUNDARY: rule(

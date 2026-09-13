@@ -19,6 +19,27 @@ export interface AssembleInput {
   nowMs: number;
 }
 
+// Sections are cut by activity label, and several labels map to the same
+// mode (walking/still/unknown-at-walking-pace → walk). Left as is, a 13-min
+// stroll whose recogniser flapped walking/unknown/walking/still/walking became
+// five walk legs separated by "transit points" (tester 2026-07-30). Within a
+// leg (no break in between) a run of same-mode sections is one movement —
+// infer each mode, then coalesce neighbours that agree.
+function mergeSameMode(rawSections: RawSection[]): RawSection[] {
+  const out: RawSection[] = [];
+  for (const rs of rawSections) {
+    const mode = rs.mode ?? modeForSection(rs);
+    const prev = out[out.length - 1];
+    if (prev && prev.mode === mode) {
+      prev.points = [...prev.points, ...rs.points];
+      prev.endMs = rs.endMs;
+    } else {
+      out.push({ ...rs, points: [...rs.points], mode });
+    }
+  }
+  return out;
+}
+
 export function assemble(input: AssembleInput): Trip {
   if (input.legs.length === 0) {
     throw new Error('assemble: cannot assemble trip with zero legs');
@@ -39,8 +60,8 @@ export function assemble(input: AssembleInput): Trip {
     if (leg.rawSections.length === 0) {
       throw new Error(`assemble: leg ${li} has zero sections`);
     }
-    for (const rs of leg.rawSections) {
-      const mode = rs.mode ?? modeForSection(rs);
+    for (const rs of mergeSameMode(leg.rawSections)) {
+      const mode = rs.mode!;
       const coords = rs.points.map(
         (p) => [p.longitude, p.latitude] as [number, number]
       );
@@ -85,10 +106,10 @@ export function assemble(input: AssembleInput): Trip {
   // Single concatenated LineString across all legs — break points have
   // zero extent on the map, matching how the user actually moved.
   const allCoords: Array<[number, number]> = [];
-  for (const leg of input.legs) {
-    for (const rs of leg.rawSections) {
-      for (const p of rs.points) allCoords.push([p.longitude, p.latitude]);
-    }
+  for (const s of sections) {
+    for (const c of (JSON.parse(s.geojson) as { coordinates: Array<[number, number]> })
+      .coordinates)
+      allCoords.push(c);
   }
 
   return {

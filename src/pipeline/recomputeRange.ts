@@ -22,6 +22,13 @@ import { runPipeline, type RunPipelineResult } from './runPipeline';
 import { snapshotUserModes, reapplyUserModes } from './edits/reapplyUserModes';
 import { recomputeAndPersistTripAggregates } from '../db/tripAggregates';
 import type { OverpassDeps } from '../lib/overpass';
+import { RULES } from './rules';
+
+// Activities feeding a trip start RULE_SECTION_ACTIVITY_WINDOW.startLookbackMs
+// before its first fix (the in_vehicle event precedes the departure fix). A
+// span that starts AT the trip's first fix would leave that event consumed
+// and the rebuilt drive would read as a walk — reset the look-back too.
+const ACTIVITY_LOOKBACK_MS = RULES.SECTION_ACTIVITY_WINDOW.defaults.startLookbackMs;
 
 export interface RecomputePlan {
   selectedTripIds: number[];
@@ -170,7 +177,7 @@ export async function recomputeForTrips(
   const subRanges = unlockedSubRanges(plan.spanStartMs, plan.spanEndMs, plan.lockedRanges);
   for (const [s, e] of subRanges) {
     await resetConsumedPointsInRange(db, s, e);
-    await resetConsumedActivitiesInRange(db, s, e);
+    await resetConsumedActivitiesInRange(db, s - ACTIVITY_LOOKBACK_MS, e);
   }
 
   // Seed the span's first trip from the place the user was at before the span.
@@ -197,7 +204,7 @@ export async function recomputeForTrips(
     let orphanPoints = 0;
     for (const [s, e] of subRanges) {
       orphanPoints += await consumeUnconsumedPointsInRange(db, s, e);
-      await consumeUnconsumedActivitiesInRange(db, s, e);
+      await consumeUnconsumedActivitiesInRange(db, s - ACTIVITY_LOOKBACK_MS, e);
     }
     if (orphanPoints > 0) {
       await insertDiagnosticEvent(db, nowMs, 'recompute_orphans_consumed', {
