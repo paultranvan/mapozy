@@ -1,4 +1,4 @@
-import type { Section, TripBreak, DominantMode } from '../../types';
+import type { Section, TripBreak, DominantMode, Mode } from '../../types';
 import type { TransitStop } from '../../lib/overpass';
 import { haversineMeters, pathLengthMeters } from '../../lib/distance';
 import { co2GramsForSection } from '../../co2/compute';
@@ -104,4 +104,44 @@ export function recomputeTotals(sections: Section[]): TripTotals {
     dominantMode,
     geojson: JSON.stringify({ type: 'LineString', coordinates: allCoords }),
   };
+}
+
+const RAIL_MODES: ReadonlySet<Mode> = new Set(['subway', 'train', 'tram']);
+
+// A gap stay (RULE_GAP_DWELL: no fixes, endpoints far apart) followed by the
+// synthetic leg RULE_INFERRED_TRIP_INJECTION cuts out of its tail is ONE
+// untracked ride: the "stay" at the pre-gap point is a fiction, the leg's
+// 5-min duration too. When enrichment recognises that leg as rail (station
+// endpoints / rail geometry), fold the gap break into it so the ride spans the
+// whole silence — instead of "Break · 23 min" followed by "Subway · 5 min ·
+// 99 km/h" (tester export 2026-08-02, trip of 16 Jul). The pair is recognised
+// by construction: the injected leg starts exactly where the shortened stay
+// ends.
+export function absorbGapBreaksIntoRailLegs(
+  sections: Section[],
+  breaks: TripBreak[]
+): { sections: Section[]; breaks: TripBreak[]; changed: boolean } {
+  const outSections = sections.map((s) => ({ ...s }));
+  const outBreaks: TripBreak[] = [];
+  let changed = false;
+  for (const b of breaks) {
+    const after = outSections[b.ordering + 1];
+    if (
+      b.gap &&
+      after &&
+      after.startTimeMs === b.endTimeMs &&
+      RAIL_MODES.has(after.mode)
+    ) {
+      after.startTimeMs = b.startTimeMs;
+      after.durationS = Math.max(1, Math.round((after.endTimeMs - after.startTimeMs) / 1000));
+      after.avgSpeedMps = after.distanceM / after.durationS;
+      after.maxSpeedMps = Math.min(after.maxSpeedMps, Math.max(after.avgSpeedMps, after.maxSpeedMps));
+      // A 2-point stub reports max == old avg; scale it down with the new pace.
+      if (after.maxSpeedMps > after.avgSpeedMps * 3) after.maxSpeedMps = after.avgSpeedMps;
+      changed = true;
+    } else {
+      outBreaks.push({ ...b });
+    }
+  }
+  return { sections: outSections, breaks: outBreaks, changed };
 }

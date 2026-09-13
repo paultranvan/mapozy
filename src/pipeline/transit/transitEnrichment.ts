@@ -34,6 +34,7 @@ import {
   qualifiesAsSubwayGap,
   buildSubwaySection,
   rebuildWithSubway,
+  absorbGapBreaksIntoRailLegs,
   recomputeTotals,
 } from './subwayGaps';
 import {
@@ -237,8 +238,14 @@ export async function enrichTripTransit(
     return { status: 'draft', reason, changed };
   }
 
+  // Pass 2.5: a gap break followed by the synthetic leg it spawned, when that
+  // leg came out of pass 1 as rail, is one ride — fold the silence into it.
+  const subwayRebuilt = rebuildWithSubway(trip.sections, trip.breaks, conversions);
+  const absorbed = absorbGapBreaksIntoRailLegs(subwayRebuilt.sections, subwayRebuilt.breaks);
+  if (absorbed.changed) restructured = true;
+
   if (restructured) {
-    const rebuilt = rebuildWithSubway(trip.sections, trip.breaks, conversions);
+    const rebuilt = absorbed;
     await replaceTripSectionsAndBreaks(db, trip.id, rebuilt.sections, rebuilt.breaks);
     const totals = recomputeTotals(rebuilt.sections);
     await updateTripTotals(db, trip.id, totals.distanceM, totals.co2G, totals.dominantMode, totals.geojson);
