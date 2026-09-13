@@ -220,6 +220,53 @@ async function autoPlacesInRadius(db: Db, lat: number, lon: number, radiusM: num
     .filter((p) => haversineMeters(lat, lon, p.latitude, p.longitude) <= radiusM);
 }
 
+export interface PoiVisit {
+  tripId: number;
+  arrivedMs: number;
+  // Start of the next trip leaving this place, when the very next recorded
+  // trip does leave from here; null when the departure was not captured (or
+  // the user is still there).
+  leftMs: number | null;
+}
+
+// Most recent arrivals at a user place (trips ending at any auto-place inside
+// its radius), newest first. Answers "when did I go there?" from the place
+// screen — the visit count alone is not very telling.
+export async function getPoiVisits(db: Db, poi: Place, limit = 20): Promise<PoiVisit[]> {
+  const owned = await autoPlacesInRadius(db, poi.latitude, poi.longitude, poi.radiusM);
+  if (owned.length === 0) return [];
+  const ids = owned.map((p) => p.id);
+  const ph = ids.map(() => '?').join(',');
+  const rows = await db.getAllAsync<{
+    id: number;
+    end_time_ms: number;
+    next_start_ms: number | null;
+    next_start_place_id: number | null;
+  }>(
+    `SELECT t.id, t.end_time_ms,
+            n.start_time_ms AS next_start_ms,
+            n.start_place_id AS next_start_place_id
+       FROM trips t
+       LEFT JOIN trips n ON n.id = (
+         SELECT id FROM trips WHERE start_time_ms >= t.end_time_ms AND id != t.id
+          ORDER BY start_time_ms ASC LIMIT 1)
+      WHERE t.end_place_id IN (${ph})
+      ORDER BY t.end_time_ms DESC
+      LIMIT ?`,
+    ...ids,
+    limit
+  );
+  const owns = new Set(ids);
+  return rows.map((r) => ({
+    tripId: r.id,
+    arrivedMs: r.end_time_ms,
+    leftMs:
+      r.next_start_ms != null && r.next_start_place_id != null && owns.has(r.next_start_place_id)
+        ? r.next_start_ms
+        : null,
+  }));
+}
+
 export async function getUserPoiVisitStats(
   db: Db, poi: Place
 ): Promise<{ visitCount: number; lastSeenMs: number }> {

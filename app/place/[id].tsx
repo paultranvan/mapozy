@@ -19,6 +19,7 @@ import { PlaceBadge } from '@/ui/PlaceBadge';
 import { resolveCategory } from '@/ui/placeCategories';
 import { useCategories } from '@/queries/useCategories';
 import { circlePolygon } from '@/lib/circle';
+import { formatDayHeader, formatDuration, formatTime } from '@/lib/format';
 import { externalApiAllowed } from '@/lib/net';
 import { searchAddress, type AddressHit } from '@/lib/geocodeSearch';
 import { reverseGeocode, reverseGeocodeStructured } from '@/pipeline/geocoding';
@@ -28,9 +29,10 @@ import {
   useUpdateUserPlace,
   useDeleteUserPlace,
   useUnnamedClusters,
+  usePoiVisits,
 } from '@/queries/usePlaces';
 import type { Place } from '@/types';
-import type { StructuredAddress } from '@/db/places';
+import type { StructuredAddress, PoiVisit } from '@/db/places';
 
 MapLibreGL.setAccessToken(null);
 const DEFAULT_RADIUS = 100;
@@ -71,6 +73,7 @@ export default function PlaceEditor() {
 
   const categories = useCategories();
   const clusters = useUnnamedClusters();
+  const visits = usePoiVisits(existing.data);
   const create = useCreateUserPlace();
   const update = useUpdateUserPlace();
   const remove = useDeleteUserPlace();
@@ -351,6 +354,46 @@ export default function PlaceEditor() {
       </View>
 
       {!isNew && (
+        <>
+          <Text variant="label" color={colors.inkSoft} style={styles.sec}>
+            {t('place.sectionVisits')}
+          </Text>
+          <View style={styles.visits}>
+            {(visits.data ?? []).length === 0 ? (
+              <Text variant="label" color={colors.inkSoft} style={styles.visitRow}>
+                {visits.isLoading ? t('common.loading') : t('place.noVisits')}
+              </Text>
+            ) : (
+              (visits.data ?? []).map((v: PoiVisit) => (
+                <Pressable
+                  key={v.tripId}
+                  style={styles.visitRow}
+                  onPress={() => router.push(`/trip/${v.tripId}`)}
+                >
+                  <Text variant="body" color={colors.ink} style={styles.visitDay}>
+                    {formatDayHeader(v.arrivedMs, { short: true })}
+                  </Text>
+                  <Text variant="label" color={colors.inkSoft}>
+                    {v.leftMs != null
+                      ? t('place.visitRange', {
+                          from: formatTime(v.arrivedMs),
+                          to: formatTime(v.leftMs),
+                        })
+                      : t('place.visitArrivedOnly', { time: formatTime(v.arrivedMs) })}
+                  </Text>
+                  {v.leftMs != null ? (
+                    <Text variant="label" color={colors.accent}>
+                      {formatDuration(Math.max(60, Math.round((v.leftMs - v.arrivedMs) / 1000)))}
+                    </Text>
+                  ) : null}
+                </Pressable>
+              ))
+            )}
+          </View>
+        </>
+      )}
+
+      {!isNew && (
         <Pressable onPress={onDelete} style={styles.del}>
           <Text variant="body" color={colors.danger}>
             {t('place.deletePlace')}
@@ -388,6 +431,24 @@ const styles = StyleSheet.create({
     borderColor: colors.divider,
   },
   searchInput: { flex: 1, color: colors.ink, padding: 0 },
+  visits: {
+    marginHorizontal: space[3],
+    backgroundColor: colors.surface,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.divider,
+    overflow: 'hidden',
+  },
+  visitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
+    paddingHorizontal: space[3],
+    paddingVertical: space[2],
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.divider,
+  },
+  visitDay: { flex: 1 },
   dropdown: {
     marginHorizontal: space[3],
     marginTop: 2,

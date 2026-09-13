@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useDb } from '../db/DbContext';
 import {
-  getUserPlaces, getPlaceById, getUserPoiVisitStats, getUnnamedClusters,
+  getUserPlaces, getPlaceById, getUserPoiVisitStats, getPoiVisits, getUnnamedClusters,
   createUserPlace, updateUserPlace, deleteUserPlace, dismissSuggestion, type UserPlaceInput,
 } from '../db/places';
 import { suggestHome } from '../stats/homeDetection';
@@ -20,6 +20,15 @@ export function useUserPlace(id: number | null) {
     queryKey: ['userPlace', id],
     queryFn: () => (id !== null ? getPlaceById(db, id) : null),
     enabled: id !== null,
+  });
+}
+
+export function usePoiVisits(place: Place | null | undefined) {
+  const db = useDb();
+  return useQuery({
+    queryKey: ['userPlaceVisitList', place?.id ?? null],
+    queryFn: () => (place ? getPoiVisits(db, place) : []),
+    enabled: place != null,
   });
 }
 
@@ -57,6 +66,7 @@ function useInvalidatePlaces() {
     // from cache until an app restart.
     qc.invalidateQueries({ queryKey: ['userPlace'] });
     qc.invalidateQueries({ queryKey: ['userPlaceVisits'] });
+    qc.invalidateQueries({ queryKey: ['userPlaceVisitList'] });
     qc.invalidateQueries({ queryKey: ['unnamedClusters'] });
     qc.invalidateQueries({ queryKey: ['homeSuggestion'] });
     qc.invalidateQueries({ queryKey: ['trips'] });
