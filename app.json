@@ -2,7 +2,7 @@
   "expo": {
     "name": "Mapozy",
     "slug": "mapozy",
-    "version": "0.9.0",
+    "version": "0.9.1",
     "orientation": "portrait",
     "scheme": "mapozy",
     "userInterfaceStyle": "automatic",
@@ -15,7 +15,7 @@
     },
     "android": {
       "package": "com.paul.mapozy",
-      "versionCode": 32,
+      "versionCode": 33,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundImage": "./assets/adaptive-bg.png",
