@@ -12,6 +12,13 @@ export async function openDb(name = 'mapozy.db'): Promise<Db> {
   // "database disk image is malformed" corruption. Rollback journal uses
   // plain file locking which both libraries honor identically.
   await db.execAsync('PRAGMA journal_mode = TRUNCATE;');
+  // Wait for a contended lock instead of failing on the spot. Without it a
+  // COMMIT that lands while another connection holds the file (the native
+  // tracker inserting a fix, or any transient reader) throws SQLITE_BUSY
+  // "database is locked" immediately — observed on the emulator as a leg's
+  // mode edit silently not saving (tester: "impossible de modifier les
+  // vignettes"). 5 s is far above any single write on this DB.
+  await db.execAsync('PRAGMA busy_timeout = 5000;');
   await db.execAsync('PRAGMA foreign_keys = ON;');
   await runMigrations(db);
   // Prime the external-API toggle cache from the persisted setting so every

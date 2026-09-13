@@ -262,6 +262,7 @@ export const fr: Record<TranslationKey, string> = {
   'day.byMode': 'Par mode',
 
   // --- merged from screens-trip-place-onboarding.json ---
+  'trip.editError': "Impossible d'enregistrer la modification. Réessayez.",
   'trip.editTrip': 'Modifier le trajet',
   'trip.splitThisTrip': 'Scinder ce trajet',
   'trip.mergeWithPrevious': 'Fusionner avec le trajet précédent',
@@ -290,6 +291,10 @@ export const fr: Record<TranslationKey, string> = {
   'place.radiusHelp': 'Un trajet qui commence ou se termine dans ce rayon est associé à ce lieu.',
   'place.sectionCategory': 'CATÉGORIE',
   'place.newCategoryChip': 'Nouvelle',
+  'place.sectionVisits': 'VISITES',
+  'place.noVisits': 'Aucune visite enregistrée.',
+  'place.visitArrivedOnly': 'arrivée {time}',
+  'place.visitRange': '{from} → {to}',
   'place.deletePlace': 'Supprimer ce lieu',
   'categoryNew.title': 'Nouvelle catégorie',
   'categoryNew.nameRequiredTitle': 'Nom requis',

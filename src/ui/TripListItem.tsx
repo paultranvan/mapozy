@@ -8,6 +8,7 @@ import { ModeBar } from './ModeBar';
 import { colors, space } from '@/theme/tokens';
 import { formatDistance, formatDuration, formatTime } from '@/lib/format';
 import { placeLabels } from '@/lib/placeLabel';
+import { effectiveMode } from '@/pipeline/effectiveMode';
 import { useTripEndpointPois } from '@/queries/usePlaces';
 import type { Trip, Place, DominantMode } from '@/types';
 
@@ -35,14 +36,16 @@ function labelFor(p: Place | null | undefined, poi: Place | null): string {
 }
 
 function summarizeModes(trip: Trip): string {
-  const modes = Array.from(new Set(trip.sections.map((s) => s.mode)));
+  // Effective (override-aware) modes: after the user corrects a leg, the list
+  // card must show the corrected mode, not the pipeline's guess.
+  const modes = Array.from(new Set(trip.sections.map((s) => effectiveMode(s))));
   return modes.join(' · ');
 }
 
 function modeBarSegments(trip: Trip) {
   if (trip.sections.length < 2) return null;
   return trip.sections.map((s) => ({
-    mode: s.mode as DominantMode,
+    mode: effectiveMode(s) as DominantMode,
     distanceM: s.distanceM,
   }));
 }

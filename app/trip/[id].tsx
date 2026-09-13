@@ -134,10 +134,23 @@ export default function TripDetailScreen() {
     }
   }
 
+  // Every edit used to be fire-and-forget: a failed write (e.g. SQLITE_BUSY
+  // while another connection held the file) left the UI unchanged with no
+  // feedback, which reads as "the button does nothing". Report it instead.
+  async function runEdit(op: () => Promise<void>) {
+    try {
+      await op();
+    } catch (err) {
+      console.warn('[trip] edit failed', err);
+      Alert.alert(t('common.error'), t('trip.editError'));
+      return;
+    }
+    await refresh();
+  }
+
   async function onChangeMode(section: Section, mode: Mode) {
     if (!section.id) return;
-    await setSectionMode(db, id, section.id, mode);
-    await refresh();
+    await runEdit(() => setSectionMode(db, id, section.id!, mode));
   }
 
   function onSplitLeg(section: Section) {
@@ -145,28 +158,27 @@ export default function TripDetailScreen() {
   }
 
   async function onMergeUp(index: number) {
-    await mergeAdjacentSections(db, id, index - 1);
-    await refresh();
+    await runEdit(() => mergeAdjacentSections(db, id, index - 1));
   }
 
   async function onMergeDown(index: number) {
-    await mergeAdjacentSections(db, id, index);
-    await refresh();
+    await runEdit(() => mergeAdjacentSections(db, id, index));
   }
 
   async function onSplitConfirm(point: [number, number]) {
     const target = splitTarget;
     setSplitTarget(null);
     if (!target) return;
-    if (target.kind === 'leg') {
-      if (!target.section.id) return;
-      const loc = locateSplitPoint([target.section], point);
-      if (loc) await splitSection(db, id, loc.sectionId, loc.vertexIndex);
-    } else {
-      const loc = locateSplitPoint(trip.sections, point);
-      if (loc) await splitTrip(db, id, loc.sectionId, loc.vertexIndex);
-    }
-    await refresh();
+    await runEdit(async () => {
+      if (target.kind === 'leg') {
+        if (!target.section.id) return;
+        const loc = locateSplitPoint([target.section], point);
+        if (loc) await splitSection(db, id, loc.sectionId, loc.vertexIndex);
+      } else {
+        const loc = locateSplitPoint(trip.sections, point);
+        if (loc) await splitTrip(db, id, loc.sectionId, loc.vertexIndex);
+      }
+    });
   }
 
   async function onMenu() {

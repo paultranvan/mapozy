@@ -264,6 +264,7 @@ export const en = {
   'day.byMode': 'By mode',
 
   // --- merged from screens-trip-place-onboarding.json ---
+  'trip.editError': 'Could not save the change. Please try again.',
   'trip.editTrip': 'Edit trip',
   'trip.splitThisTrip': 'Split this trip',
   'trip.mergeWithPrevious': 'Merge with previous trip',
@@ -292,6 +293,10 @@ export const en = {
   'place.radiusHelp': 'A trip that starts or ends within this radius is linked to this place.',
   'place.sectionCategory': 'CATEGORY',
   'place.newCategoryChip': 'New',
+  'place.sectionVisits': 'VISITS',
+  'place.noVisits': 'No recorded visit.',
+  'place.visitArrivedOnly': 'arrived {time}',
+  'place.visitRange': '{from} → {to}',
   'place.deletePlace': 'Delete this place',
   'categoryNew.title': 'New category',
   'categoryNew.nameRequiredTitle': 'Name required',
