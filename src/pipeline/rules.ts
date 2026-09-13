@@ -310,8 +310,25 @@ export const RULES = {
       'minFlightDistanceM. Detected on raw per-leg points BEFORE resample (which ' +
       'would interpolate the multi-hour airborne gap into thousands of fake ' +
       'slow points). Covers both in-flight fixes (a multi-step run) and the ' +
-      'usual airplane-mode case (one giant point-to-point hop).',
-    { flightSpeedMps: 110, minFlightDistanceM: 100_000 }
+      'usual airplane-mode case (one giant point-to-point hop). A confirmed ' +
+      'flight run is then extended over adjacent steps faster than ' +
+      'extendSpeedMps: climb-out and final approach sit below cruise speed ' +
+      'yet far above anything that taxis, and nothing on the ground can be ' +
+      'contiguous with a flight without a stop in between (2026-09-08 CDG→BCN: ' +
+      'the descent below 396 km/h became a "train" section over the sea). ' +
+      'Finally the flight is gate-to-gate: a leg is bounded by stops and the ' +
+      'stop at the gate (boarding wait included) ends at pushback, so slow ' +
+      'ground runs at the leg\'s edges next to a flight are the aircraft ' +
+      'taxiing and join it — as long as they last at most maxTaxiMinutes (a ' +
+      'longer edge run is a rushed transfer, left as its own ground run). A ' +
+      'slow run sandwiched between two flight runs of the same leg is always ' +
+      'airborne (holding pattern, GPS dip) and joins unconditionally.',
+    {
+      flightSpeedMps: 110,
+      extendSpeedMps: 45,
+      minFlightDistanceM: 100_000,
+      maxTaxiMinutes: 45,
+    }
   ),
 
   MAP_MATCH: rule(
