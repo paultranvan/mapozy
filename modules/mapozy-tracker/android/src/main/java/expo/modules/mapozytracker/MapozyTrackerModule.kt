@@ -7,6 +7,8 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.webkit.CookieManager
+import android.webkit.WebStorage
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
@@ -80,6 +82,21 @@ class MapozyTrackerModule : Module() {
         }
         ctx.startActivity(intent)
       }
+    }
+
+    // Wipe everything the app's WebViews persisted: cookies (incl. the Auth0
+    // SSO session) and DOM storage (the SPA keeps its access token in
+    // localStorage). Signing out of a connector only deletes OUR copy of the
+    // token from the keystore; without this the web session survives on disk
+    // and the next "connect" silently signs back into the same account. The
+    // connector login is the only WebView in the app, so a global wipe is
+    // exactly the right scope. Both APIs are process-wide and thread-safe.
+    AsyncFunction("clearWebViewData") {
+      CookieManager.getInstance().apply {
+        removeAllCookies(null)
+        flush()
+      }
+      WebStorage.getInstance().deleteAllData()
     }
 
     AsyncFunction("isTracking") {

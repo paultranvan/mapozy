@@ -6,10 +6,39 @@ import { isTokenExpired, storeToken } from '@/connectors/tiime/auth';
 export const TIIME_APP_URL = 'https://apps.tiime.fr';
 export const TIIME_SIGNIN_URL = 'https://apps.tiime.fr/signin';
 
+/**
+ * True only for a page served by the Tiime SPA origin (https://apps.tiime.fr).
+ *
+ * The WebView is a full browser: the sign-in flow leaves the SPA (Auth0,
+ * possibly a social IdP) and the user can follow any link from there. Every
+ * page it loads can call `ReactNativeWebView.postMessage`, so a message is
+ * only a token when the page that sent it IS the Tiime app. Without this
+ * check any visited page could hand us a forged, unexpired JWT and the app
+ * would then send the user's trips to an account of the attacker's choosing.
+ *
+ * Matched on the raw string rather than `new URL()`: React Native's URL
+ * polyfill does not implement `origin`/`hostname`. The trailing class rejects
+ * look-alikes such as `apps.tiime.fr.evil.com` and `apps.tiime.fr@evil.com`.
+ */
+export function isTiimeAppUrl(url: string | null | undefined): boolean {
+  return typeof url === 'string' && /^https:\/\/apps\.tiime\.fr(?::443)?(?:[/?#]|$)/i.test(url);
+}
+
+/** Only https pages may load inside the WebView. Anything else (cleartext
+ *  http, file:, custom schemes) is kept out of it — react-native-webview hands
+ *  such a URL to the OS instead of rendering it next to the session. */
+const ORIGIN_WHITELIST = ['https://*'];
+
 // Read the SPA's Auth0 access token out of localStorage and hand it back to RN.
 // Returns 'null' string when absent so the host can distinguish "not yet".
+// Both scripts bail out on any origin other than the Tiime SPA: they are
+// injected into every page the WebView loads (Auth0, IdPs, anything linked),
+// and must not read or report another site's storage. This in-page guard is
+// only a courtesy — the page controls its own JS — so the authoritative check
+// is isTiimeAppUrl() on the React Native side.
 export const READ_TOKEN_JS = `
   (function () {
+    if (window.location.origin !== 'https://apps.tiime.fr') return true;
     try {
       var t = window.localStorage.getItem('access_token');
       window.ReactNativeWebView.postMessage(t || 'null');
@@ -28,6 +57,7 @@ export const READ_TOKEN_JS = `
 // 60 x 500ms = 30s, comfortably past the 15s refresh timeout.
 export const POLL_TOKEN_JS = `
   (function () {
+    if (window.location.origin !== 'https://apps.tiime.fr') return true;
     var tries = 0;
     function read() {
       try {
@@ -51,6 +81,8 @@ export function TiimeLoginWebView(props: { onToken: (token: string) => void }) {
   const onMessage = useCallback(
     (e: WebViewMessageEvent) => {
       if (fired.current) return;
+      // Trust nothing posted from outside the Tiime SPA (see isTiimeAppUrl).
+      if (!isTiimeAppUrl(e.nativeEvent.url)) return;
       const data = e.nativeEvent.data;
       if (!data || data === 'null') return;
       // On reconnect the SPA's localStorage may still hold the old, expired
@@ -67,7 +99,10 @@ export function TiimeLoginWebView(props: { onToken: (token: string) => void }) {
     <WebView
       ref={ref}
       source={{ uri: TIIME_SIGNIN_URL }}
-      onNavigationStateChange={() => ref.current?.injectJavaScript(READ_TOKEN_JS)}
+      originWhitelist={ORIGIN_WHITELIST}
+      onNavigationStateChange={(nav) => {
+        if (isTiimeAppUrl(nav.url)) ref.current?.injectJavaScript(READ_TOKEN_JS);
+      }}
       onMessage={onMessage}
       // Poll after load: the SPA writes the token some time after the
       // navigation that follows sign-in, so a single read is a race.
@@ -115,6 +150,9 @@ export function useHiddenTiimeRefresher(): {
   }, []);
 
   const onMessage = useCallback(async (e: WebViewMessageEvent) => {
+    // Same origin rule as the login WebView: a redirect chain can land this
+    // offscreen page anywhere, and only the Tiime SPA may supply a token.
+    if (!isTiimeAppUrl(e.nativeEvent.url)) return;
     const data = e.nativeEvent.data;
     if (!data || data === 'null') return;
     // THE token we are trying to replace is still in the SPA's localStorage
@@ -133,7 +171,10 @@ export function useHiddenTiimeRefresher(): {
       <WebView
         ref={ref}
         source={{ uri: TIIME_APP_URL }}
-        onNavigationStateChange={() => ref.current?.injectJavaScript(READ_TOKEN_JS)}
+        originWhitelist={ORIGIN_WHITELIST}
+        onNavigationStateChange={(nav) => {
+          if (isTiimeAppUrl(nav.url)) ref.current?.injectJavaScript(READ_TOKEN_JS);
+        }}
         onMessage={onMessage}
         injectedJavaScript={POLL_TOKEN_JS}
       />

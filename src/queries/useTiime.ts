@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { MapozyTracker } from 'mapozy-tracker';
 import { useDb } from '@/db/DbContext';
 import { getSetting, setSetting, SETTING_KEYS } from '@/db/settings';
 import {
@@ -317,4 +318,14 @@ export function useRetryExpenseReport() {
 
 export async function disconnectTiime(): Promise<void> {
   await clearStoredToken();
+  // The token above is only our copy. The Tiime SPA's own copy (localStorage)
+  // and the Auth0 SSO cookies live in the WebView's on-disk profile; left
+  // there, "disconnect" would not actually end the session — reopening the
+  // login screen signs straight back in, with no credentials asked. Best
+  // effort: an old native build without this function must still disconnect.
+  try {
+    await MapozyTracker.clearWebViewData();
+  } catch {
+    // Native wipe unavailable — the keystore token is gone regardless.
+  }
 }

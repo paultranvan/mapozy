@@ -24,6 +24,7 @@ declare class MapozyTrackerNativeModule extends NativeModule<MapozyTrackerEvents
   getStatus(): Promise<TrackingStatus>;
   isIgnoringBatteryOptimizations(): Promise<boolean>;
   requestIgnoreBatteryOptimizations(): Promise<void>;
+  clearWebViewData(): Promise<void>;
 }
 
 const Native = requireNativeModule<MapozyTrackerNativeModule>('MapozyTracker');
@@ -36,6 +37,8 @@ export const MapozyTracker = {
   getStatus: () => Native.getStatus(),
   isIgnoringBatteryOptimizations: () => Native.isIgnoringBatteryOptimizations(),
   requestIgnoreBatteryOptimizations: () => Native.requestIgnoreBatteryOptimizations(),
+  /** Delete all WebView cookies + DOM storage (connector web sessions). */
+  clearWebViewData: () => Native.clearWebViewData(),
   addLocationListener: (cb: (l: LocationUpdate) => void): EventSubscription =>
     Native.addListener('onLocation', cb),
   addActivityListener: (cb: (a: ActivityUpdate) => void): EventSubscription =>
