@@ -1,21 +1,33 @@
 import * as FileSystem from 'expo-file-system';
+import { externalApiAllowed } from './net';
+import {
+  InvalidDatabaseError,
+  preserveExternalApiOptOut,
+  validateImportedDb,
+} from './importDbValidation';
+
+export { InvalidDatabaseError };
 
 const SQLITE_DIR = `${FileSystem.documentDirectory}SQLite/`;
 const TARGET = `${SQLITE_DIR}mapozy.db`;
-const TARGET_WAL = `${TARGET}-wal`;
-const TARGET_SHM = `${TARGET}-shm`;
 const BACKUP = `${SQLITE_DIR}mapozy.db.preimport`;
+// The candidate is copied here and vetted before it may replace TARGET. It
+// has to live in the SQLite directory: that is where expo-sqlite opens files.
+const STAGING_NAME = 'mapozy.db.importing';
+const STAGING = `${SQLITE_DIR}${STAGING_NAME}`;
+
+/** A database file plus the sidecars SQLite may leave next to it. A stale
+ *  sidecar is not harmless: on the next open SQLite replays a leftover
+ *  `-journal` / `-wal` INTO the main file, corrupting a freshly imported DB. */
+const withSidecars = (path: string) => [path, `${path}-journal`, `${path}-wal`, `${path}-shm`];
+
+async function removeAll(paths: string[]): Promise<void> {
+  for (const p of paths) await FileSystem.deleteAsync(p, { idempotent: true });
+}
 
 export interface ImportDbResult {
   backupPath: string;
   sourceSize: number;
-}
-
-export class InvalidDatabaseError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'InvalidDatabaseError';
-  }
 }
 
 // Verify the first 16 bytes match the SQLite-3 file header ("SQLite format 3\0").
@@ -55,19 +67,45 @@ export async function importDb(sourceUri: string): Promise<ImportDbResult> {
 
   await FileSystem.makeDirectoryAsync(SQLITE_DIR, { intermediates: true });
 
+  // Stage, then vet. Nothing below this block runs for a file we would not
+  // trust as the live database, so a rejected import leaves the app untouched.
+  await removeAll(withSidecars(STAGING));
+  await FileSystem.copyAsync({ from: sourceUri, to: STAGING });
+  try {
+    await vetStagedDb();
+  } catch (e) {
+    await removeAll(withSidecars(STAGING));
+    throw e instanceof InvalidDatabaseError
+      ? e
+      : new InvalidDatabaseError('File is not a readable SQLite database');
+  }
+
   const currentInfo = await FileSystem.getInfoAsync(TARGET);
   if (currentInfo.exists) {
     await FileSystem.deleteAsync(BACKUP, { idempotent: true });
     await FileSystem.copyAsync({ from: TARGET, to: BACKUP });
   }
 
-  // Stale WAL/SHM from the prior DB would be interpreted as belonging to the
-  // newly imported file on first open and produce "database disk image is
-  // malformed". Wipe them; the imported DB carries its own journal state.
-  await FileSystem.deleteAsync(TARGET_WAL, { idempotent: true });
-  await FileSystem.deleteAsync(TARGET_SHM, { idempotent: true });
-  await FileSystem.deleteAsync(TARGET, { idempotent: true });
-  await FileSystem.copyAsync({ from: sourceUri, to: TARGET });
+  // Remove the live file together with its journal/WAL sidecars (see
+  // withSidecars), then promote the vetted copy — never the original source,
+  // which could have changed since it was checked.
+  await removeAll(withSidecars(TARGET));
+  await FileSystem.moveAsync({ from: STAGING, to: TARGET });
+  await removeAll(withSidecars(STAGING));
 
   return { backupPath: BACKUP, sourceSize: size };
+}
+
+/** Open the staged copy, validate it, and carry over the user's external-API
+ *  opt-out. expo-sqlite is imported lazily so this module still loads under
+ *  Node (tests) without the native module. */
+async function vetStagedDb(): Promise<void> {
+  const SQLite = await import('expo-sqlite');
+  const staged = await SQLite.openDatabaseAsync(STAGING_NAME);
+  try {
+    await validateImportedDb(staged);
+    await preserveExternalApiOptOut(staged, externalApiAllowed());
+  } finally {
+    await staged.closeAsync();
+  }
 }

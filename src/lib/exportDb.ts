@@ -21,8 +21,36 @@ export async function prepareDbExport(db: Db, now: Date = new Date()): Promise<D
   // filesystem path — strip the scheme for the SQL only, keep the URI for
   // FileSystem and Sharing APIs.
   const sqlitePath = destPath.replace(/^file:\/\//, '');
+  await purgeStaleExports();
   await FileSystem.deleteAsync(destPath, { idempotent: true });
-  await db.execAsync(`VACUUM INTO '${sqlitePath}'`);
+  // VACUUM INTO takes a string literal, not a bind parameter, so the path is
+  // spliced into the statement: double any quote so it can never end the
+  // literal early, whatever the cache directory happens to be called.
+  await db.execAsync(`VACUUM INTO '${sqlitePath.replace(/'/g, "''")}'`);
 
   return { destPath, filename };
+}
+
+const EXPORT_FILE_RE = /^mapozy-export-.*\.db(-journal)?$/;
+
+/**
+ * Delete earlier exports from the cache directory. Each one is a complete,
+ * unencrypted copy of the user's location history; once shared it has served
+ * its purpose, and there is no reason to keep a growing pile of them around
+ * until Android decides to evict the cache. Best effort — a failure here must
+ * never block a new export.
+ */
+async function purgeStaleExports(): Promise<void> {
+  const dir = FileSystem.cacheDirectory;
+  if (!dir) return;
+  try {
+    const names = await FileSystem.readDirectoryAsync(dir);
+    for (const name of names) {
+      if (EXPORT_FILE_RE.test(name)) {
+        await FileSystem.deleteAsync(`${dir}${name}`, { idempotent: true });
+      }
+    }
+  } catch {
+    // ignore
+  }
 }

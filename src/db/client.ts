@@ -20,6 +20,12 @@ export async function openDb(name = 'mapozy.db'): Promise<Db> {
   // vignettes"). 5 s is far above any single write on this DB.
   await db.execAsync('PRAGMA busy_timeout = 5000;');
   await db.execAsync('PRAGMA foreign_keys = ON;');
+  // The file on disk is not necessarily one we wrote: Settings → "Import
+  // database" swaps in a user-supplied file. Tell SQLite not to trust its
+  // schema, so SQL functions and virtual tables with side effects cannot be
+  // invoked from views, triggers, CHECK constraints, defaults or indexes
+  // defined by whoever authored it. Mapozy's own schema uses none of these.
+  await db.execAsync('PRAGMA trusted_schema = OFF;');
   await runMigrations(db);
   // Prime the external-API toggle cache from the persisted setting so every
   // call site (Overpass/Nominatim/Valhalla) can read it synchronously.

@@ -90,7 +90,10 @@ export async function listDiagnosticEvents(
     args.push(opts.type);
   }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const limitSql = opts.limit !== undefined ? `LIMIT ${opts.limit}` : '';
+  // Bound, never interpolated: `limit` is a number by type only, and nothing
+  // stops a future caller from passing through a value it did not validate.
+  const limitSql = opts.limit !== undefined ? 'LIMIT ?' : '';
+  if (opts.limit !== undefined) args.push(opts.limit);
   const rows = await db.getAllAsync<Row>(
     `SELECT id, timestamp_ms, event_type, payload
      FROM tracker_diagnostics
