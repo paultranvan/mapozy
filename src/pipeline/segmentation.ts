@@ -50,6 +50,18 @@ function isStalledVehicle(
   return false;
 }
 
+// RULE_GAP_PLAUSIBILITY — a tracking gap in the soft-to-hard window whose
+// endpoints could be connected by continuous motion is travel, not a stay.
+// Past the hard ceiling averages over many hours stop being meaningful.
+export function isPlausibleTravelGap(a: RawPoint, b: RawPoint): boolean {
+  const { softBreakMs, hardBreakMs, plausibleSpeedMps } =
+    RULES.GAP_PLAUSIBILITY.defaults;
+  const gap = b.timestampMs - a.timestampMs;
+  if (gap < softBreakMs || gap >= hardBreakMs) return false;
+  const dist = haversineMeters(a.latitude, a.longitude, b.latitude, b.longitude);
+  return dist / (gap / 1000) >= plausibleSpeedMps;
+}
+
 export function segmentation(
   points: RawPoint[],
   activities: RawActivity[],
@@ -129,7 +141,6 @@ export function segmentation(
 
   // RULE_GAP_DWELL + RULE_GAP_PLAUSIBILITY — turn long tracking gaps into stays,
   // unless the implied avg speed across the gap looks like real travel.
-  const gapPlaus = RULES.GAP_PLAUSIBILITY.defaults;
   for (let i = 0; i < points.length - 1; i++) {
     const t1 = points[i]!.timestampMs;
     const t2 = points[i + 1]!.timestampMs;
@@ -162,12 +173,7 @@ export function segmentation(
     // plausibly be connected by continuous motion, treat as one trip rather
     // than a stay. Past the hard ceiling, fall through — averages over many
     // hours stop being meaningful.
-    const inPlausWindow =
-      gap >= gapPlaus.softBreakMs && gap < gapPlaus.hardBreakMs;
-    if (inPlausWindow) {
-      const avgSpeedMps = dist / (gap / 1000);
-      if (avgSpeedMps >= gapPlaus.plausibleSpeedMps) continue;
-    }
+    if (isPlausibleTravelGap(points[i]!, points[i + 1]!)) continue;
 
     // Same-place gap (endpoints within the dwell radius): the phone sat still
     // without fixes. RULE_DWELL_STAY's sliding window normally spans it, but
@@ -266,7 +272,15 @@ export function segmentation(
         // Pull the prior stay's last point into this trip so the polyline
         // reaches back to the place — but never across a tracking gap, where
         // the prior point is a stay anchor hours earlier, not an approach fix.
-        if (dist <= radius * 3 && firstTrip.timestampMs - lastPrev.timestampMs < gapMs)
+        // Exception: a gap RULE_GAP_PLAUSIBILITY kept as travel (no gap stay
+        // was cut there) IS the trip's first hop — typically an airplane-mode
+        // flight right after the gate wait. Without the departure fix the hop
+        // belongs to no segment, so RULE_FLIGHT never sees it (tester export
+        // 2026-11-09: CDG→Manila came out as a 1.9 km "bike" trip).
+        if (
+          (dist <= radius * 3 && firstTrip.timestampMs - lastPrev.timestampMs < gapMs) ||
+          isPlausibleTravelGap(lastPrev, firstTrip)
+        )
           startIdx = cursor - 1;
       }
       const tripPoints = points.slice(startIdx, stayStartIdx + 1);

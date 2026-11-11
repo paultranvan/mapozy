@@ -85,6 +85,23 @@ export async function getPointsInRange(
   return rows.map(rowToPoint);
 }
 
+// Latest already-consumed fix strictly before `beforeMs` with acceptable
+// accuracy — the last place a previous pipeline run saw the user.
+export async function getLastConsumedPointBefore(
+  db: Db,
+  beforeMs: number,
+  maxAccuracyM: number
+): Promise<RawPoint | null> {
+  const row = await db.getFirstAsync<Row>(
+    `SELECT * FROM raw_points
+     WHERE consumed=1 AND timestamp_ms < ? AND accuracy_m <= ?
+     ORDER BY timestamp_ms DESC LIMIT 1`,
+    beforeMs,
+    maxAccuracyM
+  );
+  return row ? rowToPoint(row) : null;
+}
+
 export async function getAllUnconsumedPoints(db: Db): Promise<RawPoint[]> {
   const rows = await db.getAllAsync<Row>(
     `SELECT * FROM raw_points WHERE consumed=0 ORDER BY timestamp_ms ASC`

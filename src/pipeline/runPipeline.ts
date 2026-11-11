@@ -1,9 +1,10 @@
 // Rule implemented here: RULE_MIN_TRIP_DISTANCE (see ./rules.ts).
 // All other pipeline rules fire inside the stage functions called below.
 import type { Db } from '../db/client';
-import type { RawActivity } from '../types';
+import type { RawActivity, RawPoint } from '../types';
 import {
   getAllUnconsumedPoints,
+  getLastConsumedPointBefore,
   markPointsConsumed,
 } from '../db/rawPoints';
 import {
@@ -15,7 +16,7 @@ import { haversineMeters } from '../lib/distance';
 import { insertTripWithSections } from '../db/trips';
 import { getSetting, setSetting, SETTING_KEYS } from '../db/settings';
 import { accuracyFilter } from './accuracyFilter';
-import { segmentation } from './segmentation';
+import { segmentation, isPlausibleTravelGap } from './segmentation';
 import { smoothing } from './smoothing';
 import { resample } from './resample';
 import { sectionSegmentation } from './sectionSegmentation';
@@ -130,12 +131,13 @@ async function runPipelineLocked(
   let openTail: TripLegGroup | null = null;
   const enrichTargets: number[] = [];
 
-  for (const group of groups) {
+  for (let group of groups) {
     if (group.endStay === null) {
       // Held for the next run — recorded; handled after the loop.
       openTail = group;
       break;
     }
+    const endStay = group.endStay;
 
     let startPlaceId = previousStayPlaceId;
     if (group.startStay !== null) {
@@ -168,15 +170,52 @@ async function runPipelineLocked(
             group.startStay.endMs
           );
     } else {
-      // No preceding stay (typically a power-save GPS gap swallowed it), so we
-      // fall back to the carried-over seed. But the seed can be a stale,
-      // geographically wrong place: e.g. after driving 200 km to the coast and
-      // losing GPS overnight, a local morning drive has no startStay and would
-      // inherit "home" from days ago — mislabelling its start with the home
-      // address. Trust the GPS: if the seed is nowhere near the trip's first
-      // recorded point, drop it and anchor the start to where GPS resumed.
+      // No preceding stay (typically a power-save GPS gap swallowed it, or the
+      // pre-gap fixes were consumed by an earlier run).
       const firstPoint = group.legs[0]?.[0];
-      if (startPlaceId !== null && firstPoint) {
+      // Only the run's first group can follow a previous run's fixes; later
+      // groups always sit after a stay of this run.
+      const departure =
+        firstPoint && group === groups[0]
+          ? await findCrossRunDeparture(db, firstPoint)
+          : null;
+      if (departure) {
+        // The gap since the previous run's last fix is plausible travel
+        // (RULE_GAP_PLAUSIBILITY), so it is this trip's first hop — typically
+        // an airplane-mode flight whose gate wait ended the previous run.
+        // Prepend that fix so RULE_FLIGHT sees the hop and the trip starts
+        // where the user actually left from (tester export 2026-11-09: the
+        // CDG→Manila flight was dropped, Manila trips started from nowhere).
+        group = {
+          ...group,
+          legs: [[departure, ...group.legs[0]!], ...group.legs.slice(1)],
+        };
+        const seedPlace =
+          startPlaceId !== null ? await getPlaceById(db, startPlaceId) : null;
+        const seedNearDeparture =
+          seedPlace != null &&
+          haversineMeters(
+            departure.latitude,
+            departure.longitude,
+            seedPlace.latitude,
+            seedPlace.longitude
+          ) <= START_STAY_GAP_MAX_M;
+        if (!seedNearDeparture) {
+          startPlaceId = await findOrCreatePlace(
+            db,
+            departure.latitude,
+            departure.longitude,
+            departure.timestampMs
+          );
+        }
+      } else if (startPlaceId !== null && firstPoint) {
+        // Fall back to the carried-over seed. But the seed can be a stale,
+        // geographically wrong place: e.g. after driving 200 km to the coast
+        // and losing GPS overnight, a local morning drive has no startStay and
+        // would inherit "home" from days ago — mislabelling its start with the
+        // home address. Trust the GPS: if the seed is nowhere near the trip's
+        // first recorded point, drop it and anchor the start to where GPS
+        // resumed.
         const seedPlace = await getPlaceById(db, startPlaceId);
         if (
           seedPlace &&
@@ -198,9 +237,9 @@ async function runPipelineLocked(
     }
     const endPlaceId = await findOrCreatePlace(
       db,
-      group.endStay.centerLat,
-      group.endStay.centerLon,
-      group.endStay.endMs
+      endStay.centerLat,
+      endStay.centerLon,
+      endStay.endMs
     );
 
     // When transit enrichment is requested, persist the trip as a draft up
@@ -284,6 +323,26 @@ async function runPipelineLocked(
     activitiesConsumed: activities.length,
     pendingEnrichmentTripIds: enrichTargets,
   };
+}
+
+// RULE_GAP_PLAUSIBILITY across pipeline runs: the previous run's last good fix,
+// when the gap from it to this run's first fix is plausible travel. Never
+// reaches back into a persisted trip (its fixes are already accounted for).
+async function findCrossRunDeparture(
+  db: Db,
+  firstPoint: RawPoint
+): Promise<RawPoint | null> {
+  const prev = await getLastConsumedPointBefore(
+    db,
+    firstPoint.timestampMs,
+    RULES.ACCURACY_FILTER.defaults.maxAccuracyM
+  );
+  if (!prev || !isPlausibleTravelGap(prev, firstPoint)) return null;
+  const lastTrip = await db.getFirstAsync<{ endMs: number | null }>(
+    `SELECT MAX(end_time_ms) AS endMs FROM trips`
+  );
+  if (lastTrip?.endMs != null && prev.timestampMs < lastTrip.endMs) return null;
+  return prev;
 }
 
 async function readValidSeedPlaceId(db: Db): Promise<number | null> {

@@ -102,7 +102,7 @@ export const RULES = {
 
   GAP_PLAUSIBILITY: rule(
     'RULE_GAP_PLAUSIBILITY',
-    'Overrides RULE_GAP_DWELL for 60min+ gaps: if avg speed across the gap is plausible for travel, keep it as one continuous trip (GPS dropout, not a stay). Past a hard ceiling, always fall through to a stay — avg speed loses signal over many hours. The 24h ceiling covers ultra-long-haul flights (SQ23 ~19h, Project Sunrise ~21h) with margin while forcing multi-leg layover trips to split.',
+    'Overrides RULE_GAP_DWELL for 60min+ gaps: if avg speed across the gap is plausible for travel, keep it as one continuous trip (GPS dropout, not a stay). Past a hard ceiling, always fall through to a stay — avg speed loses signal over many hours. The 24h ceiling covers ultra-long-haul flights (SQ23 ~19h, Project Sunrise ~21h) with margin while forcing multi-leg layover trips to split. A plausible gap is the trip\'s first hop: the last fix before it (even one closing a stay, e.g. the gate wait, or one consumed by an earlier pipeline run) joins the trip, so RULE_FLIGHT sees an airplane-mode hop instead of it falling between segments.',
     {
       softBreakMs: 60 * 60_000,
       hardBreakMs: 24 * 60 * 60_000,
