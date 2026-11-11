@@ -101,4 +101,19 @@ docs/                   Project state and design notes
 
 ## Privacy
 
-All data — GPS samples, activity classifications, derived trips, geocoded place names — lives in a single SQLite database on the device (`expo-sqlite`). Reverse geocoding uses the public Nominatim API and is the only outbound network call; trips without network connectivity fall back to coordinate strings. There is no analytics, no telemetry, and no account system.
+All data — GPS samples, activity classifications, derived trips, geocoded place names — lives in a single SQLite database on the device (`expo-sqlite`), in app-private storage. There is no analytics, no telemetry, and no account system.
+
+**Outbound network calls.** The app talks to a small set of public OpenStreetMap services, all over HTTPS, and to nothing else:
+
+| Service | Used for | What is sent |
+|---------|----------|--------------|
+| Nominatim | place names, address search | a coordinate, or the text you type |
+| Overpass | transit detection (stops, rail lines) | bounding boxes around your trips |
+| Valhalla (FOSSGIS) | map-matching | the trace of a trip |
+| OSM tile servers | the map background | the tiles you look at |
+
+Nominatim, Overpass and Valhalla go through a single choke-point (`src/lib/net.ts`) and are switched off together by **Settings → "Allow external API"**; trips then fall back to local-only processing. Map tiles are fetched whenever a map is on screen.
+
+**Tiime connector (opt-in).** Only if you connect a Tiime account: the trips you explicitly choose to send go to the Tiime API. The session token is kept in the Android Keystore (`expo-secure-store`), never in the database, and "Disconnect" also wipes the embedded browser's cookies and storage.
+
+**Backups and exports.** Android cloud backup is disabled (`allowBackup: false`), so nothing is copied to Google Drive. The only ways data leaves the device are the ones you trigger yourself: Settings → "Share database file…" and "Send data to Paul". Both export the **entire** database — your full location history — unencrypted, so treat the resulting file accordingly.
