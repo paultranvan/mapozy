@@ -43,6 +43,9 @@ object TrackingState {
   // pipeline). Persisted so a service restart in MOVING state keeps history.
   private const val KEY_GPS_RING = "gps_ring"
   private const val MAX_RING_SIZE = 50
+  // RULE_NATIVE_ACCURACY_FILTER observation state — fixes dropped by the
+  // filter since the last env_snapshot (see WatchdogReceiver).
+  private const val KEY_REJECTED_FIXES = "rejected_fixes"
 
   fun prefs(context: Context): SharedPreferences =
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -227,5 +230,22 @@ object TrackingState {
 
   fun clearRecentGpsSamples(context: Context) {
     prefs(context).edit().remove(KEY_GPS_RING).apply()
+  }
+
+  // Persisted rather than held in memory so a process kill between two
+  // watchdog ticks doesn't lose the count. Every caller is on the main thread
+  // (location callbacks and the watchdog receiver), so the read-modify-write
+  // needs no lock.
+  fun incrementRejectedFixes(context: Context) {
+    val p = prefs(context)
+    p.edit().putInt(KEY_REJECTED_FIXES, p.getInt(KEY_REJECTED_FIXES, 0) + 1).apply()
+  }
+
+  /** Fixes rejected since the previous call; resets the counter. */
+  fun takeRejectedFixes(context: Context): Int {
+    val p = prefs(context)
+    val n = p.getInt(KEY_REJECTED_FIXES, 0)
+    if (n != 0) p.edit().remove(KEY_REJECTED_FIXES).apply()
+    return n
   }
 }

@@ -112,8 +112,12 @@ object NativeStore {
     batteryLevel: Double?,
     isCharging: Boolean
   ) {
-    // RULE_NATIVE_ACCURACY_FILTER
-    if (accuracyMeters > TrackingRules.MAX_INSERT_ACCURACY_M) return
+    // RULE_NATIVE_ACCURACY_FILTER — counted so env_snapshot can tell "fixes
+    // arrived but were too coarse" apart from "no fix arrived".
+    if (accuracyMeters > TrackingRules.MAX_INSERT_ACCURACY_M) {
+      TrackingState.incrementRejectedFixes(context)
+      return
+    }
     val d = open(context) ?: return
     val cv = ContentValues().apply {
       put("timestamp_ms", timestampMs)

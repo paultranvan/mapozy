@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 import org.json.JSONObject
 
@@ -20,6 +21,7 @@ class WatchdogReceiver : BroadcastReceiver() {
     val running = TrackingService.isRunning
 
     // Flight-recorder heartbeat + environment snapshot.
+    val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
     NativeStore.insertDiagnostic(
       context, now, "watchdog_fire",
       JSONObject().apply {
@@ -31,6 +33,15 @@ class WatchdogReceiver : BroadcastReceiver() {
       JSONObject().apply {
         put("batteryExempt", isIgnoringBatteryOptimizations(context))
         put("state", TrackingState.getState(context))
+        // What can starve the GPS stream while MOVING: deep Doze and battery
+        // saver both throttle location, airplane mode removes A-GPS and the
+        // network fallback. rejectedFixes is what RULE_NATIVE_ACCURACY_FILTER
+        // dropped since the previous snapshot — zero during a hole means no
+        // fix was delivered at all, non-zero means poor reception.
+        put("deviceIdle", pm?.isDeviceIdleMode ?: false)
+        put("powerSave", pm?.isPowerSaveMode ?: false)
+        put("airplaneMode", isAirplaneModeOn(context))
+        put("rejectedFixes", TrackingState.takeRejectedFixes(context))
       }.toString()
     )
 
@@ -55,4 +66,7 @@ class WatchdogReceiver : BroadcastReceiver() {
     val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return false
     return pm.isIgnoringBatteryOptimizations(context.packageName)
   }
+
+  private fun isAirplaneModeOn(context: Context): Boolean =
+    Settings.Global.getInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) != 0
 }
