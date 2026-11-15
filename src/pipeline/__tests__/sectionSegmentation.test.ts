@@ -98,6 +98,19 @@ describe('sectionSegmentation', () => {
     expect(sections[0]!.points).toHaveLength(5);
   });
 
+  it('hands a walk section over whole when its very first step is already at vehicle pace', () => {
+    // Every fix under the walk-like label belongs to the drive (typically a
+    // GPS hole bridged at vehicle pace). Splitting after the first fix would
+    // leave a single-point walk — a 0 m section in front of the drive.
+    const step = (8 * 30) / 111_320;
+    const pts = Array.from({ length: 7 }, (_, i) => mkPoint(i * 30_000, 0, i * step));
+    const acts = [mkActivity(0, 'still'), mkActivity(90_000, 'in_vehicle')];
+    const sections = sectionSegmentation(pts, acts);
+    expect(sections.map((s) => s.activity)).toEqual(['in_vehicle']);
+    expect(sections[0]!.points).toHaveLength(7);
+    expect(sections[0]!.startMs).toBe(0);
+  });
+
   it('merges sections shorter than minSection into the previous', () => {
     const pts = [];
     for (let i = 0; i <= 10; i++) pts.push(mkPoint(i * 30_000, 0, 0));

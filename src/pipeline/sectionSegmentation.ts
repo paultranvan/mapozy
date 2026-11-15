@@ -42,10 +42,16 @@ function refineWalkVehicleBoundary(sections: RawSection[]): RawSection[] {
       }
     }
     if (onset < 0) continue;
+    // Fast from the very first step: the walk would keep a single fix — a
+    // section with no extent, shown as a 0 m walk before the drive. The whole
+    // section is the vehicle's.
+    if (onset === 1) onset = 0;
 
     const moved = prev.points.splice(onset);
     next.points = [...moved, ...next.points];
-    prev.endMs = prev.points[prev.points.length - 1]!.timestampMs;
+    if (prev.points.length > 0) {
+      prev.endMs = prev.points[prev.points.length - 1]!.timestampMs;
+    }
     next.startMs = next.points[0]!.timestampMs;
   }
   return sections.filter((s) => s.points.length > 0);
