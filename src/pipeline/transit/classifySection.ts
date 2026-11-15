@@ -1,5 +1,6 @@
-import type { Mode, ModeSource } from '../../types';
-import type { RailwayWay, TransitStop, WaterWay } from '../../lib/overpass';
+import type { Mode, ModeSource, RawPoint } from '../../types';
+import type { AerowayWay, RailwayWay, ShoreWay, TransitStop, WaterWay } from '../../lib/overpass';
+import { tileReachBBox } from '../../lib/overpass';
 import {
   coverageFraction,
   haversineMeters,
@@ -345,4 +346,172 @@ export function classifyBusCorridor(input: CorridorInput): TransitClassification
     return { mode: 'bus', modeSource: 'corridor', modeConfidence: votes >= 2 ? 0.8 : 0.6 };
   }
   return null;
+}
+
+export type ShoreSide = 'sea' | 'land' | 'unknown';
+
+function orient(a: [number, number], b: [number, number], c: [number, number]): number {
+  return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+}
+
+// Does segment p–q cross segment a–b? Half-open on a/b ("on the line" counts
+// as one side), so a p–q that passes exactly through a vertex shared by two
+// coastline segments is counted once when the coast crosses it and an even
+// number of times when the coast only touches it.
+function segmentsCross(
+  p: [number, number],
+  q: [number, number],
+  a: [number, number],
+  b: [number, number]
+): boolean {
+  if (orient(p, q, a) > 0 === orient(p, q, b) > 0) return false;
+  return orient(a, b, p) > 0 !== orient(a, b, q) > 0;
+}
+
+/**
+ * Which side of the coast a point is on (RULE_OPEN_WATER). OSM draws
+ * coastlines with land on the left and sea on the right, so a spot just right
+ * of a coastline segment is known to be sea; the point is on the same side as
+ * that spot when the straight line between them crosses the coast an even
+ * number of times. The reference segment is taken inside the point's own
+ * cache tile, where the tiled fetch loaded every coastline — the count is then
+ * exhaustive. 'unknown' when that tile holds no coastline at all (open sea or
+ * inland: nothing tells them apart).
+ */
+export function shoreSide(p: [number, number], coastlines: ShoreWay[]): ShoreSide {
+  const reach = tileReachBBox(p[0], p[1]);
+  const mLat = 111_320;
+  const mLon = mLat * Math.cos((p[1] * Math.PI) / 180);
+  let ref: [number, number] | null = null;
+  let best = Infinity;
+  for (const w of coastlines) {
+    for (let i = 1; i < w.coords.length; i++) {
+      const a = w.coords[i - 1]!;
+      const b = w.coords[i]!;
+      const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      if (mid[1] < reach.south || mid[1] > reach.north || mid[0] < reach.west || mid[0] > reach.east) {
+        continue;
+      }
+      const dx = (b[0] - a[0]) * mLon;
+      const dy = (b[1] - a[1]) * mLat;
+      const len = Math.hypot(dx, dy);
+      if (len === 0) continue;
+      const d = Math.hypot((mid[0] - p[0]) * mLon, (mid[1] - p[1]) * mLat);
+      if (d >= best) continue;
+      best = d;
+      // SEA_REF_OFFSET_M to the right of a→b, i.e. on the sea side.
+      ref = [
+        mid[0] + ((dy / len) * SEA_REF_OFFSET_M) / mLon,
+        mid[1] - ((dx / len) * SEA_REF_OFFSET_M) / mLat,
+      ];
+    }
+  }
+  if (!ref) return 'unknown';
+  let crossings = 0;
+  for (const w of coastlines) {
+    for (let i = 1; i < w.coords.length; i++) {
+      if (segmentsCross(p, ref, w.coords[i - 1]!, w.coords[i]!)) crossings++;
+    }
+  }
+  return crossings % 2 === 0 ? 'sea' : 'land';
+}
+
+// How far right of a coastline segment the known-sea reference spot sits.
+// Small against any mapped feature, large against the 1e-5° (~1 m) rounding
+// of cached way coordinates.
+const SEA_REF_OFFSET_M = 3;
+
+export interface OpenWaterStats {
+  sea: number; // probe points at sea, clear of the shoreline margin and of any bridge/pier
+  land: number; // probe points on land (or on a bridge/pier)
+  seaShare: number; // sea / (sea + land); 0 when nothing is known
+}
+
+/**
+ * Sort a trace's probe points into sea and land. A point at sea only counts
+ * once it is `marginM` clear of the coast (GPS jitter along a seafront) and of
+ * any bridge or pier (dry ground over water). Points whose tile holds no
+ * coastline, and sea points inside the margin, are left out of both tallies.
+ */
+export function openWaterStats(
+  coords: Array<[number, number]>,
+  shore: ShoreWay[],
+  marginM: number,
+  crossingBufferM: number
+): OpenWaterStats {
+  const coast = shore.filter((w) => w.kind === 'coastline');
+  const crossings = shore.filter((w) => w.kind === 'crossing');
+  let sea = 0;
+  let land = 0;
+  for (const c of coords) {
+    const side = shoreSide(c, coast);
+    if (side === 'unknown') continue;
+    if (side === 'land') {
+      land++;
+      continue;
+    }
+    if (crossings.some((w) => pointToPolylineMeters(c, w.coords) <= crossingBufferM)) {
+      land++;
+      continue;
+    }
+    if (coast.some((w) => pointToPolylineMeters(c, w.coords) < marginM)) continue;
+    sea++;
+  }
+  const known = sea + land;
+  return { sea, land, seaShare: known > 0 ? sea / known : 0 };
+}
+
+/**
+ * RULE_OPEN_WATER — classify a section as boat when most of its probed trace
+ * lies at sea. `probe` must be sampled every RULE_OPEN_WATER.probeEveryM (a
+ * sparser probe only makes the open-water length floor harder to reach). Call
+ * after `boatGuard`.
+ */
+export function classifyOpenWater(
+  probe: Array<[number, number]>,
+  shore: ShoreWay[]
+): TransitClassification | null {
+  const { probeEveryM, marginM, crossingBufferM, minSeaShare, minSeaM } =
+    RULES.OPEN_WATER.defaults;
+  const st = openWaterStats(probe, shore, marginM, crossingBufferM);
+  if (st.sea * probeEveryM < minSeaM || st.seaShare < minSeaShare) return null;
+  return { mode: 'boat', modeSource: 'watermatch', modeConfidence: Math.min(0.99, st.seaShare) };
+}
+
+/**
+ * The longest step between consecutive fixes, when it is at least
+ * `minDistanceM` long — the fix-less hop RULE_FLIGHT_AIRPORTS examines.
+ */
+export function longestHop(
+  fixes: RawPoint[],
+  minDistanceM: number
+): { from: RawPoint; to: RawPoint } | null {
+  let best: { from: RawPoint; to: RawPoint } | null = null;
+  let bestM = minDistanceM;
+  for (let i = 1; i < fixes.length; i++) {
+    const a = fixes[i - 1]!;
+    const b = fixes[i]!;
+    const d = haversineMeters(a.latitude, a.longitude, b.latitude, b.longitude);
+    if (d >= bestM) {
+      bestM = d;
+      best = { from: a, to: b };
+    }
+  }
+  return best;
+}
+
+/**
+ * RULE_FLIGHT_AIRPORTS — a hop is a flight when both its ends sit on airport
+ * ground. Returns null otherwise.
+ */
+export function classifyAirportHop(
+  from: [number, number],
+  to: [number, number],
+  aeroways: AerowayWay[]
+): TransitClassification | null {
+  const { airportRadiusM } = RULES.FLIGHT_AIRPORTS.defaults;
+  const onAirport = (p: [number, number]) =>
+    aeroways.some((w) => pointToPolylineMeters(p, w.coords) <= airportRadiusM);
+  if (!onAirport(from) || !onAirport(to)) return null;
+  return { mode: 'plane', modeSource: 'station', modeConfidence: 0.8 };
 }

@@ -24,10 +24,12 @@ export type DominantMode = Mode | 'mixed';
 //   'activity'   — Android activity recognition (default for existing modes)
 //   'speed'      — p75-speed fallback
 //   'railmatch'  — trace follows OSM railway geometry
-//   'station'    — endpoints matched transit stops / routes
+//   'station'    — endpoints matched transit stops / routes, or airports
+//                  at both ends of a fix-less hop
 //   'corridor'   — bus stops of one route line the trace (door-to-door bus)
 //   'gap'        — underground subway gap converted to a section (Plan C)
-//   'watermatch' — trace follows OSM waterway / ferry-route geometry
+//   'watermatch' — trace follows OSM waterway / ferry-route geometry, or
+//                  lies at sea
 export type ModeSource =
   | 'activity'
   | 'speed'

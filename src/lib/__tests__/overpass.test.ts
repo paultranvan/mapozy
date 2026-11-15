@@ -5,6 +5,8 @@ import {
   getStopsNear,
   getStopsNearMany,
   getRailwaysNear,
+  getShoreWaysNear,
+  getAerowaysNear,
   capCoordsToTileBudget,
   OverpassRateLimitError,
   OverpassOfflineError,
@@ -331,5 +333,99 @@ describe('overpass — capCoordsToTileBudget', () => {
     expect(capped[capped.length - 1]).toEqual(coords[coords.length - 1]);
     // Every capped coord is a real input fix, in order.
     for (const c of capped) expect(coords).toContainEqual(c);
+  });
+});
+
+describe('overpass — getShoreWaysNear', () => {
+  const body = {
+    elements: [
+      {
+        type: 'way',
+        id: 1,
+        tags: { natural: 'coastline' },
+        geometry: [
+          { lat: 45.01, lon: 5.02 },
+          { lat: 45.02, lon: 5.02 },
+        ],
+      },
+      {
+        type: 'way',
+        id: 2,
+        tags: { highway: 'trunk', bridge: 'yes' },
+        geometry: [
+          { lat: 45.015, lon: 5.02 },
+          { lat: 45.015, lon: 5.03 },
+        ],
+      },
+      {
+        type: 'way',
+        id: 3,
+        tags: { man_made: 'pier' },
+        geometry: [
+          { lat: 45.012, lon: 5.02 },
+          { lat: 45.012, lon: 5.021 },
+        ],
+      },
+    ],
+  };
+
+  it('tells coastline from the bridges and piers that cross it', async () => {
+    const deps = await mkDeps(async () => fakeResponse(body));
+    const ways = await getShoreWaysNear(deps, [[5.025, 45.015]]);
+    expect(ways.map((w) => [w.id, w.kind])).toEqual([
+      [1, 'coastline'],
+      [2, 'crossing'],
+      [3, 'crossing'],
+    ]);
+  });
+
+  it('only asks for bridges and piers when the box holds a coastline', async () => {
+    // Inland the answer is empty instead of listing every overpass in town.
+    let query = '';
+    const deps = await mkDeps(async (_url, init) => {
+      query = decodeURIComponent(String((init as RequestInit).body ?? ''));
+      return fakeResponse({ elements: [] });
+    });
+    await getShoreWaysNear(deps, [[5.025, 45.015]]);
+    const guard = query.indexOf('if(c.count(ways)>0){');
+    expect(query.indexOf('way["natural"="coastline"]')).toBeLessThan(guard);
+    expect(guard).toBeGreaterThan(-1);
+    const guarded = query.slice(guard, query.indexOf('}', guard));
+    expect(guarded).toContain('way["bridge"]["highway"]');
+    expect(guarded).toContain('way["bridge"]["railway"]');
+    expect(guarded).toContain('way["man_made"="pier"]');
+    // Nothing spatial beyond the box itself.
+    expect(query).not.toContain('around');
+  });
+});
+
+describe('overpass — getAerowaysNear', () => {
+  const tilesOf = (q: string) => {
+    // One bbox per chunk query: "(south,west,north,east)".
+    const m = /\((-?[\d.]+),(-?[\d.]+),(-?[\d.]+),(-?[\d.]+)\)/.exec(q)!;
+    return { south: +m[1]!, west: +m[2]!, north: +m[3]!, east: +m[4]! };
+  };
+
+  it('reaches into the neighbouring tile for a point near a tile border', async () => {
+    // lon 5.049 is ~80 m west of the 5.05 tile border: an airport 400 m to the
+    // east lies in the next tile, beyond the per-tile padding.
+    const boxes: ReturnType<typeof tilesOf>[] = [];
+    const deps = await mkDeps(async (_url, init) => {
+      boxes.push(tilesOf(decodeURIComponent(String((init as RequestInit).body ?? ''))));
+      return fakeResponse({ elements: [] });
+    });
+    await getAerowaysNear(deps, [[5.049, 45.025]], 500);
+    expect(Math.max(...boxes.map((b) => b.east))).toBeGreaterThan(5.09);
+  });
+
+  it('keeps to one tile for a point in the middle of it', async () => {
+    const boxes: ReturnType<typeof tilesOf>[] = [];
+    const deps = await mkDeps(async (_url, init) => {
+      boxes.push(tilesOf(decodeURIComponent(String((init as RequestInit).body ?? ''))));
+      return fakeResponse({ elements: [] });
+    });
+    await getAerowaysNear(deps, [[5.025, 45.025]], 500);
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0]!.east).toBeLessThan(5.06);
   });
 });

@@ -371,6 +371,45 @@ export const RULES = {
     }
   ),
 
+  FLIGHT_AIRPORTS: rule(
+    'RULE_FLIGHT_AIRPORTS',
+    'A fix-less hop of at least RULE_FLIGHT.minFlightDistanceM whose two ends ' +
+      'both sit within airportRadiusM of airport ground features (runway, ' +
+      'taxiway, apron, terminal, aerodrome outline) is a flight, whatever its ' +
+      'implied speed. RULE_FLIGHT only sees speed, and the tracker goes ' +
+      'stationary at the gate: the hole then spans the boarding wait as well ' +
+      'as the flight, so a short-haul hop averages motorway speed (tester ' +
+      'export 2026-11-13: Busuanga→Clark, 345 km in a 3 h 06 hole = 111 km/h, ' +
+      'shown as a walk, then as a car). Checked online and before ' +
+      'RULE_TRAIN_SPEED — a 300 km hole at 200 km/h between two airports is ' +
+      'not a TGV. Gate-to-gate like RULE_FLIGHT: the section becomes a plane ' +
+      'only when what surrounds the hop inside it lasts at most ' +
+      'RULE_FLIGHT.maxTaxiMinutes on each side; a section that also holds a ' +
+      'long drive is left alone rather than turned into a flight wholesale.',
+    { airportRadiusM: 500 }
+  ),
+
+  OPEN_WATER: rule(
+    'RULE_OPEN_WATER',
+    'A slow section (same length/speed guard as RULE_WATERWAY_MATCH) most of ' +
+      'whose trace lies at sea is a boat. RULE_WATERWAY_MATCH follows mapped ' +
+      'centerlines — rivers, canals, ferry routes — and the open sea has ' +
+      'none; what it has is a coastline, which OSM draws with land on the ' +
+      'left, so each probe point (one every probeEveryM of the stored trace, ' +
+      'GPS-hole chords included) can be told sea from land. A sea point only ' +
+      'counts when marginM clear of the coast (jitter along a seafront) and ' +
+      'crossingBufferM clear of any bridge or pier (cycling over a sea ' +
+      'bridge); points in a tile with no coastline at all are unknown and ' +
+      'count for neither side. Boat when at least minSeaShare of the known ' +
+      'points are at sea and they add up to minSeaM of open water. Applies ' +
+      'to walk/bike/run sections too, not just motorized ones: a boat with a ' +
+      'phone throttled to a few fixes a day averages walking pace (tester ' +
+      'export 2026-11-13: island-hopping legs of 8-38 km shown as walks). ' +
+      'Measured on that export: boat legs scored 0.58-1.00, the coastal road ' +
+      'and town sections 0.00-0.20. Lakes are not covered (no coastline).',
+    { probeEveryM: 250, marginM: 100, crossingBufferM: 30, minSeaShare: 0.5, minSeaM: 1000 }
+  ),
+
   MAP_MATCH: rule(
     'RULE_MAP_MATCH',
     'Snap a non-transit section (walk/run → pedestrian, car → auto, bike → ' +

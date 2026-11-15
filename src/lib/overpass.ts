@@ -32,6 +32,20 @@ export interface WaterWay {
   coords: Array<[number, number]>; // [lon, lat]
 }
 
+export interface AerowayWay {
+  id: number;
+  aeroway: string; // runway | taxiway | apron | terminal | aerodrome
+  coords: Array<[number, number]>; // [lon, lat]
+}
+
+export interface ShoreWay {
+  id: number;
+  // coastline — drawn with land on its left, sea on its right (OSM convention).
+  // crossing  — a bridge or pier: dry ground on the sea side of the coastline.
+  kind: 'coastline' | 'crossing';
+  coords: Array<[number, number]>; // [lon, lat]
+}
+
 export class OverpassRateLimitError extends Error {
   constructor() {
     super('Overpass rate limited (HTTP 429)');
@@ -243,6 +257,31 @@ function parseWaterWays(elements: any[]): WaterWay[] {
   return out;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseAeroways(elements: any[]): AerowayWay[] {
+  const out: AerowayWay[] = [];
+  for (const e of elements) {
+    if (e.type !== 'way') continue;
+    const aeroway = e.tags?.aeroway;
+    if (!aeroway) continue;
+    const coords = wayCoords(e);
+    if (coords.length >= 2) out.push({ id: e.id, aeroway, coords });
+  }
+  return out;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseShoreWays(elements: any[]): ShoreWay[] {
+  const out: ShoreWay[] = [];
+  for (const e of elements) {
+    if (e.type !== 'way') continue;
+    const kind = e.tags?.natural === 'coastline' ? 'coastline' : 'crossing';
+    const coords = wayCoords(e);
+    if (coords.length >= 2) out.push({ id: e.id, kind, coords });
+  }
+  return out;
+}
+
 interface StopCell {
   key: string;
   bbox: BBox; // padded query/assignment bbox
@@ -369,6 +408,18 @@ function tileBBox(t: Tile): BBox {
   };
 }
 
+/**
+ * Padded bbox of the cache tile holding a point. A tiled way fetch that
+ * covered the point loaded every way reaching into this box, so geometry
+ * confined to it can be reasoned about exhaustively.
+ */
+export function tileReachBBox(lon: number, lat: number): BBox {
+  return padBBox(
+    tileBBox({ tx: Math.floor(lon / TILE_DEG), ty: Math.floor(lat / TILE_DEG) }),
+    PAD_DEG
+  );
+}
+
 // Tiles containing the trace's fixes, in path order. ONLY point tiles:
 // classification is point-based (coverageFraction / dominantRailMode measure
 // each COORD's distance to ways, and per-tile PAD_DEG covers border-hugging
@@ -487,7 +538,8 @@ async function getWaysNearTiled<W extends { id: number; coords: Array<[number, n
   coords: Array<[number, number]>,
   keyPrefix: string,
   cacheKind: string,
-  selectorFor: (b: BBox) => string,
+  // Overpass statements leaving the wanted ways in the default set.
+  statementsFor: (b: BBox) => string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   parse: (elements: any[]) => W[]
 ): Promise<W[]> {
@@ -502,7 +554,7 @@ async function getWaysNearTiled<W extends { id: number; coords: Array<[number, n
   }
   for (const { chunk, rect } of chunkTilesByProximity(missing)) {
     const q = padBBox(rect, PAD_DEG);
-    const query = `[out:json][timeout:60];(${selectorFor(q)});out geom;`;
+    const query = `[out:json][timeout:60];${statementsFor(q)}out geom;`;
     const ways = parse(await overpassFetch(deps, query)).map(roundWay);
     for (const t of chunk) {
       // Pad the tile so border-hugging ways land in both neighbours.
@@ -526,7 +578,7 @@ export async function getRailwaysNear(
     'waystile',
     'ways',
     (b) =>
-      `way["railway"~"^(rail|light_rail|subway|tram|narrow_gauge)$"](${b.south},${b.west},${b.north},${b.east});`,
+      `(way["railway"~"^(rail|light_rail|subway|tram|narrow_gauge)$"](${b.south},${b.west},${b.north},${b.east}););`,
     parseWays
   );
 }
@@ -546,8 +598,69 @@ export async function getWaterwaysNear(
     'watertile',
     'waterways',
     (b) =>
-      `way["waterway"~"^(river|canal|fairway)$"](${b.south},${b.west},${b.north},${b.east});` +
-      `way["route"="ferry"](${b.south},${b.west},${b.north},${b.east});`,
+      `(way["waterway"~"^(river|canal|fairway)$"](${b.south},${b.west},${b.north},${b.east});` +
+      `way["route"="ferry"](${b.south},${b.west},${b.north},${b.east}););`,
     parseWaterWays
+  );
+}
+
+/**
+ * Airport ground features (runways, taxiways, aprons, terminals, aerodrome
+ * outlines) around the given [lon, lat] points. Same tile cache mechanics as
+ * railways. Each point is probed with its four neighbours `reachM` away so a
+ * feature that close but across a tile border is still loaded.
+ */
+export async function getAerowaysNear(
+  deps: OverpassDeps,
+  points: Array<[number, number]>,
+  reachM: number
+): Promise<AerowayWay[]> {
+  const probe: Array<[number, number]> = [];
+  for (const [lon, lat] of points) {
+    const dLat = reachM / 111_320;
+    const dLon = dLat / Math.max(0.01, Math.cos((lat * Math.PI) / 180));
+    probe.push([lon, lat], [lon, lat + dLat], [lon, lat - dLat], [lon + dLon, lat], [lon - dLon, lat]);
+  }
+  return getWaysNearTiled(
+    deps,
+    probe,
+    'aerotile',
+    'aeroways',
+    (b) =>
+      `(way["aeroway"~"^(runway|taxiway|apron|terminal|aerodrome)$"](${b.south},${b.west},${b.north},${b.east}););`,
+    parseAeroways
+  );
+}
+
+/**
+ * Coastline ways near a polyline, plus the bridges and piers that carry dry
+ * ground out over the water. Same tile cache mechanics as railways (distinct
+ * key prefix). Used by the open-water boat classifier.
+ */
+export async function getShoreWaysNear(
+  deps: OverpassDeps,
+  coords: Array<[number, number]>
+): Promise<ShoreWay[]> {
+  return getWaysNearTiled(
+    deps,
+    coords,
+    'shoretile',
+    'shore',
+    (b) => {
+      // Bridges and piers are only fetched when the box holds a coastline, so
+      // an inland city tile costs one empty answer instead of every overpass
+      // in town. A plain count test: narrowing them to an `around` of the
+      // coastline ran the public server out of memory on a dense coastal
+      // city (Marseille, 2026-11-15).
+      const box = `(${b.south},${b.west},${b.north},${b.east})`;
+      return (
+        `way["natural"="coastline"]${box}->.c;` +
+        `if(c.count(ways)>0){(way["bridge"]["highway"]${box};` +
+        `way["bridge"]["railway"]${box};` +
+        `way["man_made"="pier"]${box};)->.x;}` +
+        `(.c;.x;);`
+      );
+    },
+    parseShoreWays
   );
 }

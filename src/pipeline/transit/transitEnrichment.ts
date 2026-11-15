@@ -22,12 +22,16 @@ import { RULES } from '../rules';
 import type { Mode } from '../../types';
 import {
   boatGuard,
+  classifyAirportHop,
   classifyBoat,
   classifyBusCorridor,
+  classifyOpenWater,
   classifySection,
   classifyTrainBySpeed,
+  longestHop,
   samplePathEvery,
   sharedEndpointBusRefs,
+  type TransitClassification,
 } from './classifySection';
 import {
   isMetroStation,
@@ -39,7 +43,9 @@ import {
 } from './subwayGaps';
 import {
   capCoordsToTileBudget,
+  getAerowaysNear,
   getRailwaysNear,
+  getShoreWaysNear,
   getStopsNear,
   getStopsNearMany,
   getWaterwaysNear,
@@ -83,6 +89,64 @@ function lastCoord(geojson: string): [number, number] | null {
   }
 }
 
+// Modes the local pipeline assigns from activity and speed alone — the ones
+// an online check may still overturn.
+const LOCAL_MODES: ReadonlySet<Mode> = new Set<Mode>(['car', 'bike', 'walk', 'run']);
+
+/**
+ * RULE_FLIGHT_AIRPORTS — a section built around one long fix-less hop between
+ * two airports is a flight. Local guards first (section length, a hop in the
+ * raw fixes, gate-to-gate edges); only a qualifying hop costs a lookup.
+ */
+async function classifyFlightHopOnline(
+  deps: OverpassDeps,
+  sec: Section
+): Promise<TransitClassification | null> {
+  const { minFlightDistanceM, maxTaxiMinutes } = RULES.FLIGHT.defaults;
+  if (sec.distanceM < minFlightDistanceM) return null;
+  const maxAccM = RULES.ACCURACY_FILTER.defaults.maxAccuracyM;
+  const fixes = (await getPointsInRange(deps.db, sec.startTimeMs, sec.endTimeMs)).filter(
+    (p) => p.accuracyMeters <= maxAccM
+  );
+  const hop = longestHop(fixes, minFlightDistanceM);
+  if (!hop) return null;
+  const maxTaxiMs = maxTaxiMinutes * 60_000;
+  if (
+    hop.from.timestampMs - sec.startTimeMs > maxTaxiMs ||
+    sec.endTimeMs - hop.to.timestampMs > maxTaxiMs
+  ) {
+    return null;
+  }
+  const from: [number, number] = [hop.from.longitude, hop.from.latitude];
+  const to: [number, number] = [hop.to.longitude, hop.to.latitude];
+  const aeroways = await getAerowaysNear(
+    deps,
+    [from, to],
+    RULES.FLIGHT_AIRPORTS.defaults.airportRadiusM
+  );
+  return classifyAirportHop(from, to, aeroways);
+}
+
+/**
+ * RULE_OPEN_WATER — a slow section whose stored trace lies mostly at sea is a
+ * boat. Probes the stored trace, not the raw fixes: on a boat the phone is
+ * often throttled to a handful of fixes, and the chords between them are the
+ * evidence.
+ */
+async function classifyOpenWaterOnline(
+  deps: OverpassDeps,
+  sec: Section
+): Promise<TransitClassification | null> {
+  if (!boatGuard(sec.distanceM, sec.durationS)) return null;
+  const coords = coordsOf(sec.geojson);
+  if (coords.length < 2) return null;
+  const probe = capCoordsToTileBudget(
+    samplePathEvery(coords, RULES.OPEN_WATER.defaults.probeEveryM),
+    RULES.RAIL_MAP_MATCH.defaults.maxProbeTiles
+  );
+  return classifyOpenWater(probe, await getShoreWaysNear(deps, probe));
+}
+
 /**
  * Network-touching classification of one still-`car` section: rail map-match,
  * endpoint stations, boat, then bus corridor. Returns null to leave it as
@@ -122,7 +186,9 @@ async function classifyCarSectionOnline(
     // before the bus corridor — cheaper (one tiled fetch vs per-400 m
     // stop probes) and a canal trace lined with quai-side bus stops must
     // not win as "bus".
-    cls = classifyBoat(probe, await getWaterwaysNear(deps, probe));
+    cls =
+      classifyBoat(probe, await getWaterwaysNear(deps, probe)) ??
+      (await classifyOpenWaterOnline(deps, sec));
   }
   if (!cls) {
     // Step 4 — bus. One unified path for both the door-to-door case
@@ -159,7 +225,7 @@ async function classifyCarSectionOnline(
 
 /**
  * Re-runnable, network-touching transit classification for one stored trip.
- * Walks the trip's `car` sections, reclassifies via Overpass, recomputes
+ * Walks the trip's locally-inferred sections, reclassifies via Overpass, recomputes
  * aggregates, and clears `draft`. On any Overpass failure it sets the matching
  * `draft`/`draftReason` and returns without mutating section modes. Operating on
  * the stored trip (not raw points) makes this safe to re-run — it IS the
@@ -182,14 +248,20 @@ export async function enrichTripTransit(
   const conversions = new Map<number, Section>();
 
   try {
-    // Pass 1: reclassify motorized (car) sections. RULE_TRAIN_SPEED first —
-    // local and free; only unresolved sections pay the Overpass path.
+    // Pass 1: reclassify locally-inferred sections. An airport-to-airport hop
+    // comes first, for any of them (RULE_FLIGHT_AIRPORTS). Motorized (car)
+    // sections then go through RULE_TRAIN_SPEED — local and free — and only
+    // the unresolved ones pay the full Overpass path; the others are only
+    // ever checked for open water (RULE_OPEN_WATER).
     for (const sec of trip.sections) {
-      if (sec.mode !== 'car' || sec.id == null) continue;
+      if (!LOCAL_MODES.has(sec.mode) || sec.id == null) continue;
       if (sec.userMode != null) continue; // user override wins
       const cls =
-        classifyTrainBySpeed(sec.distanceM, sec.durationS) ??
-        (await classifyCarSectionOnline(deps, sec, radius));
+        (await classifyFlightHopOnline(deps, sec)) ??
+        (sec.mode === 'car'
+          ? classifyTrainBySpeed(sec.distanceM, sec.durationS) ??
+            (await classifyCarSectionOnline(deps, sec, radius))
+          : await classifyOpenWaterOnline(deps, sec));
       if (cls) {
         const co2 = co2GramsForSection(cls.mode, sec.distanceM);
         await updateSectionClassification(db, sec.id, cls.mode, cls.modeSource, cls.modeConfidence, co2);
