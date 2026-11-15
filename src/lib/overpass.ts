@@ -161,7 +161,16 @@ async function overpassFetch(deps: OverpassDeps, query: string): Promise<any[]> 
     }
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const json = (await resp.json()) as { elements?: any[] };
+      const json = (await resp.json()) as { elements?: any[]; remark?: unknown };
+      // A query that died server-side (timeout, out of memory) comes back as
+      // HTTP 200 with a "runtime error" remark and whatever was gathered so
+      // far — usually nothing. Taken at face value that is an empty area,
+      // cached for CACHE_TTL_MS.
+      if (typeof json.remark === 'string' && json.remark.includes('runtime error')) {
+        sawServer = true;
+        lastStatus = resp.status;
+        continue;
+      }
       return json.elements ?? [];
     } catch {
       sawServer = true;

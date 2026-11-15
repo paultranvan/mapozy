@@ -111,6 +111,27 @@ describe('overpass — getStopsNear', () => {
     );
   });
 
+  it('does not take a server-side runtime error for an empty area', async () => {
+    // Overpass answers HTTP 200 with a remark when the query timed out or ran
+    // out of memory. Returning (and caching) its empty element list would
+    // read as "nothing here" for the whole cache TTL.
+    let calls = 0;
+    const deps = await mkDeps(async () => {
+      calls++;
+      return fakeResponse({
+        elements: [],
+        remark: 'runtime error: Query run out of memory using about 2048 MB of RAM.',
+      });
+    });
+    await expect(getStopsNear(deps, 45.0, 5.0, 500)).rejects.toBeInstanceOf(
+      OverpassUnavailableError
+    );
+    expect(calls).toBe(3); // every mirror was tried
+    // Nothing was cached: a healthy answer is fetched and used next time.
+    deps.fetchFn = async () => fakeResponse(stopsBody);
+    expect(await getStopsNear(deps, 45.0, 5.0, 500)).toHaveLength(1);
+  });
+
   it('throws OverpassUnavailableError when the body is not valid JSON', async () => {
     const badResp = {
       status: 200,
