@@ -171,3 +171,50 @@ describe('RULE_WALK_SPEED_SANITY', () => {
     expect(modeForSection(mkSection('walking', pts))).toBe('walk');
   });
 });
+
+describe('RULE_GROUND_PACE_FLOOR', () => {
+  beforeEach(() => resetIds());
+
+  // What resample() produces across a GPS hole: samples every 10 s along the
+  // straight line between two fixes, each carrying the Doppler reading of the
+  // fix before the hole. Here that reading is 0 m/s (taken at rest, at the
+  // gate) while the ground covered is 30 m/s for an hour.
+  function bridgedHole() {
+    const step = (30 * 10) / 111_320;
+    return Array.from({ length: 361 }, (_, i) => mkPoint(i * 10_000, 0, i * step, 5, 0));
+  }
+
+  it('a "still" section bridging a hole at vehicle pace is not a walk', () => {
+    // Tester export 2026-11-13: an airplane-mode flight, 346 km at 103 km/h,
+    // came out as a walk.
+    expect(modeForSection(mkSection('still', bridgedHole()))).toBe('car');
+  });
+
+  it('an in_vehicle section bridging a hole keeps its label', () => {
+    // The stale 0 m/s reading must not trip RULE_VEHICLE_SPEED_SANITY.
+    expect(modeForSection(mkSection('in_vehicle', bridgedHole()))).toBe('car');
+  });
+
+  it('an unlabelled section bridging a hole is classified by the ground it covered', () => {
+    expect(modeForSection(mkSection('unknown', bridgedHole()))).toBe('car');
+  });
+
+  it('a few slow reported fixes among unreported ones do not outvote the ground pace', () => {
+    // Two fixes reported a speed, at the slow end of a ride whose other fixes
+    // reported none: the p75 is taken over those two alone.
+    const step = (17 * 10) / 111_320;
+    const pts = Array.from({ length: 40 }, (_, i) =>
+      mkPoint(i * 10_000, 0, i * step, 5, i >= 38 ? 0.5 : null)
+    );
+    expect(modeForSection(mkSection('in_vehicle', pts))).toBe('car');
+  });
+
+  it('GPS jitter around a parked car does not lift a spurious in_vehicle', () => {
+    // 11 m back and forth every 30 s is 0.37 m/s of ground pace — still far
+    // under vehicle pace, so RULE_VEHICLE_SPEED_SANITY keeps demoting it.
+    const pts = Array.from({ length: 20 }, (_, i) =>
+      mkPoint(i * 30_000, 0, i % 2 === 0 ? 0 : 0.0001, 5, 0)
+    );
+    expect(modeForSection(mkSection('in_vehicle', pts))).toBe('walk');
+  });
+});

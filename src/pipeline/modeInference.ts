@@ -2,6 +2,7 @@
 //   RULE_MODE_SPEED_FALLBACK   — classify by speed when activity is `unknown`
 //   RULE_VEHICLE_SPEED_SANITY  — distrust an in_vehicle label on a stationary section
 //   RULE_WALK_SPEED_SANITY     — distrust a walking/still label on a section at vehicle pace
+//   RULE_GROUND_PACE_FLOOR     — never classify a section slower than its own ground pace
 import type { Mode } from '../types';
 import type { RawSection } from './sectionSegmentation';
 import { haversineMeters } from '../lib/distance';
@@ -77,9 +78,13 @@ export function modeForSection(s: RawSection): Mode {
  * range even when the trip is unambiguously a car. p75 reflects how fast
  * the user moves *when actually moving*, which is what mode classification
  * needs.
+ *
+ * RULE_GROUND_PACE_FLOOR: never below the section's ground pace. Stops only
+ * pull the average under the moving speed, so a p75 below it means the Doppler
+ * sample doesn't represent the section — see the rule description.
  */
 export function classifyingSpeedMps(s: RawSection): number {
-  return percentileSpeedMps(s, 0.75);
+  return Math.max(percentileSpeedMps(s, 0.75), avgSpeedMps(s));
 }
 
 /**

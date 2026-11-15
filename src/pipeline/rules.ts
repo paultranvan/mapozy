@@ -177,6 +177,22 @@ export const RULES = {
     { maxWalkP75Mps: 6.94 }
   ),
 
+  GROUND_PACE_FLOOR: rule(
+    'RULE_GROUND_PACE_FLOOR',
+    'The speed a section is classified by is never below its ground pace ' +
+      '(path length / duration). The p75 of device-reported speed is computed ' +
+      'on resampled points, each carrying the Doppler reading of the fix ' +
+      'before it — so one reading held across a GPS hole, or the two or three ' +
+      'fixes that reported a speed among many that did not, can stand for the ' +
+      'whole section. Tester export 2026-11-13: an airplane-mode flight ' +
+      'bridged by a 3 h hole (346 km, 103 km/h) and a 13 km ride at 30 km/h ' +
+      'both came out as walks, their p75 pinned near zero by a single 0 m/s ' +
+      'reading. Ground pace cannot be faked that way, and stops only ever ' +
+      'pull it under the moving speed, so it is a safe lower bound: it lifts ' +
+      'an unrepresentative p75 and leaves a representative one untouched.',
+    {}
+  ),
+
   WALK_SPEED_BOUNDARY: rule(
     'RULE_WALK_SPEED_BOUNDARY',
     'The activity recogniser flags in_vehicle a beat after a drive actually ' +
